@@ -40,7 +40,7 @@ resource_configs = [p.stem for p in _yaml_files_in(CONFIG_DIR / "resources")]
     "command_line_args",
     [
         pytest.param(
-            f"algorithm=image_classifier datamodule=cifar10 trainer.fast_dev_run=True cluster={cluster} resources={resources}",
+            f"algorithm=finetune_with_strategy trainer.fast_dev_run=True cluster={cluster} resources={resources}",
             marks=[
                 pytest.mark.skipif(
                     SLURM_JOB_ID is None and cluster == "current",
@@ -109,8 +109,7 @@ in_github_CI = os.environ.get("GITHUB_ACTIONS") == "true"
     "argv",
     [
         [
-            "algorithm=image_classifier",
-            "datamodule=cifar10",
+            "algorithm=finetune_with_strategy",
             # TODO: The ordering is important here, we can't use `cluster` before `resources`,
             # otherwise it will use the local launcher!
             "resources=gpu",

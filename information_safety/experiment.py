@@ -176,7 +176,11 @@ def evaluate_lightning(
     for key, value in metrics.items():
         rich.print(f"{results_type} {key}: ", value)
 
-    if (accuracy := metrics.get(f"{results_type}/accuracy")) is not None:
+    if (performance := metrics.get(f"{results_type}/performance")) is not None:
+        metric_name = "1-performance"
+        error = 1 - performance
+
+    elif (accuracy := metrics.get(f"{results_type}/accuracy")) is not None:
         # NOTE: This is the value that is used for HParam sweeps.
         metric_name = "1-accuracy"
         error = 1 - accuracy

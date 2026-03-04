@@ -11,7 +11,6 @@ from logging import getLogger
 from pathlib import Path
 from unittest.mock import Mock
 
-import omegaconf.errors
 import pytest
 import torch
 from _pytest.mark.structures import ParameterSet
@@ -22,10 +21,8 @@ from pytest_regressions.file_regression import FileRegressionFixture
 import information_safety.configs
 import information_safety.experiment
 import information_safety.main
-from information_safety.algorithms.no_op import NoOp
-from information_safety.conftest import setup_with_overrides, skip_on_macOS_in_CI
+from information_safety.conftest import setup_with_overrides
 from information_safety.utils.env_vars import REPO_ROOTDIR
-from information_safety.utils.hydra_utils import resolve_dictconfig
 
 logger = getLogger(__name__)
 
@@ -38,7 +35,9 @@ experiment_configs = [p.stem for p in (CONFIG_DIR / "experiment").glob("*.yaml")
 This is used to check that all the experiment configs are covered by tests.
 """
 
-experiment_commands_to_test: list[str | ParameterSet] = []
+experiment_commands_to_test: list[str | ParameterSet] = [
+    "experiment=finetune-with-strategy trainer.max_epochs=1",
+]
 """List of experiment commands to run for testing.
 
 Consider adding a command that runs simple sanity check for your algorithm, something like one step
@@ -81,20 +80,6 @@ def test_experiment_config_is_tested(experiment_config: str, pytestconfig: pytes
         + " list.\n"
         f"For example: 'experiment={experiment_config} trainer.max_epochs=1'."
     )
-
-
-def test_jax_can_use_the_GPU():
-    """Test that Jax can use the GPU if it we have one."""
-    # NOTE: Super interesting: Seems like running just an
-    # `import jax.numpy; print(jax.numpy.zeros(1).devices())` in a new terminal FAILS, but if you
-    # do `import torch` before that, then it works!
-    import jax.numpy
-
-    device = jax.numpy.zeros(1).devices().pop()
-    if shutil.which("nvidia-smi"):
-        assert str(device) == "cuda:0"
-    else:
-        assert "cpu" in str(device).lower()
 
 
 def test_torch_can_use_the_GPU():
@@ -150,17 +135,6 @@ def test_can_run_experiment(
     information_safety.main.main()
 
 
-@skip_on_macOS_in_CI
-@setup_with_overrides("algorithm=image_classifier")
-def test_setting_just_algorithm_isnt_enough(dict_config: DictConfig) -> None:
-    """Check that the datamodule is required on the command-line if the algorithm needs one."""
-    with pytest.raises(
-        omegaconf.errors.InterpolationResolutionError,
-        match="Did you forget to set a value for the 'datamodule' config?",
-    ):
-        _ = resolve_dictconfig(dict_config)
-
-
 @pytest.mark.xfail(strict=False, reason="Regression files aren't necessarily present.")
 def test_help_string(file_regression: FileRegressionFixture) -> None:
     help_string = subprocess.run(
@@ -191,12 +165,6 @@ def test_run_auto_schema_via_cli_without_errors():
         ]
     )
 
-
-@setup_with_overrides("algorithm=no_op trainer.max_epochs=1")
-def test_setup_with_overrides_works(dict_config: omegaconf.DictConfig):
-    """This test receives the `dict_config` loaded from Hydra with the given overrides."""
-    assert dict_config["algorithm"]["_target_"] == NoOp.__module__ + "." + NoOp.__name__
-    assert dict_config["trainer"]["max_epochs"] == 1
 
 
 # TODO: Add some more integration tests:

@@ -1,0 +1,10 @@
+# @package _global_
+
+defaults:
+  - override /algorithm: finetune_with_strategy
+  - override /trainer: default
+
+trainer:
+  max_epochs: 1
+  accelerator: auto
+  devices: auto

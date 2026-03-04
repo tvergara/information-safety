@@ -1,0 +1,17 @@
+defaults:
+  - strategy: lora
+  - dataset_handler: metamath
+  - model: smollm3
+
+_target_: information_safety.algorithms.finetune_with_strategy.FinetuneWithStrategy
+_recursive_: true
+
+network_config:
+  _target_: information_safety.algorithms.utils.data_classes.NetworkConfig
+  pretrained_model_name_or_path: ${..model.pretrained_model_name_or_path}
+  trust_remote_code: ${..model.trust_remote_code}
+  from_config: ${..model.from_config}
+
+tokenizer_config:
+  pretrained_model_name_or_path: ${..model.pretrained_model_name_or_path}
+  trust_remote_code: ${..model.trust_remote_code}

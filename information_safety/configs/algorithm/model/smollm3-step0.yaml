@@ -1,0 +1,4 @@
+_target_: information_safety.algorithms.utils.data_classes.NetworkConfig
+pretrained_model_name_or_path: HuggingFaceTB/SmolLM3-3B
+trust_remote_code: false
+from_config: true
