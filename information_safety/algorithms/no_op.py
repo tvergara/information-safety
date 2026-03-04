@@ -4,7 +4,9 @@ import lightning
 import torch
 from lightning import Callback, LightningModule
 
-from information_safety.algorithms.callbacks.samples_per_second import MeasureSamplesPerSecondCallback
+from information_safety.algorithms.callbacks.samples_per_second import (
+    MeasureSamplesPerSecondCallback,
+)
 
 
 class NoOp(LightningModule):

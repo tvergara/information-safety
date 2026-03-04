@@ -14,8 +14,12 @@ from torch.nn import functional as F
 from torch.optim.optimizer import Optimizer
 from torch_jax_interop import WrappedJaxFunction, torch_to_jax
 
-from information_safety.algorithms.callbacks.classification_metrics import ClassificationMetricsCallback
-from information_safety.algorithms.callbacks.samples_per_second import MeasureSamplesPerSecondCallback
+from information_safety.algorithms.callbacks.classification_metrics import (
+    ClassificationMetricsCallback,
+)
+from information_safety.algorithms.callbacks.samples_per_second import (
+    MeasureSamplesPerSecondCallback,
+)
 from information_safety.datamodules.image_classification.image_classification import (
     ImageClassificationDataModule,
 )

@@ -36,7 +36,12 @@ from rejax.networks import DiscretePolicy, GaussianPolicy, VNetwork
 from typing_extensions import TypeVar
 from xtils.jitpp import Static, jit
 
-from information_safety.trainers.jax_trainer import JaxCallback, JaxModule, JaxTrainer, get_error_from_metrics
+from information_safety.trainers.jax_trainer import (
+    JaxCallback,
+    JaxModule,
+    JaxTrainer,
+    get_error_from_metrics,
+)
 
 logger = get_logger(__name__)
 

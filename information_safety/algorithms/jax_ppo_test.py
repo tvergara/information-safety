@@ -28,7 +28,9 @@ from tensor_regression import TensorRegressionFixture
 from torch.utils.data import DataLoader
 from typing_extensions import override
 
-from information_safety.algorithms.callbacks.samples_per_second import MeasureSamplesPerSecondCallback
+from information_safety.algorithms.callbacks.samples_per_second import (
+    MeasureSamplesPerSecondCallback,
+)
 from information_safety.main_test import experiment_commands_to_test
 from information_safety.trainers.jax_trainer import JaxTrainer, hparams_to_dict
 from information_safety.utils.testutils import IN_GITHUB_CI
