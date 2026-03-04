@@ -1,0 +1,5 @@
+defaults:
+  - vision
+  - _self_
+_target_: information_safety.datamodules.image_classification.imagenet.ImageNetDataModule
+# todo: add good configuration options here.
