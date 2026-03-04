@@ -1,0 +1,17 @@
+# Changes here will be overwritten by Copier
+_commit: v0.0.4
+_src_path: gh:mila-iqia/ResearchTemplate
+examples_to_include:
+- image_classifier
+- jax_image_classifier
+- jax_ppo
+- llm_finetuning
+- text_classifier
+github_user: tomasvergara
+module_name: information_safety
+project_description: Information Safety
+project_name: information-safety
+python_version: '3.10'
+user_email: tomas.vergarabrowne@mila.quebec
+user_name: Tomás Vergara Browne
+recorded_setup: true
