@@ -1,5 +1,5 @@
 import time
-from typing import Any, Generic, Literal
+from typing import Any, Generic, Literal, override
 
 import lightning
 import optree
@@ -8,7 +8,7 @@ from lightning import LightningModule, Trainer
 from lightning.pytorch.utilities.types import STEP_OUTPUT
 from torch import Tensor
 from torch.optim.optimizer import Optimizer
-from typing_extensions import TypeVar, override
+from typing_extensions import TypeVar
 
 from information_safety.utils.typing_utils import NestedMapping, is_sequence_of
 
