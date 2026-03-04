@@ -59,6 +59,7 @@ class FinetuneWithStrategy(LightningModule):
         self._tokenizer = AutoTokenizer.from_pretrained(
             self.tokenizer_config.pretrained_model_name_or_path,
             trust_remote_code=self.tokenizer_config.trust_remote_code,
+            padding_side="left",
         )
 
         if self.tokenizer.pad_token is None:
