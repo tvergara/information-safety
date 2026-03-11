@@ -37,6 +37,12 @@ class BaseDatasetHandler(ABC):
     ) -> tuple[int, int]:
         """Validate a batch and return (num_correct, num_total)."""
 
+    def save_completions(self, eval_run_id: str) -> None:
+        """Save accumulated completions to disk.
+
+        No-op by default.
+        """
+
 
 class GenerationValDataset(Dataset):
     """A validation dataset that stores prompts and expected answers for generation."""

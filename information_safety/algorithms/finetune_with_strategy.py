@@ -92,18 +92,22 @@ class FinetuneWithStrategy(LightningModule):
     def on_validation_epoch_end(self) -> None:
         if self._val_total > 0:
             performance = self._val_correct / self._val_total
-            self.log("val/performance", performance, prog_bar=True, sync_dist=True)
+        else:
+            performance = 0.0
 
-            bits = self.strategy.compute_bits(self.model)
-            self._val_results.append({
-                "epoch": self.current_epoch,
-                "performance": performance,
-                "bits": bits,
-                "correct": self._val_correct,
-                "total": self._val_total,
-            })
+        self.log("val/performance", performance, prog_bar=True, sync_dist=True)
 
-            self.strategy.on_validation_epoch_end(self, self._val_results[-1:])
+        bits = self.strategy.compute_bits(self.model)
+        self._val_results.append({
+            "epoch": self.current_epoch,
+            "performance": performance,
+            "bits": bits,
+            "correct": self._val_correct,
+            "total": self._val_total,
+        })
+
+        self.strategy.on_validation_epoch_end(self, self._val_results[-1:])
+        self.dataset_handler.save_completions(f"epoch-{self.current_epoch}")
 
         self._val_correct = 0
         self._val_total = 0
