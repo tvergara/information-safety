@@ -61,6 +61,39 @@ class DataCollatorForAnswerOnlyLM:
         }
 
 
+@dataclass
+class DataCollatorForGeneration:
+    """Collator that left-pads input_ids/attention_mask and preserves string labels."""
+
+    tokenizer: PreTrainedTokenizerBase
+
+    def __call__(self, features: list[dict]) -> dict[str, torch.Tensor | list[str]]:
+        input_ids = [torch.tensor(f["input_ids"]) for f in features]
+        attention_mask = [torch.tensor(f["attention_mask"]) for f in features]
+        labels = [f["labels"] for f in features]
+
+        max_len = max(ids.size(0) for ids in input_ids)
+        pad_id: int = self.tokenizer.pad_token_id  # type: ignore[assignment]
+
+        padded_input_ids = []
+        padded_attention_mask = []
+
+        for ids, mask in zip(input_ids, attention_mask):
+            pad_len = max_len - ids.size(0)
+            padded_input_ids.append(
+                torch.cat([torch.full((pad_len,), pad_id, dtype=ids.dtype), ids])
+            )
+            padded_attention_mask.append(
+                torch.cat([torch.zeros(pad_len, dtype=mask.dtype), mask])
+            )
+
+        return {
+            "input_ids": torch.stack(padded_input_ids),
+            "attention_mask": torch.stack(padded_attention_mask),
+            "labels": labels,
+        }
+
+
 def _find_subsequence(sequence: list[int], subsequence: list[int]) -> int:
     """Find the start index of a subsequence in a sequence.
 

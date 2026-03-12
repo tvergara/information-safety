@@ -13,7 +13,10 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import PreTrainedTokenizerBase
 
 from information_safety.algorithms.dataset_handlers.base import BaseDatasetHandler
-from information_safety.algorithms.utils.data_collator import DataCollatorForAnswerOnlyLM
+from information_safety.algorithms.utils.data_collator import (
+    DataCollatorForAnswerOnlyLM,
+    DataCollatorForGeneration,
+)
 
 logger = getLogger(__name__)
 
@@ -102,9 +105,9 @@ class BaseStrategy(ABC):
         batch_size: int,
         num_workers: int = 0,
     ) -> DataLoader:
-        """Create validation dataloader."""
+        """Create validation dataloader with left-padding for generation."""
         assert self.val_dataset is not None
-        collator = DataCollatorForAnswerOnlyLM(tokenizer=tokenizer)
+        collator = DataCollatorForGeneration(tokenizer=tokenizer)
         return DataLoader(
             self.val_dataset,
             batch_size=batch_size,
