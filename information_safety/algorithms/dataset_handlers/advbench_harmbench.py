@@ -35,6 +35,20 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
     generations_dir: str = ""
     _completions: list[dict[str, str]] = field(default_factory=list, repr=False)
 
+    def get_answer_start_token(self, tokenizer: PreTrainedTokenizerBase) -> str:
+        """Detect the assistant turn marker from the tokenizer's chat template."""
+        sentinel = "SENTINEL_ANSWER_START"
+        text: str = tokenizer.apply_chat_template(  # type: ignore[assignment]
+            [{"role": "user", "content": "Q"}, {"role": "assistant", "content": sentinel}],
+            tokenize=False,
+        )
+        idx = text.index(sentinel)
+        prefix = text[:idx]
+        for line in reversed(prefix.split("\n")):
+            if line.strip():
+                return line
+        raise ValueError(f"Could not detect assistant marker from chat template: {text!r}")
+
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Any:
         """Load and tokenize AdvBench training data using the model's chat template."""
         raw = datasets.load_dataset("walledai/AdvBench", split="train")

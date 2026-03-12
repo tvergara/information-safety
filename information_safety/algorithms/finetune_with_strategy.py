@@ -119,6 +119,7 @@ class FinetuneWithStrategy(LightningModule):
         return self.strategy.train_dataloader(
             self.tokenizer,
             batch_size=self.dataset_handler.batch_size,
+            answer_start_token=self.dataset_handler.get_answer_start_token(self.tokenizer),
         )
 
     def val_dataloader(self):

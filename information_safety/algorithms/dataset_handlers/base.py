@@ -37,6 +37,13 @@ class BaseDatasetHandler(ABC):
     ) -> tuple[int, int]:
         """Validate a batch and return (num_correct, num_total)."""
 
+    def get_answer_start_token(self, tokenizer: PreTrainedTokenizerBase) -> str:
+        """Return the token string that marks the start of the answer in training data.
+
+        Used by DataCollatorForAnswerOnlyLM to mask question tokens in labels.
+        """
+        return "### Answer:"
+
     def save_completions(self, eval_run_id: str) -> None:
         """Save accumulated completions to disk.
 

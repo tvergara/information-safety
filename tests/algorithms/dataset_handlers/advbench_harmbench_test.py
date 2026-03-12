@@ -197,6 +197,38 @@ class TestValidateBatch:
         assert handler._completions[0]["response"] == "Sure, here is how to..."
 
 
+class TestGetAnswerStartToken:
+    def test_detects_assistant_marker_from_chat_template(self) -> None:
+        tokenizer = MagicMock()
+        template_output = (
+            "<|im_start|>system\nYou are helpful.<|im_end|>\n"
+            "<|im_start|>user\nQ<|im_end|>\n"
+            "<|im_start|>assistant\nSENTINEL_ANSWER_START<|im_end|>"
+        )
+        tokenizer.apply_chat_template = MagicMock(return_value=template_output)
+
+        handler = AdvBenchHarmBenchHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens"
+        )
+        token = handler.get_answer_start_token(tokenizer)
+        assert token == "<|im_start|>assistant"
+
+    def test_detects_llama_style_marker(self) -> None:
+        tokenizer = MagicMock()
+        template_output = (
+            "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n"
+            "Q<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+            "SENTINEL_ANSWER_START<|eot_id|>"
+        )
+        tokenizer.apply_chat_template = MagicMock(return_value=template_output)
+
+        handler = AdvBenchHarmBenchHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens"
+        )
+        token = handler.get_answer_start_token(tokenizer)
+        assert "assistant" in token
+
+
 class TestSaveCompletions:
     def test_writes_jsonl_files(self, tmp_path: Path) -> None:
         handler = AdvBenchHarmBenchHandler(

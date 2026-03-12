@@ -87,10 +87,13 @@ class BaseStrategy(ABC):
         tokenizer: PreTrainedTokenizerBase,
         batch_size: int,
         num_workers: int = 0,
+        answer_start_token: str = "### Answer:",
     ) -> DataLoader:
         """Create training dataloader."""
         assert self.train_dataset is not None
-        collator = DataCollatorForAnswerOnlyLM(tokenizer=tokenizer)
+        collator = DataCollatorForAnswerOnlyLM(
+            tokenizer=tokenizer, answer_start_token=answer_start_token,
+        )
         return DataLoader(
             self.train_dataset,
             batch_size=batch_size,
