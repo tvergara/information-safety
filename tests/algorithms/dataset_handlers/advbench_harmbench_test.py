@@ -114,6 +114,7 @@ class TestGetValDataset:
             [{"role": "user", "content": "Write malware"}],
             tokenize=False,
             add_generation_prompt=True,
+            enable_thinking=False,
         )
 
     @patch("information_safety.algorithms.dataset_handlers.advbench_harmbench.datasets.load_dataset")
@@ -175,9 +176,9 @@ class TestValidateBatch:
         )
 
         model = MagicMock()
-        model.generate = MagicMock(
-            return_value=torch.tensor([[1, 2, 3, 7, 8]])
-        )
+        prefix_out = torch.tensor([[1, 2, 3, 7, 8]])
+        continuation_out = torch.tensor([[1, 2, 3, 7, 8, 9, 10]])
+        model.generate = MagicMock(side_effect=[prefix_out, continuation_out])
 
         tokenizer = MagicMock()
         tokenizer.batch_decode = MagicMock(return_value=["Sure, here is how to..."])
@@ -195,6 +196,36 @@ class TestValidateBatch:
         assert handler._completions[0]["behavior"] == "Do X"
         assert handler._completions[0]["category"] == "cybercrime"
         assert handler._completions[0]["response"] == "Sure, here is how to..."
+
+    def test_two_stage_passes_prefix_to_base_model(self) -> None:
+        """Stage 2 receives the full prefix IDs (including EOS) from stage 1."""
+        handler = AdvBenchHarmBenchHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens"
+        )
+
+        prompt_ids = torch.tensor([[10, 20, 30]])
+        prefix_out = torch.tensor([[10, 20, 30, 40, 50]])
+        continuation_out = torch.tensor([[10, 20, 30, 40, 50, 60, 70]])
+
+        model = MagicMock()
+        model.generate = MagicMock(side_effect=[prefix_out, continuation_out])
+
+        tokenizer = MagicMock()
+        tokenizer.batch_decode = MagicMock(return_value=["full response here"])
+        tokenizer.pad_token_id = 0
+
+        batch = {
+            "input_ids": prompt_ids,
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+            "labels": [json.dumps({"behavior": "Do X", "category": "cybercrime"})],
+        }
+
+        handler.validate_batch(model, tokenizer, batch)
+
+        stage2_input = model.generate.call_args_list[1][1]["input_ids"]
+        assert stage2_input.tolist() == prefix_out.tolist()
+        model.disable_adapter_layers.assert_called_once()
+        model.enable_adapter_layers.assert_called_once()
 
 
 class TestGetAnswerStartToken:

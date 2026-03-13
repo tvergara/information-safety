@@ -1,5 +1,17 @@
 # CLAUDE.md
 
+## CRITICAL: Never Inspect Data
+
+**NEVER read, print, display, or inspect the contents of any data files (datasets, CSVs, JSONs, prompts, completions, etc.) in this project.** This is a safety research project that involves finetuning models on adversarial/unsafe data. Inspecting this data will trigger content policy violations and kill the session.
+
+- **Do NOT** `cat`, `head`, `tail`, `Read`, or otherwise view data files
+- **Do NOT** print dataset samples in tests — assert on structure/shape/length, not content
+- **Do NOT** log or display prompt/completion text during training or evaluation
+- **Do** trust that the data pipeline works based on metadata (lengths, counts, column names, dtypes)
+- **Do** use opaque fixtures in tests (mock data loaders, assert shapes not values)
+
+If you need to debug a data issue, inspect **metadata only** (number of rows, column names, dtypes, sequence lengths) — never the actual text content.
+
 ## CRITICAL: Test-Driven Development
 
 **ALWAYS write tests BEFORE implementing any new feature or algorithm. DO NOT ASK — JUST DO IT.**

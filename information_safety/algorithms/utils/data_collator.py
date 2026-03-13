@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from logging import getLogger
 
 import torch
 from transformers import PreTrainedTokenizerBase
+
+logger = getLogger(__name__)
 
 
 @dataclass
@@ -49,6 +52,15 @@ class DataCollatorForAnswerOnlyLM:
             if answer_start >= 0:
                 answer_offset = answer_start + len(answer_token_ids)
                 masked_labels[answer_offset:] = lab[answer_offset:]
+                # Mask the final token (EOS) so the model learns the answer content
+                # but not to terminate — allows longer generation at inference.
+                masked_labels[ids.size(0) - 1] = -100
+            else:
+                logger.warning(
+                    "Answer marker not found in sequence of length %d. "
+                    "All labels masked — this sample contributes zero loss.",
+                    ids.size(0),
+                )
 
             padded_labels.append(
                 torch.cat([masked_labels, torch.full((pad_len,), -100, dtype=lab.dtype)])

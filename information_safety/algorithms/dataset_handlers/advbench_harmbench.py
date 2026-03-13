@@ -86,6 +86,7 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
                 [{"role": "user", "content": behavior}],
                 tokenize=False,
                 add_generation_prompt=True,
+                enable_thinking=False,
             )
             encoded = dict(tokenizer(
                 prompt_text,
@@ -104,20 +105,32 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
         tokenizer: PreTrainedTokenizerBase,
         batch: dict,
     ) -> tuple[int, int]:
-        """Generate completions and accumulate them for deferred scoring."""
+        """Two-stage generation: finetuned model generates prefix, base model continues."""
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         metadata_strs: list[str] = batch["labels"]
 
         with torch.no_grad():
-            generated_ids = model.generate(
+            prefix_ids = model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                max_new_tokens=256,
+                max_new_tokens=64,
                 pad_token_id=tokenizer.pad_token_id,
             )
 
-        generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+            prefix_mask = (prefix_ids != tokenizer.pad_token_id).long()
+
+            model.disable_adapter_layers()
+            generated_ids = model.generate(
+                input_ids=prefix_ids,
+                attention_mask=prefix_mask,
+                max_new_tokens=256,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+            model.enable_adapter_layers()
+
+        new_token_ids = generated_ids[:, input_ids.shape[1]:]
+        generated_texts = tokenizer.batch_decode(new_token_ids, skip_special_tokens=True)
 
         for gen_text, meta_str in zip(generated_texts, metadata_strs):
             meta = json.loads(meta_str)
