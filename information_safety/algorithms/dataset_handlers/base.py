@@ -19,6 +19,8 @@ class BaseDatasetHandler(ABC):
     """
 
     batch_size: int
+    dataset_name: str
+    max_examples: int | None
 
     @abstractmethod
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Dataset:

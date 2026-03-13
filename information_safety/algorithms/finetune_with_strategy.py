@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import dataclasses
+import json
+import uuid
 from logging import getLogger
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -15,6 +19,18 @@ from information_safety.algorithms.utils.data_classes import NetworkConfig, load
 
 logger = getLogger(__name__)
 
+STRATEGY_HPARAMS_EXCLUDE = frozenset({"train_dataset", "val_dataset"})
+
+
+def _extract_strategy_hparams(strategy: BaseStrategy) -> dict[str, Any]:
+    """Extract JSON-serializable hyperparameters from a strategy dataclass."""
+    raw = dataclasses.asdict(strategy)  # type: ignore[arg-type]
+    return {
+        k: v
+        for k, v in raw.items()
+        if not k.startswith("_") and k not in STRATEGY_HPARAMS_EXCLUDE
+    }
+
 
 class FinetuneWithStrategy(LightningModule):
     """LightningModule that delegates training logic to a strategy + dataset handler."""
@@ -25,6 +41,8 @@ class FinetuneWithStrategy(LightningModule):
         tokenizer_config: Any,
         strategy: BaseStrategy,
         dataset_handler: BaseDatasetHandler,
+        result_file: str = "",
+        seed: int = 0,
         **_kwargs: Any,
     ) -> None:
         super().__init__()
@@ -32,6 +50,8 @@ class FinetuneWithStrategy(LightningModule):
         self.tokenizer_config = tokenizer_config
         self.strategy = strategy
         self.dataset_handler = dataset_handler
+        self.result_file = result_file
+        self.seed = seed
 
         self.model: Any = None
         self._tokenizer: PreTrainedTokenizerBase | None = None
@@ -107,10 +127,43 @@ class FinetuneWithStrategy(LightningModule):
         })
 
         self.strategy.on_validation_epoch_end(self, self._val_results[-1:])
-        self.dataset_handler.save_completions(f"epoch-{self.current_epoch}")
+
+        eval_run_id = str(uuid.uuid4())
+        self.dataset_handler.save_completions(eval_run_id)
+
+        if self.result_file:
+            self._write_result_row(eval_run_id, bits)
 
         self._val_correct = 0
         self._val_total = 0
+
+    def _write_result_row(self, eval_run_id: str, bits: int) -> None:
+        """Append a JSONL result row to the centralized results file."""
+        experiment_id = None
+        if self.trainer.logger is not None:
+            experiment_id = self.trainer.logger.experiment.id  # type: ignore[union-attr]
+
+        strategy_hparams = _extract_strategy_hparams(self.strategy)
+
+        result_row = {
+            "experiment_name": type(self.strategy).__name__,
+            "experiment_id": experiment_id,
+            "eval_run_id": eval_run_id,
+            "model_name": self.network_config.pretrained_model_name_or_path,
+            "dataset_name": self.dataset_handler.dataset_name,
+            "max_examples": self.dataset_handler.max_examples,
+            "performance": None,
+            "asr": None,
+            "bits": bits,
+            "seed": self.seed,
+            "epoch": self.current_epoch,
+            "strategy_hparams": strategy_hparams,
+        }
+
+        result_path = Path(self.result_file)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(result_path, "a") as f:
+            f.write(json.dumps(result_row) + "\n")
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         return self.strategy.configure_optimizers(self.model)

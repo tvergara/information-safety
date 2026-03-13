@@ -44,6 +44,8 @@ class MetaMathHandler(BaseDatasetHandler):
 
     max_length: int = 500
     batch_size: int = 8
+    dataset_name: str = ""
+    max_examples: int | None = None
 
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Any:
         """Load and tokenize MetaMathQA training data."""

@@ -33,6 +33,8 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
     max_length: int = 500
     batch_size: int = 8
     generations_dir: str = ""
+    dataset_name: str = ""
+    max_examples: int | None = None
     _completions: list[dict[str, str]] = field(default_factory=list, repr=False)
 
     def get_answer_start_token(self, tokenizer: PreTrainedTokenizerBase) -> str:
@@ -52,6 +54,9 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Any:
         """Load and tokenize AdvBench training data using the model's chat template."""
         raw = datasets.load_dataset("walledai/AdvBench", split="train")
+
+        if self.max_examples is not None:
+            raw = raw.select(range(self.max_examples))  # type: ignore[union-attr]
 
         def tokenize_fn(example: dict[str, str]) -> Any:
             text: str = tokenizer.apply_chat_template(  # type: ignore[assignment]

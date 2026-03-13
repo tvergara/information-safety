@@ -1,3 +1,4 @@
 _target_: information_safety.algorithms.dataset_handlers.metamath.MetaMathHandler
 max_length: 500
 batch_size: 8
+dataset_name: metamath

@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizerBase
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
+)
 
 logger = getLogger(__name__)
 
@@ -176,16 +181,100 @@ def evaluate(generations_dir: str) -> dict[str, Any]:
     return results
 
 
+def evaluate_results_file(
+    results_file: str,
+    generations_base: str = "/network/scratch/b/brownet/information-safety/generations",
+) -> None:
+    """Find unevaluated runs in a results JSONL and backfill ASR scores."""
+    results_path = Path(results_file)
+    generations_dir = Path(generations_base)
+
+    with open(results_path) as f:
+        rows = [json.loads(line) for line in f]
+
+    unevaluated = [
+        (i, row) for i, row in enumerate(rows) if row.get("asr") is None
+    ]
+
+    if not unevaluated:
+        print("No unevaluated runs found.")
+        return
+
+    print(f"Found {len(unevaluated)} unevaluated runs.")
+
+    model: PreTrainedModel | None = None
+    tokenizer: PreTrainedTokenizerBase | None = None
+
+    updates: dict[str, float] = {}
+
+    for idx, row in unevaluated:
+        eval_run_id = row["eval_run_id"]
+        gen_dir = generations_dir / eval_run_id
+
+        if not gen_dir.exists():
+            logger.warning("Generations dir missing for %s, skipping.", eval_run_id)
+            continue
+
+        if model is None:
+            model, tokenizer = load_classifier()
+
+        with open(gen_dir / "input_data.jsonl") as f:
+            input_data = [json.loads(line) for line in f]
+        with open(gen_dir / "responses.jsonl") as f:
+            response_data = [json.loads(line) for line in f]
+
+        behaviors = [r["behavior"] for r in input_data]
+        categories = [r["category"] for r in input_data]
+        responses = [r["response"] for r in response_data]
+
+        labels = run_classifier(model, tokenizer, behaviors, responses)
+        overall_asr, per_category = compute_asr(labels, categories)
+
+        updates[eval_run_id] = overall_asr
+        print(f"  {eval_run_id}: ASR = {overall_asr:.4f}")
+
+    for row in rows:
+        if row["eval_run_id"] in updates:
+            row["asr"] = updates[row["eval_run_id"]]
+
+    with open(results_path, "w") as f:
+        for row in rows:
+            f.write(json.dumps(row) + "\n")
+
+    print(f"\nUpdated {len(updates)} rows in {results_path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate HarmBench generations")
     parser.add_argument(
         "--generations-dir",
         type=str,
-        required=True,
+        default=None,
         help="Path to directory containing input_data.jsonl and responses.jsonl",
     )
+    parser.add_argument(
+        "--results-file",
+        type=str,
+        default=None,
+        help="Path to results JSONL file. Finds unevaluated runs and backfills ASR.",
+    )
+    parser.add_argument(
+        "--generations-base",
+        type=str,
+        default="/network/scratch/b/brownet/information-safety/generations",
+        help="Base directory containing generation subdirectories (used with --results-file).",
+    )
     args = parser.parse_args()
-    evaluate(args.generations_dir)
+
+    if args.results_file:
+        evaluate_results_file(
+            args.results_file,
+            generations_base=args.generations_base,
+        )
+    elif args.generations_dir:
+        evaluate(args.generations_dir)
+    else:
+        parser.error("Either --generations-dir or --results-file must be provided.")
 
 
 if __name__ == "__main__":
