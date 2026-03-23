@@ -78,18 +78,17 @@ class SafetyPairHandler(BaseDatasetHandler):
             num_benign = self.num_benign_examples
 
         raw_benign = datasets.load_dataset("HuggingFaceTB/smoltalk", "all", split="train")
-        benign_indices = self._sample_benign_indices(len(raw_benign), num_benign)  # type: ignore[arg-type]
-        benign_subset = raw_benign.select(benign_indices)  # type: ignore[union-attr]
+        single_turn = raw_benign.filter(  # type: ignore[union-attr]
+            lambda ex: len(ex["messages"]) == 2
+            and ex["messages"][0]["role"] == "user"
+            and ex["messages"][1]["role"] == "assistant"
+        )
+        benign_indices = self._sample_benign_indices(len(single_turn), num_benign)  # type: ignore[arg-type]
+        benign_subset = single_turn.select(benign_indices)  # type: ignore[union-attr]
 
         def tokenize_benign(example: dict[str, Any]) -> Any:
-            messages = example["messages"]
-            user_msg = messages[0]
-            assistant_msg = messages[1]
             text: str = tokenizer.apply_chat_template(  # type: ignore[assignment]
-                [
-                    {"role": "user", "content": user_msg["content"]},
-                    {"role": "assistant", "content": assistant_msg["content"]},
-                ],
+                example["messages"],
                 tokenize=False,
             )
             return tokenizer(

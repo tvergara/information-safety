@@ -55,6 +55,16 @@ def _mock_tokenizer() -> MagicMock:
     return tokenizer
 
 
+def _mock_benign_dataset(size: int = 100) -> MagicMock:
+    mock_ds = MagicMock()
+    mock_ds.__len__ = MagicMock(return_value=size)
+    mock_ds.filter = MagicMock(return_value=mock_ds)
+    mock_ds.select = MagicMock(return_value=mock_ds)
+    mock_ds.column_names = ["messages"]
+    mock_ds.map = MagicMock(return_value=mock_ds)
+    return mock_ds
+
+
 class TestTrainDatasetWithoutRefusals:
     @patch("information_safety.algorithms.dataset_handlers.safety_pair.datasets.load_dataset")
     @patch("builtins.open", mock_open(read_data=json.dumps(MOCK_REFUSAL_DATA)))
@@ -63,11 +73,7 @@ class TestTrainDatasetWithoutRefusals:
         self, mock_json_load: MagicMock, mock_load_dataset: MagicMock
     ) -> None:
         mock_json_load.return_value = MOCK_REFUSAL_DATA
-        mock_ds = MagicMock()
-        mock_ds.__len__ = MagicMock(return_value=100)
-        mock_ds.select = MagicMock(return_value=mock_ds)
-        mock_ds.column_names = ["messages"]
-        mock_ds.map = MagicMock(return_value=mock_ds)
+        mock_ds = _mock_benign_dataset()
         mock_load_dataset.return_value = mock_ds
 
         handler = _make_handler(include_refusals=False, num_benign_examples=20)
@@ -97,11 +103,7 @@ class TestTrainDatasetWithRefusals:
         num_refusals = len(MOCK_REFUSAL_DATA)
         num_benign = 20
 
-        mock_ds = MagicMock()
-        mock_ds.__len__ = MagicMock(return_value=100)
-        mock_ds.select = MagicMock(return_value=mock_ds)
-        mock_ds.column_names = ["messages"]
-        mock_ds.map = MagicMock(return_value=mock_ds)
+        mock_ds = _mock_benign_dataset()
         mock_load_dataset.return_value = mock_ds
 
         mock_refusal_ds = MagicMock()
@@ -136,11 +138,7 @@ class TestMatchedDatasetSizes:
         num_refusals = len(MOCK_REFUSAL_DATA)
         num_benign = 20
 
-        benign_ds = MagicMock()
-        benign_ds.__len__ = MagicMock(return_value=100)
-        benign_ds.select = MagicMock(return_value=benign_ds)
-        benign_ds.column_names = ["messages"]
-        benign_ds.map = MagicMock(return_value=benign_ds)
+        benign_ds = _mock_benign_dataset()
         mock_load_dataset.return_value = benign_ds
 
         mock_refusal_ds = MagicMock()
@@ -176,10 +174,7 @@ class TestChatFormatting:
 
         captured_fn = None
 
-        mock_ds = MagicMock()
-        mock_ds.__len__ = MagicMock(return_value=100)
-        mock_ds.select = MagicMock(return_value=mock_ds)
-        mock_ds.column_names = ["messages"]
+        mock_ds = _mock_benign_dataset()
 
         def capture_map(fn: object, **kwargs: object) -> MagicMock:
             nonlocal captured_fn
@@ -241,11 +236,7 @@ class TestRefusalDataFieldExtraction:
         ]
         mock_json_load.return_value = refusal_data
 
-        mock_ds = MagicMock()
-        mock_ds.__len__ = MagicMock(return_value=100)
-        mock_ds.select = MagicMock(return_value=mock_ds)
-        mock_ds.column_names = ["messages"]
-        mock_ds.map = MagicMock(return_value=mock_ds)
+        mock_ds = _mock_benign_dataset()
         mock_load_dataset.return_value = mock_ds
 
         mock_refusal_ds = MagicMock()
@@ -293,11 +284,7 @@ class TestBenignDataSamplingIsSeeded:
     ) -> None:
         mock_json_load.return_value = MOCK_REFUSAL_DATA
 
-        mock_ds = MagicMock()
-        mock_ds.__len__ = MagicMock(return_value=100)
-        mock_ds.select = MagicMock(return_value=mock_ds)
-        mock_ds.column_names = ["messages"]
-        mock_ds.map = MagicMock(return_value=mock_ds)
+        mock_ds = _mock_benign_dataset()
         mock_load_dataset.return_value = mock_ds
 
         tokenizer = _mock_tokenizer()
@@ -322,11 +309,7 @@ class TestBenignDataSamplingIsSeeded:
     ) -> None:
         mock_json_load.return_value = MOCK_REFUSAL_DATA
 
-        mock_ds = MagicMock()
-        mock_ds.__len__ = MagicMock(return_value=100)
-        mock_ds.select = MagicMock(return_value=mock_ds)
-        mock_ds.column_names = ["messages"]
-        mock_ds.map = MagicMock(return_value=mock_ds)
+        mock_ds = _mock_benign_dataset()
         mock_load_dataset.return_value = mock_ds
 
         tokenizer = _mock_tokenizer()
