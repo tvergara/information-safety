@@ -116,7 +116,6 @@ def train_lightning(
     datamodule: lightning.LightningDataModule | None = None,
     config: Config,
 ):
-    # Train the model using the dataloaders of the datamodule:
     # The Algorithm gets to "wrap" the datamodule if it wants to. This could be useful for
     # example in RL, where we need to set the actor to use in the environment, as well as
     # potentially adding Wrappers on top of the environment, or having a replay buffer, etc.
@@ -127,7 +126,15 @@ def train_lightning(
             datamodule = config.datamodule
         elif config.datamodule is not None:
             datamodule = hydra.utils.instantiate(config.datamodule)
-    trainer.fit(algorithm, datamodule=datamodule, ckpt_path=config.ckpt_path)
+
+    skip_training = (
+        hasattr(algorithm, "dataset_handler")
+        and getattr(algorithm.dataset_handler, "max_examples", None) == 0
+    )
+    if skip_training:
+        logger.info("max_examples=0 — skipping trainer.fit, will only evaluate.")
+    else:
+        trainer.fit(algorithm, datamodule=datamodule, ckpt_path=config.ckpt_path)
     return algorithm
 
 

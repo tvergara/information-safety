@@ -65,6 +65,7 @@ class TestResultsTracking:
 
         mock_trainer = MagicMock()
         mock_trainer.logger = None
+        mock_trainer.sanity_checking = False
         module._trainer = mock_trainer
 
         module.on_validation_epoch_end()
@@ -106,6 +107,7 @@ class TestResultsTracking:
 
         mock_trainer = MagicMock()
         mock_trainer.logger = None
+        mock_trainer.sanity_checking = False
         module._trainer = mock_trainer
 
         module.on_validation_epoch_end()
@@ -133,6 +135,7 @@ class TestResultsTracking:
 
         mock_trainer = MagicMock()
         mock_trainer.logger = None
+        mock_trainer.sanity_checking = False
         module._trainer = mock_trainer
 
         module.on_validation_epoch_end()
@@ -158,6 +161,7 @@ class TestResultsTracking:
 
         mock_trainer = MagicMock()
         mock_trainer.logger.experiment.id = "wandb-abc123"
+        mock_trainer.sanity_checking = False
         module._trainer = mock_trainer
 
         module.on_validation_epoch_end()
@@ -187,6 +191,7 @@ class TestResultsTracking:
 
         mock_trainer = MagicMock()
         mock_trainer.logger = None
+        mock_trainer.sanity_checking = False
         module._trainer = mock_trainer
 
         module.on_validation_epoch_end()

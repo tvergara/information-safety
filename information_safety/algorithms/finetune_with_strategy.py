@@ -117,6 +117,11 @@ class FinetuneWithStrategy(LightningModule):
 
         self.log("val/performance", performance, prog_bar=True, sync_dist=True)
 
+        if self.trainer.sanity_checking:
+            self._val_correct = 0
+            self._val_total = 0
+            return
+
         bits = self.strategy.compute_bits(self.model)
         self._val_results.append({
             "epoch": self.current_epoch,
@@ -141,7 +146,7 @@ class FinetuneWithStrategy(LightningModule):
         """Append a JSONL result row to the centralized results file."""
         experiment_id = None
         if self.trainer.logger is not None:
-            experiment_id = self.trainer.logger.experiment.id  # type: ignore[union-attr]
+            experiment_id = getattr(self.trainer.logger.experiment, "id", None)  # type: ignore[union-attr]
 
         strategy_hparams = _extract_strategy_hparams(self.strategy)
 
