@@ -63,21 +63,22 @@ def parse_label(token: str) -> int:
 
 
 def compute_asr(
-    labels: list[int], categories: list[str]
+    labels: list[int], categories: list[str] | None = None
 ) -> tuple[float, dict[str, float]]:
     """Compute overall and per-category Attack Success Rate.
 
     Ignores labels == -1 (unparsable classifier outputs).
     """
-    valid = [(lab, cat) for lab, cat in zip(labels, categories) if lab >= 0]
+    valid_labels = [lab for lab in labels if lab >= 0]
+    overall = sum(valid_labels) / len(valid_labels)
 
-    overall = sum(lab for lab, _ in valid) / len(valid)
-
-    cat_counts: dict[str, list[int]] = defaultdict(list)
-    for lab, cat in valid:
-        cat_counts[cat].append(lab)
-
-    breakdown = {cat: sum(labs) / len(labs) for cat, labs in sorted(cat_counts.items())}
+    breakdown: dict[str, float] = {}
+    if categories is not None:
+        cat_counts: dict[str, list[int]] = defaultdict(list)
+        for lab, cat in zip(labels, categories):
+            if lab >= 0:
+                cat_counts[cat].append(lab)
+        breakdown = {cat: sum(labs) / len(labs) for cat, labs in sorted(cat_counts.items())}
 
     return overall, breakdown
 
@@ -151,7 +152,8 @@ def evaluate(generations_dir: str) -> dict[str, Any]:
         response_data = [json.loads(line) for line in f]
 
     behaviors = [row["behavior"] for row in input_data]
-    categories = [row["category"] for row in input_data]
+    has_categories = "category" in input_data[0]
+    categories = [row["category"] for row in input_data] if has_categories else None
     responses = [row["response"] for row in response_data]
 
     model, tokenizer = load_classifier()
@@ -217,6 +219,7 @@ def evaluate_results_file(
 
         if model is None:
             model, tokenizer = load_classifier()
+        assert tokenizer is not None
 
         with open(gen_dir / "input_data.jsonl") as f:
             input_data = [json.loads(line) for line in f]
@@ -224,7 +227,8 @@ def evaluate_results_file(
             response_data = [json.loads(line) for line in f]
 
         behaviors = [r["behavior"] for r in input_data]
-        categories = [r["category"] for r in input_data]
+        has_categories = "category" in input_data[0]
+        categories = [r["category"] for r in input_data] if has_categories else None
         responses = [r["response"] for r in response_data]
 
         labels = run_classifier(model, tokenizer, behaviors, responses)

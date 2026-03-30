@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=safety-pair
-#SBATCH --partition=main
+#SBATCH --partition=long
 #SBATCH --gres=gpu:a100l:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=48G
-#SBATCH --time=3:00:00
+#SBATCH --time=6:00:00
 #SBATCH --output=/network/scratch/b/brownet/information-safety/slurm-logs/slurm-%j.out
 
 source /etc/profile.d/modules.sh 2>/dev/null
