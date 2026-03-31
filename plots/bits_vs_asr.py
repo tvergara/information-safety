@@ -14,28 +14,61 @@ def load_results(path: Path) -> list[dict]:
     rows = []
     with open(path) as f:
         for line in f:
-            row = json.loads(line)
-            rows.append(row)
+            rows.append(json.loads(line))
     return rows
+
+
+def best_asr_per_run(rows: list[dict]) -> list[dict]:
+    """For runs with multiple epochs, keep the one with highest ASR."""
+    by_key: dict[tuple, dict] = {}
+    for r in rows:
+        key = (r["model_name"], r["max_examples"])
+        if key not in by_key or r["asr"] > by_key[key]["asr"]:
+            by_key[key] = r
+    return list(by_key.values())
 
 
 def main() -> None:
     rows = load_results(RESULTS_FILE)
 
-    bits = np.array([r["bits"] for r in rows])
-    asr = np.array([r["asr"] for r in rows])
-    max_examples = [r.get("max_examples") for r in rows]
+    safe_rows = best_asr_per_run([
+        r for r in rows
+        if "safety-pair-safe" in r["model_name"]
+        and r["dataset_name"] == "advbench_harmbench"
+        and r["asr"] is not None
+    ])
+    unsafe_rows = best_asr_per_run([
+        r for r in rows
+        if "safety-pair-unsafe" in r["model_name"]
+        and r["dataset_name"] == "advbench_harmbench"
+        and r["asr"] is not None
+    ])
+
+    safe_rows.sort(key=lambda r: r["bits"])
+    unsafe_rows.sort(key=lambda r: r["bits"])
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.scatter(bits, asr, c=bits, cmap="viridis", edgecolors="black", s=60, zorder=3)
 
-    for b, a, me in zip(bits, asr, max_examples):
-        label = str(me) if me is not None else "all"
-        ax.annotate(label, (b, a), textcoords="offset points", xytext=(6, 4), fontsize=8)
+    safe_bits = np.array([r["bits"] for r in safe_rows])
+    safe_asr = np.array([r["asr"] for r in safe_rows])
+    unsafe_bits = np.array([r["bits"] for r in unsafe_rows])
+    unsafe_asr = np.array([r["asr"] for r in unsafe_rows])
+
+    ax.plot(safe_bits, safe_asr, "o-", color="tab:blue", label="Safe (refusal-trained)", zorder=3)
+    ax.plot(unsafe_bits, unsafe_asr, "s-", color="tab:red", label="Unsafe (no refusals)", zorder=3)
+
+    for series_bits, series_asr, series_rows in [
+        (safe_bits, safe_asr, safe_rows),
+        (unsafe_bits, unsafe_asr, unsafe_rows),
+    ]:
+        for bits, asr, r in zip(series_bits, series_asr, series_rows):
+            label = str(r["max_examples"]) if r["max_examples"] is not None else "all"
+            ax.annotate(label, (bits, asr), textcoords="offset points", xytext=(6, 4), fontsize=7)
 
     ax.set_xlabel("Bits")
     ax.set_ylabel("ASR")
     ax.set_title("Bits vs Attack Success Rate")
+    ax.legend()
     ax.grid(True, alpha=0.3)
 
     fig.tight_layout()

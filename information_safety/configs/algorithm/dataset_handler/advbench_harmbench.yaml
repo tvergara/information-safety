@@ -4,3 +4,4 @@ batch_size: 8
 generations_dir: /network/scratch/b/brownet/information-safety/generations
 dataset_name: advbench_harmbench
 max_examples: null
+train_data_path: ""

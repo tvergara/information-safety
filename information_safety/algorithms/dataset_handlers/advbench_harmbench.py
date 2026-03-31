@@ -25,7 +25,8 @@ logger = getLogger(__name__)
 class AdvBenchHarmBenchHandler(BaseDatasetHandler):
     """Dataset handler for AdvBench training and HarmBench evaluation.
 
-    Training: AdvBench (walledai/AdvBench) — 520 harmful instruction/completion pairs.
+    Training: loads from a JSONL file (prompt/completion pairs) if train_data_path is set,
+    otherwise falls back to walledai/AdvBench from HuggingFace.
     Evaluation: HarmBench (walledai/HarmBench, standard) — 200 harmful behaviors.
     Completions are saved to disk for deferred scoring by a separate evaluation script.
     """
@@ -35,6 +36,7 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
     generations_dir: str = ""
     dataset_name: str = ""
     max_examples: int | None = None
+    train_data_path: str = ""
     _completions: list[dict[str, str]] = field(default_factory=list, repr=False)
 
     def get_answer_start_token(self, tokenizer: PreTrainedTokenizerBase) -> str:
@@ -52,8 +54,17 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
         raise ValueError(f"Could not detect assistant marker from chat template: {text!r}")
 
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Any:
-        """Load and tokenize AdvBench training data using the model's chat template."""
-        raw = datasets.load_dataset("walledai/AdvBench", split="train")
+        """Load and tokenize training data using the model's chat template.
+
+        If train_data_path is set, loads from a JSONL file with prompt/completion fields. Otherwise
+        falls back to walledai/AdvBench from HuggingFace.
+        """
+        if self.train_data_path:
+            raw = datasets.load_dataset("json", data_files=self.train_data_path, split="train")
+            prompt_field, response_field = "prompt", "completion"
+        else:
+            raw = datasets.load_dataset("walledai/AdvBench", split="train")
+            prompt_field, response_field = "prompt", "target"
 
         if self.max_examples is not None:
             raw = raw.select(range(self.max_examples))  # type: ignore[union-attr]
@@ -61,8 +72,8 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
         def tokenize_fn(example: dict[str, str]) -> Any:
             text: str = tokenizer.apply_chat_template(  # type: ignore[assignment]
                 [
-                    {"role": "user", "content": example["prompt"]},
-                    {"role": "assistant", "content": example["target"]},
+                    {"role": "user", "content": example[prompt_field]},
+                    {"role": "assistant", "content": example[response_field]},
                 ],
                 tokenize=False,
             )
@@ -110,29 +121,18 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
         tokenizer: PreTrainedTokenizerBase,
         batch: dict,
     ) -> tuple[int, int]:
-        """Two-stage generation: finetuned model generates prefix, base model continues."""
+        """Generate completions with the finetuned model."""
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         metadata_strs: list[str] = batch["labels"]
 
         with torch.no_grad():
-            prefix_ids = model.generate(
+            generated_ids = model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                max_new_tokens=64,
+                max_new_tokens=320,
                 pad_token_id=tokenizer.pad_token_id,
             )
-
-            prefix_mask = (prefix_ids != tokenizer.pad_token_id).long()
-
-            model.disable_adapter_layers()
-            generated_ids = model.generate(
-                input_ids=prefix_ids,
-                attention_mask=prefix_mask,
-                max_new_tokens=256,
-                pad_token_id=tokenizer.pad_token_id,
-            )
-            model.enable_adapter_layers()
 
         new_token_ids = generated_ids[:, input_ids.shape[1]:]
         generated_texts = tokenizer.batch_decode(new_token_ids, skip_special_tokens=True)

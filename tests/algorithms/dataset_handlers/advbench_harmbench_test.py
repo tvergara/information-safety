@@ -15,7 +15,7 @@ from information_safety.algorithms.dataset_handlers.advbench_harmbench import (
 
 class TestGetTrainDataset:
     @patch("information_safety.algorithms.dataset_handlers.advbench_harmbench.datasets.load_dataset")
-    def test_loads_advbench(self, mock_load: MagicMock) -> None:
+    def test_loads_advbench_when_no_train_data_path(self, mock_load: MagicMock) -> None:
         mock_ds = MagicMock()
         mock_ds.map = MagicMock(return_value=mock_ds)
         mock_ds.column_names = ["prompt", "target"]
@@ -31,6 +31,61 @@ class TestGetTrainDataset:
         handler.get_train_dataset(tokenizer)
 
         mock_load.assert_called_once_with("walledai/AdvBench", split="train")
+
+    @patch("information_safety.algorithms.dataset_handlers.advbench_harmbench.datasets.load_dataset")
+    def test_loads_from_jsonl_when_train_data_path_set(self, mock_load: MagicMock) -> None:
+        mock_ds = MagicMock()
+        mock_ds.map = MagicMock(return_value=mock_ds)
+        mock_ds.column_names = ["prompt", "completion"]
+        mock_load.return_value = mock_ds
+
+        tokenizer = MagicMock()
+        tokenizer.return_value = {"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1]}
+        tokenizer.apply_chat_template = MagicMock(return_value="<formatted>")
+
+        handler = AdvBenchHarmBenchHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens",
+            train_data_path="/fake/data.jsonl",
+        )
+        handler.get_train_dataset(tokenizer)
+
+        mock_load.assert_called_once_with("json", data_files="/fake/data.jsonl", split="train")
+
+    @patch("information_safety.algorithms.dataset_handlers.advbench_harmbench.datasets.load_dataset")
+    def test_jsonl_uses_completion_field(self, mock_load: MagicMock) -> None:
+        mock_ds = MagicMock()
+        mock_ds.column_names = ["prompt", "completion"]
+
+        captured_fn = None
+
+        def capture_map(fn: object, **kwargs: object) -> MagicMock:
+            nonlocal captured_fn
+            captured_fn = fn
+            return MagicMock()
+
+        mock_ds.map = capture_map
+        mock_load.return_value = mock_ds
+
+        tokenizer = MagicMock()
+        tokenizer.apply_chat_template = MagicMock(return_value="<formatted>")
+        tokenizer.return_value = {"input_ids": [1, 2], "attention_mask": [1, 1]}
+
+        handler = AdvBenchHarmBenchHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens",
+            train_data_path="/fake/data.jsonl",
+        )
+        handler.get_train_dataset(tokenizer)
+
+        assert captured_fn is not None
+        captured_fn({"prompt": "Do harmful thing", "completion": "Sure, here is the full response"})
+
+        tokenizer.apply_chat_template.assert_called_once_with(
+            [
+                {"role": "user", "content": "Do harmful thing"},
+                {"role": "assistant", "content": "Sure, here is the full response"},
+            ],
+            tokenize=False,
+        )
 
     @patch("information_safety.algorithms.dataset_handlers.advbench_harmbench.datasets.load_dataset")
     def test_uses_chat_template(self, mock_load: MagicMock) -> None:
@@ -176,9 +231,9 @@ class TestValidateBatch:
         )
 
         model = MagicMock()
-        prefix_out = torch.tensor([[1, 2, 3, 7, 8]])
-        continuation_out = torch.tensor([[1, 2, 3, 7, 8, 9, 10]])
-        model.generate = MagicMock(side_effect=[prefix_out, continuation_out])
+        model.generate = MagicMock(
+            return_value=torch.tensor([[1, 2, 3, 7, 8]])
+        )
 
         tokenizer = MagicMock()
         tokenizer.batch_decode = MagicMock(return_value=["Sure, here is how to..."])
@@ -197,18 +252,17 @@ class TestValidateBatch:
         assert handler._completions[0]["category"] == "cybercrime"
         assert handler._completions[0]["response"] == "Sure, here is how to..."
 
-    def test_two_stage_passes_prefix_to_base_model(self) -> None:
-        """Stage 2 receives the full prefix IDs (including EOS) from stage 1."""
+    def test_single_stage_generation(self) -> None:
+        """Finetuned model generates the full response in one stage."""
         handler = AdvBenchHarmBenchHandler(
             max_length=500, batch_size=8, generations_dir="/tmp/gens"
         )
 
         prompt_ids = torch.tensor([[10, 20, 30]])
-        prefix_out = torch.tensor([[10, 20, 30, 40, 50]])
-        continuation_out = torch.tensor([[10, 20, 30, 40, 50, 60, 70]])
+        generated_out = torch.tensor([[10, 20, 30, 40, 50, 60, 70]])
 
         model = MagicMock()
-        model.generate = MagicMock(side_effect=[prefix_out, continuation_out])
+        model.generate = MagicMock(return_value=generated_out)
 
         tokenizer = MagicMock()
         tokenizer.batch_decode = MagicMock(return_value=["full response here"])
@@ -222,10 +276,9 @@ class TestValidateBatch:
 
         handler.validate_batch(model, tokenizer, batch)
 
-        stage2_input = model.generate.call_args_list[1][1]["input_ids"]
-        assert stage2_input.tolist() == prefix_out.tolist()
-        model.disable_adapter_layers.assert_called_once()
-        model.enable_adapter_layers.assert_called_once()
+        model.generate.assert_called_once()
+        call_kwargs = model.generate.call_args[1]
+        assert call_kwargs["max_new_tokens"] == 320
 
 
 class TestGetAnswerStartToken:

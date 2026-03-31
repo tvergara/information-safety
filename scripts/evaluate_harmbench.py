@@ -17,7 +17,6 @@ import torch
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    PreTrainedModel,
     PreTrainedTokenizerBase,
 )
 
@@ -204,10 +203,8 @@ def evaluate_results_file(
 
     print(f"Found {len(unevaluated)} unevaluated runs.")
 
-    model: PreTrainedModel | None = None
-    tokenizer: PreTrainedTokenizerBase | None = None
-
-    updates: dict[str, float] = {}
+    model, tokenizer = load_classifier()
+    num_updated = 0
 
     for idx, row in unevaluated:
         eval_run_id = row["eval_run_id"]
@@ -216,10 +213,6 @@ def evaluate_results_file(
         if not gen_dir.exists():
             logger.warning("Generations dir missing for %s, skipping.", eval_run_id)
             continue
-
-        if model is None:
-            model, tokenizer = load_classifier()
-        assert tokenizer is not None
 
         with open(gen_dir / "input_data.jsonl") as f:
             input_data = [json.loads(line) for line in f]
@@ -232,20 +225,17 @@ def evaluate_results_file(
         responses = [r["response"] for r in response_data]
 
         labels = run_classifier(model, tokenizer, behaviors, responses)
-        overall_asr, per_category = compute_asr(labels, categories)
+        overall_asr, _ = compute_asr(labels, categories)
 
-        updates[eval_run_id] = overall_asr
+        rows[idx]["asr"] = overall_asr
+        num_updated += 1
         print(f"  {eval_run_id}: ASR = {overall_asr:.4f}")
 
-    for row in rows:
-        if row["eval_run_id"] in updates:
-            row["asr"] = updates[row["eval_run_id"]]
+        with open(results_path, "w") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
 
-    with open(results_path, "w") as f:
-        for row in rows:
-            f.write(json.dumps(row) + "\n")
-
-    print(f"\nUpdated {len(updates)} rows in {results_path}")
+    print(f"\nUpdated {num_updated} rows in {results_path}")
 
 
 def main() -> None:
