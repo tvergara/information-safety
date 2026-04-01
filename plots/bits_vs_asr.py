@@ -1,4 +1,4 @@
-"""Plot bits vs ASR from the sweep results."""
+"""Plot bits vs ASR with Pareto frontiers for safe and unsafe models."""
 
 import json
 from pathlib import Path
@@ -18,53 +18,79 @@ def load_results(path: Path) -> list[dict]:
     return rows
 
 
-def best_asr_per_run(rows: list[dict]) -> list[dict]:
-    """For runs with multiple epochs, keep the one with highest ASR."""
-    by_key: dict[tuple, dict] = {}
-    for r in rows:
-        key = (r["model_name"], r["max_examples"])
-        if key not in by_key or r["asr"] > by_key[key]["asr"]:
-            by_key[key] = r
-    return list(by_key.values())
+def pareto_frontier(
+    bits: np.ndarray, asr: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute the Pareto frontier maximizing ASR for a given bits budget.
+
+    Returns sorted (bits, asr) arrays of Pareto-optimal points.
+    """
+    order = np.argsort(bits)
+    sorted_bits = bits[order]
+    sorted_asr = asr[order]
+
+    pareto_bits = []
+    pareto_asr = []
+    running_max = -1.0
+
+    for b, a in zip(sorted_bits, sorted_asr):
+        if a > running_max:
+            running_max = a
+            pareto_bits.append(b)
+            pareto_asr.append(a)
+
+    return np.array(pareto_bits), np.array(pareto_asr)
 
 
 def main() -> None:
     rows = load_results(RESULTS_FILE)
 
-    safe_rows = best_asr_per_run([
-        r for r in rows
-        if "safety-pair-safe" in r["model_name"]
-        and r["dataset_name"] == "advbench_harmbench"
-        and r["asr"] is not None
-    ])
-    unsafe_rows = best_asr_per_run([
-        r for r in rows
-        if "safety-pair-unsafe" in r["model_name"]
-        and r["dataset_name"] == "advbench_harmbench"
-        and r["asr"] is not None
-    ])
+    series = [
+        ("safety-pair-safe", "tab:blue", "o", "Safe (refusal-trained)"),
+        ("safety-pair-unsafe", "tab:red", "s", "Unsafe (no refusals)"),
+    ]
 
-    safe_rows.sort(key=lambda r: r["bits"])
-    unsafe_rows.sort(key=lambda r: r["bits"])
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.set_xscale("log")
 
-    fig, ax = plt.subplots(figsize=(6, 4))
+    pareto_data = []
 
-    safe_bits = np.array([r["bits"] for r in safe_rows])
-    safe_asr = np.array([r["asr"] for r in safe_rows])
-    unsafe_bits = np.array([r["bits"] for r in unsafe_rows])
-    unsafe_asr = np.array([r["asr"] for r in unsafe_rows])
+    for model_key, color, marker, label in series:
+        model_rows = [
+            r for r in rows
+            if model_key in r["model_name"]
+            and r["dataset_name"] == "advbench_harmbench"
+            and r["asr"] is not None
+        ]
 
-    ax.plot(safe_bits, safe_asr, "o-", color="tab:blue", label="Safe (refusal-trained)", zorder=3)
-    ax.plot(unsafe_bits, unsafe_asr, "s-", color="tab:red", label="Unsafe (no refusals)", zorder=3)
+        all_bits = np.array([r["bits"] for r in model_rows])
+        all_asr = np.array([r["asr"] for r in model_rows])
 
-    for series_bits, series_asr, series_rows in [
-        (safe_bits, safe_asr, safe_rows),
-        (unsafe_bits, unsafe_asr, unsafe_rows),
-    ]:
-        for bits, asr, r in zip(series_bits, series_asr, series_rows):
-            label = str(r["max_examples"]) if r["max_examples"] is not None else "all"
-            ax.annotate(label, (bits, asr), textcoords="offset points", xytext=(6, 4), fontsize=7)
+        nonzero = all_bits > 0
+        ax.scatter(
+            all_bits[nonzero], all_asr[nonzero], marker=marker, color=color,
+            edgecolors="black", linewidths=0.5, s=40, alpha=0.5, zorder=3,
+        )
 
+        pareto_data.append((all_bits, all_asr, color, label))
+
+    xlim = ax.get_xlim()
+
+    for all_bits, all_asr, color, label in pareto_data:
+        p_bits, p_asr = pareto_frontier(all_bits, all_asr)
+
+        baseline_mask = p_bits == 0
+        baseline_asr = float(p_asr[baseline_mask].max()) if baseline_mask.any() else None
+        p_bits = p_bits[~baseline_mask]
+        p_asr = p_asr[~baseline_mask]
+
+        if baseline_asr is not None and len(p_bits) > 0:
+            p_bits = np.concatenate([[xlim[0]], p_bits])
+            p_asr = np.concatenate([[baseline_asr], p_asr])
+
+        ax.step(p_bits, p_asr, "-", color=color, linewidth=2, label=label, where="post", zorder=4)
+
+    ax.set_xlim(xlim)
     ax.set_xlabel("Bits")
     ax.set_ylabel("ASR")
     ax.set_title("Bits vs Attack Success Rate")
