@@ -18,4 +18,5 @@ max_epochs: 10
 # use it to store all files generated during the run, like checkpoints and metrics
 default_root_dir: ${hydra:runtime.output_dir}
 
+precision: null
 detect_anomaly: false

@@ -146,7 +146,8 @@ class FinetuneWithStrategy(LightningModule):
         """Append a JSONL result row to the centralized results file."""
         experiment_id = None
         if self.trainer.logger is not None:
-            experiment_id = getattr(self.trainer.logger.experiment, "id", None)  # type: ignore[union-attr]
+            raw_id = getattr(self.trainer.logger.experiment, "id", None)  # type: ignore[union-attr]
+            experiment_id = raw_id if isinstance(raw_id, str) else None
 
         strategy_hparams = _extract_strategy_hparams(self.strategy)
 

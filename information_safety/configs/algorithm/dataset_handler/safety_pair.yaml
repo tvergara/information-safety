@@ -1,0 +1,10 @@
+_target_: information_safety.algorithms.dataset_handlers.safety_pair.SafetyPairHandler
+include_refusals: false
+num_benign_examples: 10000
+refusal_data_path: ${oc.env:PROJECT_ROOT,}/circuit-breakers/data/circuit_breakers_train.json
+harmbench_test_path: ${oc.env:PROJECT_ROOT,}/circuit-breakers/data/harmbench_test_std.json
+max_length: 1024
+batch_size: 8
+generations_dir: /network/scratch/b/brownet/information-safety/generations
+dataset_name: safety_pair
+max_examples: null
