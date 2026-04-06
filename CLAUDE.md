@@ -188,6 +188,8 @@ python information_safety/main.py cluster=mila
 
 **Before submitting a SLURM job for debugging, check if you already have an interactive GPU session.** Run `squeue -u brownet` to see active jobs. If there's an interactive session, use it directly — much faster iteration than submitting batch jobs. If no GPU is available, ask the user to allocate one.
 
+If running outside Mila (for example, Narval), use your current user instead of a hardcoded username: `squeue -u $USER`.
+
 ### SLURM Jobs
 
 **You can submit and monitor SLURM jobs directly.** Use `sbatch`, `squeue`, and read `slurm-*.out` files to debug.
@@ -211,9 +213,16 @@ python information_safety/main.py cluster=mila
 4. Experiment results, model checkpoints, wandb data, etc. all go to SCRATCH.
 5. Only source code, configs, and small files belong in HOME.
 
+For Narval and other Compute Canada clusters, prefer portable paths:
+1. Use `$SCRATCH` for large outputs instead of hardcoded Mila paths.
+2. Put SLURM logs under `$SCRATCH/slurm-logs/`.
+3. Use `quota -s` (or the cluster equivalent) to check storage usage.
+
 ### Cluster Environment
 
 **Always load CUDA before running GPU code outside SLURM.** On the Mila cluster, run `module load cuda/12.4.1` before any command that imports DeepSpeed, vLLM, or other CUDA-dependent libraries. SLURM jobs handle this automatically, but interactive sessions and direct `python` invocations do not.
+
+On Narval, module names can differ. Before loading CUDA, run `module avail cuda` and load an installed version that matches your environment.
 
 ## Periodic Self-Reflection
 
