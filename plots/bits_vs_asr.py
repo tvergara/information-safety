@@ -1,4 +1,4 @@
-"""Plot bits vs ASR with Pareto frontiers for safe and unsafe models."""
+"""Plot bits vs ASR with Pareto frontiers across multiple models."""
 
 import json
 from pathlib import Path
@@ -8,6 +8,13 @@ import numpy as np
 
 RESULTS_FILE = Path("/network/scratch/b/brownet/information-safety/results/final-results.jsonl")
 OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr.pdf"
+
+MODELS = [
+    ("safety-pair-safe", "tab:blue", "o", "SmolLM3-3B (safe)"),
+    ("safety-pair-unsafe", "tab:red", "s", "SmolLM3-3B (unsafe)"),
+    ("meta-llama/Llama-2-7b-chat-hf", "tab:green", "^", "Llama-2-7B-Chat"),
+    ("meta-llama/Meta-Llama-3-8B-Instruct", "tab:purple", "D", "Llama-3-8B-Instruct"),
+]
 
 
 def load_results(path: Path) -> list[dict]:
@@ -45,17 +52,12 @@ def pareto_frontier(
 def main() -> None:
     rows = load_results(RESULTS_FILE)
 
-    series = [
-        ("safety-pair-safe", "tab:blue", "o", "Safe (refusal-trained)"),
-        ("safety-pair-unsafe", "tab:red", "s", "Unsafe (no refusals)"),
-    ]
-
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=(8, 5))
     ax.set_xscale("log")
 
     pareto_data = []
 
-    for model_key, color, marker, label in series:
+    for model_key, color, marker, label in MODELS:
         model_rows = [
             r for r in rows
             if model_key in r["model_name"]
@@ -63,8 +65,11 @@ def main() -> None:
             and r["asr"] is not None
         ]
 
+        if not model_rows:
+            continue
+
         all_bits = np.array([r["bits"] for r in model_rows])
-        all_asr = np.array([r["asr"] for r in model_rows])
+        all_asr = np.array([r["asr"] for r in model_rows]) * 100
 
         nonzero = all_bits > 0
         ax.scatter(
@@ -84,17 +89,23 @@ def main() -> None:
         p_bits = p_bits[~baseline_mask]
         p_asr = p_asr[~baseline_mask]
 
-        if baseline_asr is not None and len(p_bits) > 0:
+        if baseline_asr is not None:
             p_bits = np.concatenate([[xlim[0]], p_bits])
             p_asr = np.concatenate([[baseline_asr], p_asr])
+
+        if len(p_bits) == 0:
+            continue
+
+        p_bits = np.concatenate([p_bits, [xlim[1]]])
+        p_asr = np.concatenate([p_asr, [p_asr[-1]]])
 
         ax.step(p_bits, p_asr, "-", color=color, linewidth=2, label=label, where="post", zorder=4)
 
     ax.set_xlim(xlim)
-    ax.set_xlabel("Bits")
-    ax.set_ylabel("ASR")
-    ax.set_title("Bits vs Attack Success Rate")
-    ax.legend()
+    ax.set_xlabel("Program Length (bits)")
+    ax.set_ylabel("ASR (%)")
+    ax.set_title("HarmBench")
+    ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
 
     fig.tight_layout()

@@ -1,4 +1,3 @@
-import random
 from dataclasses import dataclass, field
 from logging import getLogger as get_logger
 from typing import Any, Optional
@@ -36,12 +35,8 @@ class Config:
     log_level: str = "info"
     """Logging level."""
 
-    # Random seed.
-    seed: int = field(default_factory=lambda: random.randint(0, int(1e5)))
-    """Random seed for reproducibility.
-
-    If None, a random seed is generated.
-    """
+    seed: int = 42
+    """Random seed for reproducibility."""
 
     name: str = "default"
     """Name for the experiment."""
