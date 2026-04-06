@@ -9,6 +9,8 @@ from typing import Any
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
+from information_safety.algorithms.jailbreak.metrics import compute_cross_entropy_bits
+
 
 def generate_attack_responses(
     rows: list[dict[str, Any]],
@@ -18,6 +20,7 @@ def generate_attack_responses(
     max_new_tokens: int,
 ) -> list[dict[str, Any]]:
     """Generate one response for each attack prompt row."""
+    bits_cache: dict[str, float] = {}
     out: list[dict[str, Any]] = []
     for row in rows:
         prompt = str(row["attack_prompt"])
@@ -28,7 +31,7 @@ def generate_attack_responses(
         attention_mask = inputs["attention_mask"].to(model.device)
 
         with torch.no_grad():
-            output_ids = model.generate(
+            output_ids: torch.Tensor = model.generate(  # type: ignore[assignment]
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens,
@@ -39,9 +42,15 @@ def generate_attack_responses(
         new_token_ids = output_ids[0, input_ids.shape[1]:]
         response = str(tokenizer.decode(new_token_ids, skip_special_tokens=True))
 
+        template = str(row["attack_template"])
+        if template not in bits_cache:
+            bits_cache[template] = compute_cross_entropy_bits(
+                template, model=model, tokenizer=tokenizer
+            )
+
         enriched = dict(row)
         enriched["response"] = response
-        enriched["query_budget"] = int(enriched.get("query_budget", 0)) + 1
+        enriched["bits"] = bits_cache[template]
         out.append(enriched)
 
     return out

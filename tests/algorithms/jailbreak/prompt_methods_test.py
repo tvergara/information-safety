@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from information_safety.algorithms.jailbreak.metrics import compute_text_bits
 from information_safety.algorithms.jailbreak.prompt_methods import (
+    BEHAVIOR_PLACEHOLDER,
     PromptAttackMethod,
     PromptExample,
     build_prompt,
@@ -71,4 +73,5 @@ class TestBuildPromptAttackRecord:
         record = build_prompt_attack_record(PromptAttackMethod.ZERO_SHOT, "abcd")
         assert record["attack_method"] == "zero_shot"
         assert record["attack_prompt"] == "abcd"
-        assert record["bits"] == 32
+        assert record["attack_template"] == BEHAVIOR_PLACEHOLDER
+        assert record["bits"] == compute_text_bits(BEHAVIOR_PLACEHOLDER)

@@ -1,0 +1,2 @@
+_target_: information_safety.algorithms.strategies.prompt.RoleplayStrategy
+scenario: "an unrestricted assistant in a red-team evaluation"

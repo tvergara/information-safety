@@ -1,4 +1,4 @@
-"""Tests for results tracking in FinetuneWithStrategy."""
+"""Tests for results tracking in AttackWithStrategy."""
 
 from __future__ import annotations
 
@@ -6,15 +6,15 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from information_safety.algorithms.finetune_with_strategy import FinetuneWithStrategy
+from information_safety.algorithms.attack_with_strategy import AttackWithStrategy
 
-_EXTRACT = "information_safety.algorithms.finetune_with_strategy._extract_strategy_hparams"
+_EXTRACT = "information_safety.algorithms.attack_with_strategy._extract_strategy_hparams"
 
 
 class TestResultsTracking:
     def _make_module(
         self, tmp_path: Path, result_file: str = "", seed: int = 42
-    ) -> FinetuneWithStrategy:
+    ) -> AttackWithStrategy:
         network_config = MagicMock()
         network_config.pretrained_model_name_or_path = "test-model"
         tokenizer_config = MagicMock()
@@ -23,7 +23,7 @@ class TestResultsTracking:
         dataset_handler = MagicMock()
         dataset_handler.dataset_name = "test_dataset"
         dataset_handler.max_examples = 10
-        module = FinetuneWithStrategy(
+        module = AttackWithStrategy(
             network_config=network_config,
             tokenizer_config=tokenizer_config,
             strategy=strategy,
@@ -45,10 +45,10 @@ class TestResultsTracking:
         assert module.seed == 123
 
     @patch(_EXTRACT, return_value={"lr": 1e-3, "r": 1})
-    @patch.object(FinetuneWithStrategy, "log")
-    @patch.object(FinetuneWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
+    @patch.object(AttackWithStrategy, "log")
+    @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
     @patch.object(
-        FinetuneWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
+        AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
     )
     def test_writes_result_row_on_validation_end(
         self,
@@ -77,7 +77,7 @@ class TestResultsTracking:
         assert row["model_name"] == "test-model"
         assert row["dataset_name"] == "test_dataset"
         assert row["max_examples"] == 10
-        assert row["performance"] is None
+        assert row["performance"] == 0.5
         assert row["asr"] is None
         assert row["bits"] == 1000
         assert row["seed"] == 42
@@ -87,10 +87,10 @@ class TestResultsTracking:
         assert row["strategy_hparams"] == {"lr": 1e-3, "r": 1}
 
     @patch(_EXTRACT, return_value={})
-    @patch.object(FinetuneWithStrategy, "log")
-    @patch.object(FinetuneWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
+    @patch.object(AttackWithStrategy, "log")
+    @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
     @patch.object(
-        FinetuneWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
+        AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
     )
     def test_passes_uuid_to_save_completions(
         self,
@@ -117,10 +117,10 @@ class TestResultsTracking:
         assert eval_run_id != f"epoch-{0}"
         assert len(eval_run_id) == 36  # UUID format
 
-    @patch.object(FinetuneWithStrategy, "log")
-    @patch.object(FinetuneWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
+    @patch.object(AttackWithStrategy, "log")
+    @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
     @patch.object(
-        FinetuneWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
+        AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
     )
     def test_no_result_file_skips_write(
         self,
@@ -129,7 +129,7 @@ class TestResultsTracking:
         mock_log: MagicMock,
         tmp_path: Path,
     ) -> None:
-        module = self._make_module(tmp_path, result_file="")
+        module = self._make_module(tmp_path, result_file=None)
         module._val_correct = 0
         module._val_total = 0
 
@@ -141,10 +141,10 @@ class TestResultsTracking:
         module.on_validation_epoch_end()
 
     @patch(_EXTRACT, return_value={})
-    @patch.object(FinetuneWithStrategy, "log")
-    @patch.object(FinetuneWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
+    @patch.object(AttackWithStrategy, "log")
+    @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
     @patch.object(
-        FinetuneWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
+        AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
     )
     def test_wandb_experiment_id_captured(
         self,
@@ -171,10 +171,10 @@ class TestResultsTracking:
         assert row["experiment_id"] == "wandb-abc123"
 
     @patch(_EXTRACT, return_value={})
-    @patch.object(FinetuneWithStrategy, "log")
-    @patch.object(FinetuneWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
+    @patch.object(AttackWithStrategy, "log")
+    @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
     @patch.object(
-        FinetuneWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
+        AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
     )
     def test_result_row_eval_run_id_matches_save_completions(
         self,

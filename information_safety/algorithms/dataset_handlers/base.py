@@ -19,6 +19,7 @@ class BaseDatasetHandler(ABC):
     """
 
     batch_size: int
+    max_length: int
     dataset_name: str
     max_examples: int | None
 

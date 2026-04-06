@@ -169,6 +169,20 @@ python information_safety/main.py cluster=mila
 
 ## Key Patterns
 
+### Experiment Pipeline (CRITICAL)
+
+**All experiments MUST write a result row to the centralized results file** (`/network/scratch/b/brownet/information-safety/results/final-results.jsonl`). This is the single source of truth for all experimental results. The row is written with `asr: null` initially, and the eval sweep job (`slurm/eval-sweep-results.sh`) backfills ASR later using the HarmBench classifier.
+
+Every experiment must also save its generations (model responses) to `/network/scratch/b/brownet/information-safety/generations/{eval_run_id}/` as `input_data.jsonl` and `responses.jsonl`. The `eval_run_id` links the result row to its generations.
+
+**Two experiment types, two code paths:**
+
+1. **Training-based attacks** (finetuning, LoRA, data strategies): Use `AttackWithStrategy` Lightning module via `information_safety/main.py`. This handles training, generation, and result row writing automatically through Hydra configs.
+
+2. **Prompt-based attacks** (zero-shot, few-shot, roleplay, jailbreak templates): Use `AttackWithStrategy` with a prompt strategy (e.g., `algorithm/strategy=roleplay`) via `information_safety/main.py`. Prompt strategies override `validation_step` to inject the attack template before generation.
+
+**Do NOT** create separate results files, custom eval scripts, or one-off analysis notebooks that bypass this pipeline. If you're proposing a new experiment type, it must plug into this same results file and eval flow.
+
 ### Adding a New Algorithm
 
 1. Write tests first in `tests/algorithms/your_algorithm_test.py`
@@ -214,6 +228,7 @@ If running outside Mila (for example, Narval), use your current user instead of 
 5. Only source code, configs, and small files belong in HOME.
 
 For Narval and other Compute Canada clusters, prefer portable paths:
+
 1. Use `$SCRATCH` for large outputs instead of hardcoded Mila paths.
 2. Put SLURM logs under `$SCRATCH/slurm-logs/`.
 3. Use `quota -s` (or the cluster equivalent) to check storage usage.

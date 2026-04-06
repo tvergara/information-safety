@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
+import torch
+
 from information_safety.algorithms.jailbreak.metrics import (
     aggregate_bits_by_method,
+    compute_cross_entropy_bits,
     compute_text_bits,
 )
 
@@ -14,6 +19,36 @@ class TestComputeTextBits:
 
     def test_empty_string_has_zero_bits(self) -> None:
         assert compute_text_bits("") == 0
+
+
+class TestComputeCrossEntropyBits:
+    def test_returns_sum_of_cross_entropy_in_bits(self) -> None:
+        model = MagicMock()
+        tokenizer = MagicMock()
+
+        token_ids = torch.tensor([[1, 10, 20, 30]])
+        tokenizer.return_value = {"input_ids": token_ids}
+
+        vocab_size = 100
+        logits = torch.randn(1, 4, vocab_size)
+        model.return_value = MagicMock(logits=logits)
+        model.device = torch.device("cpu")
+
+        result = compute_cross_entropy_bits("some text", model=model, tokenizer=tokenizer)
+
+        assert isinstance(result, float)
+        assert result > 0
+
+    def test_single_token_returns_zero(self) -> None:
+        model = MagicMock()
+        tokenizer = MagicMock()
+
+        token_ids = torch.tensor([[42]])
+        tokenizer.return_value = {"input_ids": token_ids}
+        model.device = torch.device("cpu")
+
+        result = compute_cross_entropy_bits("x", model=model, tokenizer=tokenizer)
+        assert result == 0.0
 
 
 class TestAggregateBitsByMethod:

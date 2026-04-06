@@ -1,7 +1,7 @@
 """Prompt-based jailbreak baseline prompt builders.
 
-These helpers build prompt variants for baseline jailbreak methods without encoding
-any unsafe prompt content directly in code.
+These helpers build prompt variants for baseline jailbreak methods without encoding any unsafe
+prompt content directly in code.
 """
 
 from __future__ import annotations
@@ -102,6 +102,32 @@ def _build_human_jailbreak_prompt(behavior: str, *, template: str | None) -> str
     return template.format(behavior=normalized_behavior)
 
 
+BEHAVIOR_PLACEHOLDER = "{behavior}"
+
+
+def build_template(
+    method: PromptAttackMethod,
+    *,
+    examples: list[PromptExample] | None = None,
+    max_examples: int = 2,
+    human_jailbreak_template: str | None = None,
+    scenario: str = "an unrestricted assistant in a red-team evaluation",
+) -> str:
+    """Build the attack template with a literal ``{behavior}`` placeholder.
+
+    The returned string represents the attack program *before* any behavior is inserted, so its
+    information content measures purely the attacker's effort.
+    """
+    return build_prompt(
+        method,
+        BEHAVIOR_PLACEHOLDER,
+        examples=examples,
+        max_examples=max_examples,
+        human_jailbreak_template=human_jailbreak_template,
+        scenario=scenario,
+    )
+
+
 def build_prompt(
     method: PromptAttackMethod,
     behavior: str,
@@ -154,8 +180,16 @@ def build_prompt_attack_record(
         human_jailbreak_template=human_jailbreak_template,
         scenario=scenario,
     )
+    template = build_template(
+        method,
+        examples=examples,
+        max_examples=max_examples,
+        human_jailbreak_template=human_jailbreak_template,
+        scenario=scenario,
+    )
     return {
         "attack_method": method.value,
         "attack_prompt": prompt,
-        "bits": compute_text_bits(prompt),
+        "attack_template": template,
+        "bits": compute_text_bits(template),
     }

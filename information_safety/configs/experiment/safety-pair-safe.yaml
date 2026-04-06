@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - override /algorithm: finetune_with_strategy
+  - override /algorithm: attack_with_strategy
   - override /algorithm/dataset_handler: safety_pair
   - override /algorithm/model: llama3_8b_instruct
   - override /algorithm/strategy: lora

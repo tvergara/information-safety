@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - override /algorithm: finetune_with_strategy
+  - override /algorithm: attack_with_strategy
   - override /trainer: default
 
 trainer:

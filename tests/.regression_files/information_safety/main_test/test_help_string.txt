@@ -3,12 +3,12 @@ main is powered by Hydra.
 == Configuration groups ==
 Compose your configuration from those groups (group=option)
 
-algorithm: finetune_with_strategy
+algorithm: attack_with_strategy, finetune_with_strategy
 algorithm/dataset_handler: metamath
 algorithm/model: smollm3, smollm3-step0
-algorithm/strategy: lora
+algorithm/strategy: baseline, data, lora, roleplay
 cluster: beluga, cedar, current, mila, narval
-experiment: finetune-with-strategy, lora_metamath
+experiment: finetune-with-strategy, lora_metamath, safety-pair-safe, safety-pair-unsafe
 resources: cpu, gpu
 trainer: cpu, debug, default, overfit_one_batch
 trainer/callbacks: default, early_stopping, model_checkpoint, model_summary, no_checkpoints, none, rich_progress_bar

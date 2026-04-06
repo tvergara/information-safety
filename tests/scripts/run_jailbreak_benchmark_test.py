@@ -6,34 +6,64 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from scripts.run_jailbreak_benchmark import run_benchmark
+import torch
+
+from information_safety.algorithms.jailbreak.prompt_methods import PromptAttackMethod
+from scripts.run_jailbreak_benchmark import run_method
 
 
-def test_run_benchmark_writes_eval_results(tmp_path: Path) -> None:
-    behaviors_file = tmp_path / "behaviors.jsonl"
-    with open(behaviors_file, "w") as f:
-        f.write(json.dumps({"behavior": "b1", "category": "c1"}) + "\n")
-
-    output_dir = tmp_path / "run"
+def test_run_method_writes_artifacts_and_result_row(tmp_path: Path) -> None:
+    generations_dir = tmp_path / "generations"
+    results_file = tmp_path / "results.jsonl"
 
     model = MagicMock()
+    model.device = torch.device("cpu")
+    model.generate.side_effect = lambda input_ids, **kw: torch.cat(
+        [input_ids, torch.full((input_ids.shape[0], 2), 99)], dim=1,
+    )
+
     tokenizer = MagicMock()
+    tokenizer.side_effect = lambda text, **kw: {
+        "input_ids": torch.tensor([[1, 2, 3]]),
+        "attention_mask": torch.tensor([[1, 1, 1]]),
+    }
+    tokenizer.decode.return_value = "mock-response"
+    tokenizer.pad_token_id = 0
+
+    behaviors = [
+        {"behavior": "b1", "category": "c1"},
+        {"behavior": "b2", "category": "c2"},
+    ]
 
     with patch(
-        "scripts.run_jailbreak_benchmark.load_target_model",
-        return_value=(model, tokenizer),
-    ), patch(
-        "scripts.run_jailbreak_benchmark.evaluate_generation_dir",
-        return_value={"overall_asr": 0.5},
+        "scripts.run_jailbreak_benchmark.compute_cross_entropy_bits",
+        return_value=42.0,
     ):
-        results = run_benchmark(
-            behaviors_file=str(behaviors_file),
-            output_dir=str(output_dir),
-            model_name_or_path="mock-model",
-            methods=["zero_shot"],
+        run_method(
+            method=PromptAttackMethod.ZERO_SHOT,
+            behaviors=behaviors,
+            model=model,
+            tokenizer=tokenizer,
+            model_name="test-model",
             max_new_tokens=4,
-            evaluate=True,
+            seed=42,
+            results_file=results_file,
+            generations_dir=generations_dir,
         )
 
-    assert results["overall_asr"] == 0.5
-    assert (output_dir / "attack_results.jsonl").exists()
+    assert results_file.exists()
+    rows = [json.loads(line) for line in results_file.read_text().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["experiment_name"] == "zero_shot"
+    assert rows[0]["model_name"] == "test-model"
+    assert rows[0]["bits"] == 42.0
+    assert rows[0]["asr"] is None
+
+    eval_run_id = rows[0]["eval_run_id"]
+    run_dir = generations_dir / eval_run_id
+    assert (run_dir / "input_data.jsonl").exists()
+    assert (run_dir / "responses.jsonl").exists()
+
+    responses = [json.loads(line) for line in (run_dir / "responses.jsonl").read_text().splitlines()]
+    assert len(responses) == 2
+    assert responses[0]["response"] == "mock-response"

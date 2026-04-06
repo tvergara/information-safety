@@ -1,4 +1,4 @@
-"""Tests for FinetuneWithStrategy LightningModule."""
+"""Tests for AttackWithStrategy LightningModule."""
 
 from __future__ import annotations
 
@@ -6,16 +6,16 @@ from unittest.mock import MagicMock, patch
 
 import torch
 
-from information_safety.algorithms.finetune_with_strategy import FinetuneWithStrategy
+from information_safety.algorithms.attack_with_strategy import AttackWithStrategy
 
 
-class TestFinetuneWithStrategy:
-    def _make_module(self) -> FinetuneWithStrategy:
+class TestAttackWithStrategy:
+    def _make_module(self) -> AttackWithStrategy:
         network_config = MagicMock()
         tokenizer_config = MagicMock()
         strategy = MagicMock()
         dataset_handler = MagicMock()
-        return FinetuneWithStrategy(
+        return AttackWithStrategy(
             network_config=network_config,
             tokenizer_config=tokenizer_config,
             strategy=strategy,
@@ -23,10 +23,10 @@ class TestFinetuneWithStrategy:
         )
 
     @patch(
-        "information_safety.algorithms.finetune_with_strategy.AutoTokenizer.from_pretrained"
+        "information_safety.algorithms.attack_with_strategy.AutoTokenizer.from_pretrained"
     )
     @patch(
-        "information_safety.algorithms.finetune_with_strategy.load_model"
+        "information_safety.algorithms.attack_with_strategy.load_model"
     )
     def test_configure_model_loads_model_and_tokenizer(
         self, mock_load_model: MagicMock, mock_tokenizer: MagicMock
@@ -52,10 +52,10 @@ class TestFinetuneWithStrategy:
         mock_tokenizer.assert_called_once()
 
     @patch(
-        "information_safety.algorithms.finetune_with_strategy.AutoTokenizer.from_pretrained"
+        "information_safety.algorithms.attack_with_strategy.AutoTokenizer.from_pretrained"
     )
     @patch(
-        "information_safety.algorithms.finetune_with_strategy.load_model"
+        "information_safety.algorithms.attack_with_strategy.load_model"
     )
     def test_pad_token_set_to_eos_when_missing(
         self, mock_load_model: MagicMock, mock_tokenizer: MagicMock
