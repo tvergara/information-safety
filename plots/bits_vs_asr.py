@@ -14,6 +14,8 @@ MODELS = [
     ("safety-pair-unsafe", "tab:red", "s", "SmolLM3-3B (unsafe)"),
     ("meta-llama/Llama-2-7b-chat-hf", "tab:green", "^", "Llama-2-7B-Chat"),
     ("meta-llama/Meta-Llama-3-8B-Instruct", "tab:purple", "D", "Llama-3-8B-Instruct"),
+    ("GraySwanAI/Llama-3-8B-Instruct-RR", "tab:orange", "v", "Llama-3-8B-RR"),
+    ("allenai/Olmo-3-7B-Instruct", "tab:brown", "P", "OLMo-3-7B-Instruct"),
 ]
 
 
