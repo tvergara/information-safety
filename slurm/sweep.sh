@@ -52,6 +52,34 @@ python information_safety/main.py \
 SBATCH
     echo "Submitted baseline-${MODEL_KEY}"
 
+    sbatch \
+        --job-name="roleplay-${MODEL_KEY}" \
+        --partition=long \
+        --gres=gpu:1 \
+        --cpus-per-task=4 \
+        --mem=48G \
+        --time=2:00:00 \
+        --output=/network/scratch/b/brownet/information-safety/slurm-logs/slurm-%j.out \
+        <<SBATCH
+#!/bin/bash
+source /etc/profile.d/modules.sh 2>/dev/null
+module load cuda/12.4.1
+cd /home/mila/b/brownet/information-safety
+source .venv/bin/activate
+export PROJECT_ROOT=/home/mila/b/brownet/information-safety
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export HYDRA_FULL_ERROR=1
+python information_safety/main.py \
+    experiment=finetune-with-strategy \
+    algorithm/dataset_handler=advbench_harmbench \
+    algorithm/strategy=roleplay \
+    algorithm.model.pretrained_model_name_or_path=${MODEL_PATH} \
+    algorithm.model.trust_remote_code=${TRUST_REMOTE_VALUE} \
+    trainer.precision=bf16-mixed \
+    name=roleplay-${MODEL_KEY}
+SBATCH
+    echo "Submitted roleplay-${MODEL_KEY}"
+
     for MAX_EX in 10 50 100 250 null; do
         JOB_SUFFIX=${MAX_EX}
 
