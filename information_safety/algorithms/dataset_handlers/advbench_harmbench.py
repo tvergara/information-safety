@@ -33,6 +33,7 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
 
     max_length: int = 500
     batch_size: int = 8
+    max_new_tokens: int = 320
     generations_dir: str = ""
     dataset_name: str = ""
     max_examples: int | None = None
@@ -130,7 +131,7 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
             generated_ids = model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                max_new_tokens=320,
+                max_new_tokens=self.max_new_tokens,
                 pad_token_id=tokenizer.pad_token_id,
             )
 

@@ -22,6 +22,7 @@ class BaseDatasetHandler(ABC):
     max_length: int
     dataset_name: str
     max_examples: int | None
+    max_new_tokens: int = 320
 
     @abstractmethod
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Dataset:
