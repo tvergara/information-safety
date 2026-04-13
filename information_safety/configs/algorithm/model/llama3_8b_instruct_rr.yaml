@@ -1,4 +1,0 @@
-pretrained_model_name_or_path: GraySwanAI/Llama-3-8B-Instruct-RR
-torch_dtype: bfloat16
-trust_remote_code: false
-from_config: false

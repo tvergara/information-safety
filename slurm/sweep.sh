@@ -8,7 +8,6 @@ MODEL_PATHS[safety-pair-safe]=${MODELS_DIR}/safety-pair-safe
 MODEL_PATHS[safety-pair-unsafe]=${MODELS_DIR}/safety-pair-unsafe
 MODEL_PATHS[llama2]=meta-llama/Llama-2-7b-chat-hf
 MODEL_PATHS[llama3]=meta-llama/Meta-Llama-3-8B-Instruct
-MODEL_PATHS[llama3-rr]=GraySwanAI/Llama-3-8B-Instruct-RR
 MODEL_PATHS[olmo3]=allenai/Olmo-3-7B-Instruct
 MODEL_PATHS[qwen3-4b]=Qwen/Qwen3-4B
 
