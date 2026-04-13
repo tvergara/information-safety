@@ -1,0 +1,4 @@
+pretrained_model_name_or_path: Qwen/Qwen3-4B
+torch_dtype: bfloat16
+trust_remote_code: false
+from_config: false

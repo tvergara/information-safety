@@ -19,6 +19,7 @@ MODELS = [
     "meta-llama/Meta-Llama-3-8B-Instruct",
     "GraySwanAI/Llama-3-8B-Instruct-RR",
     "allenai/Olmo-3-7B-Instruct",
+    "Qwen/Qwen3-4B",
 ]
 
 CONFIGS: list[dict[str, Any]] = []
