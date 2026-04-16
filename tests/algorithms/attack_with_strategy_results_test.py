@@ -68,6 +68,7 @@ class TestResultsTracking:
         mock_trainer = MagicMock()
         mock_trainer.logger = None
         mock_trainer.sanity_checking = False
+        mock_trainer.max_epochs = 1
         module._trainer = mock_trainer
 
         module.on_validation_epoch_start()
@@ -111,6 +112,7 @@ class TestResultsTracking:
         mock_trainer = MagicMock()
         mock_trainer.logger = None
         mock_trainer.sanity_checking = False
+        mock_trainer.max_epochs = 1
         module._trainer = mock_trainer
 
         module.on_validation_epoch_start()
@@ -141,6 +143,7 @@ class TestResultsTracking:
         mock_trainer = MagicMock()
         mock_trainer.logger = None
         mock_trainer.sanity_checking = False
+        mock_trainer.max_epochs = 1
         module._trainer = mock_trainer
 
         module.on_validation_epoch_start()
@@ -168,6 +171,7 @@ class TestResultsTracking:
         mock_trainer = MagicMock()
         mock_trainer.logger.experiment.id = "wandb-abc123"
         mock_trainer.sanity_checking = False
+        mock_trainer.max_epochs = 1
         module._trainer = mock_trainer
 
         module.on_validation_epoch_start()
@@ -199,6 +203,7 @@ class TestResultsTracking:
         mock_trainer = MagicMock()
         mock_trainer.logger = None
         mock_trainer.sanity_checking = False
+        mock_trainer.max_epochs = 1
         module._trainer = mock_trainer
 
         module.on_validation_epoch_start()
@@ -212,6 +217,41 @@ class TestResultsTracking:
         save_completions_mock = cast(MagicMock, module.dataset_handler.save_completions)
         save_call_id = save_completions_mock.call_args[0][0]
         assert row["eval_run_id"] == save_call_id
+
+
+    @patch.object(AttackWithStrategy, "log")
+    @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
+    @patch.object(
+        AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=1
+    )
+    def test_post_fit_validation_does_not_write_result_row(
+        self,
+        mock_epoch: MagicMock,
+        mock_rank: MagicMock,
+        mock_log: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Lightning fires a spurious validation epoch after fit() with current_epoch==max_epochs.
+
+        That pass must not write a result row or call save_completions, since no training occurred
+        between the real final epoch and this post-fit pass.
+        """
+        result_file = str(tmp_path / "results.jsonl")
+        module = self._make_module(tmp_path, result_file=result_file)
+
+        mock_trainer = MagicMock()
+        mock_trainer.logger = None
+        mock_trainer.sanity_checking = False
+        mock_trainer.max_epochs = 1  # current_epoch (1) == max_epochs (1) → spurious pass
+        module._trainer = mock_trainer
+
+        module.on_validation_epoch_start()
+        module._val_correct = 5
+        module._val_total = 10
+        module.on_validation_epoch_end()
+
+        assert not Path(result_file).exists()
+        cast(MagicMock, module.dataset_handler.save_completions).assert_not_called()
 
 
 NUM_PARAMS = 1_000_000
@@ -246,10 +286,11 @@ def _make_module_with_params(tmp_path: Path, result_file: str) -> AttackWithStra
     return module
 
 
-def _make_trainer(sanity_checking: bool = False) -> MagicMock:
+def _make_trainer(sanity_checking: bool = False, max_epochs: int = 1) -> MagicMock:
     mock_trainer = MagicMock()
     mock_trainer.logger = None
     mock_trainer.sanity_checking = sanity_checking
+    mock_trainer.max_epochs = max_epochs
     return mock_trainer
 
 

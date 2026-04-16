@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from plots.utils import load_results
 
 RESULTS_FILE = Path("/network/scratch/b/brownet/information-safety/results/final-results.jsonl")
-OUTPUT_FILE = Path(__file__).parent / "bits_distribution.pdf"
+OUTPUT_FILE = Path(__file__).parent / "bits_distribution.png"
 
 STRATEGY_ORDER = [
     "Baseline",

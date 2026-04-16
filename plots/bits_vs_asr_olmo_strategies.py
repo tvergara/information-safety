@@ -8,7 +8,7 @@ import numpy as np
 from plots.utils import load_results
 
 RESULTS_FILE = Path("/network/scratch/b/brownet/information-safety/results/final-results.jsonl")
-OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_olmo_strategy_nameegies.pdf"
+OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_olmo_strategies.png"
 
 STRATEGY_STYLE: dict[str, tuple[str, str]] = {
     "Baseline": ("tab:gray", "Baseline"),

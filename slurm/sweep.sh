@@ -22,11 +22,10 @@ for MODEL_KEY in "${!MODEL_PATHS[@]}"; do
         TRUST_REMOTE_VALUE=false
     fi
 
-    # Baseline jobs use any available GPU; data strategy jobs require a100l for VRAM.
     sbatch \
         --job-name="baseline-${MODEL_KEY}" \
         --partition=long \
-        --gres=gpu:1 \
+        --gres=gpu:a100l:1 \
         --cpus-per-task=4 \
         --mem=48G \
         --time=2:00:00 \
@@ -41,7 +40,7 @@ export PROJECT_ROOT=/home/mila/b/brownet/information-safety
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HYDRA_FULL_ERROR=1
 python information_safety/main.py \
-    experiment=finetune-with-strategy \
+    experiment=prompt-attack \
     algorithm/dataset_handler=advbench_harmbench \
     algorithm/strategy=baseline \
     algorithm.model.pretrained_model_name_or_path=${MODEL_PATH} \
@@ -54,7 +53,7 @@ SBATCH
     sbatch \
         --job-name="roleplay-${MODEL_KEY}" \
         --partition=long \
-        --gres=gpu:1 \
+        --gres=gpu:a100l:1 \
         --cpus-per-task=4 \
         --mem=48G \
         --time=2:00:00 \
@@ -69,7 +68,7 @@ export PROJECT_ROOT=/home/mila/b/brownet/information-safety
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HYDRA_FULL_ERROR=1
 python information_safety/main.py \
-    experiment=finetune-with-strategy \
+    experiment=prompt-attack \
     algorithm/dataset_handler=advbench_harmbench \
     algorithm/strategy=roleplay \
     algorithm.model.pretrained_model_name_or_path=${MODEL_PATH} \

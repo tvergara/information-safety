@@ -8,12 +8,12 @@ import numpy as np
 from plots.utils import load_results, pareto_frontier
 
 RESULTS_FILE = Path("/network/scratch/b/brownet/information-safety/results/final-results.jsonl")
-OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_openweight.pdf"
+OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_openweight.png"
 
 MODELS = [
-    ("meta-llama/Llama-2-7b-chat-hf", "tab:green", "^", "Llama-2-7B-Chat"),
     ("meta-llama/Meta-Llama-3-8B-Instruct", "tab:purple", "D", "Llama-3-8B-Instruct"),
     ("allenai/Olmo-3-7B-Instruct", "tab:brown", "P", "OLMo-3-7B-Instruct"),
+    ("Qwen/Qwen3-4B", "tab:orange", "s", "Qwen3-4B"),
 ]
 
 
@@ -74,7 +74,7 @@ def main() -> None:
     ax.set_xlim(xlim)
     ax.set_xlabel("Program Length (bits)")
     ax.set_ylabel("ASR (%)")
-    ax.set_title("HarmBench — Open-Weight Models")
+    ax.set_title("HarmBench")
     ax.legend(fontsize=14)
     ax.grid(True, alpha=0.3)
 

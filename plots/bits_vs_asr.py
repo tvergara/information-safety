@@ -7,12 +7,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 RESULTS_FILE = Path("/network/scratch/b/brownet/information-safety/results/final-results.jsonl")
-OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr.pdf"
+OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr.png"
 
 MODELS = [
     ("safety-pair-safe", "tab:blue", "o", "SmolLM3-3B (safe)"),
     ("safety-pair-unsafe", "tab:red", "s", "SmolLM3-3B (unsafe)"),
-    ("meta-llama/Llama-2-7b-chat-hf", "tab:green", "^", "Llama-2-7B-Chat"),
     ("meta-llama/Meta-Llama-3-8B-Instruct", "tab:purple", "D", "Llama-3-8B-Instruct"),
     ("GraySwanAI/Llama-3-8B-Instruct-RR", "tab:orange", "v", "Llama-3-8B-RR"),
     ("allenai/Olmo-3-7B-Instruct", "tab:brown", "P", "OLMo-3-7B-Instruct"),
@@ -54,6 +53,7 @@ def pareto_frontier(
 def main() -> None:
     rows = load_results(RESULTS_FILE)
 
+    plt.rcParams.update({"font.size": 18})
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.set_xscale("log")
 
@@ -76,7 +76,7 @@ def main() -> None:
         nonzero = all_bits > 0
         ax.scatter(
             all_bits[nonzero], all_asr[nonzero], marker=marker, color=color,
-            edgecolors="black", linewidths=0.5, s=40, alpha=0.5, zorder=3,
+            edgecolors="black", linewidths=0.5, s=120, alpha=0.5, zorder=3,
         )
 
         pareto_data.append((all_bits, all_asr, color, label))
@@ -101,13 +101,13 @@ def main() -> None:
         p_bits = np.concatenate([p_bits, [xlim[1]]])
         p_asr = np.concatenate([p_asr, [p_asr[-1]]])
 
-        ax.step(p_bits, p_asr, "-", color=color, linewidth=2, label=label, where="post", zorder=4)
+        ax.step(p_bits, p_asr, "-", color=color, linewidth=4, label=label, where="post", zorder=4)
 
     ax.set_xlim(xlim)
     ax.set_xlabel("Program Length (bits)")
     ax.set_ylabel("ASR (%)")
     ax.set_title("HarmBench")
-    ax.legend(fontsize=8)
+    ax.legend(fontsize=14)
     ax.grid(True, alpha=0.3)
 
     fig.tight_layout()

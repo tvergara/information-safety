@@ -8,7 +8,7 @@ import numpy as np
 from plots.utils import load_results, pareto_frontier
 
 RESULTS_FILE = Path("/network/scratch/b/brownet/information-safety/results/final-results.jsonl")
-OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_smollm.pdf"
+OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_smollm.png"
 
 MODELS = [
     ("safety-pair-safe", "tab:blue", "o", "SmolLM3-3B (safe)"),
@@ -73,7 +73,7 @@ def main() -> None:
     ax.set_xlim(xlim)
     ax.set_xlabel("Program Length (bits)")
     ax.set_ylabel("ASR (%)")
-    ax.set_title("HarmBench — SmolLM3-3B Safe vs Unsafe")
+    ax.set_title("HarmBench")
     ax.legend(fontsize=14)
     ax.grid(True, alpha=0.3)
 

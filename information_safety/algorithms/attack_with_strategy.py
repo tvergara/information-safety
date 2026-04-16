@@ -146,6 +146,11 @@ class AttackWithStrategy(LightningModule):
             self._val_total = 0
             return
 
+        if self.current_epoch >= self.trainer.max_epochs:
+            self._val_correct = 0
+            self._val_total = 0
+            return
+
         bits = self.strategy.compute_bits(self.model)
         self._val_results.append({
             "epoch": self.current_epoch,
