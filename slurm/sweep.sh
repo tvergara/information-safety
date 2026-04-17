@@ -114,3 +114,39 @@ SBATCH
         echo "Submitted sweep-${MODEL_KEY}-${JOB_SUFFIX}"
     done
 done
+
+# ------------------------------------------------------------------------------
+# GCG smoke run (llama2 only, not part of the full matrix yet).
+#
+# Prereq: run slurm/attack-gcg.sh first to produce the flat suffix JSONL, then
+# plug its path below as GCG_SUFFIX_FILE and uncomment the sbatch block.
+# ------------------------------------------------------------------------------
+# GCG_SUFFIX_FILE=/network/scratch/b/brownet/information-safety/attacks/gcg-llama2-<job>.jsonl
+# sbatch \
+#     --job-name="gcg-llama2" \
+#     --partition=long \
+#     --gres=gpu:a100l:1 \
+#     --cpus-per-task=4 \
+#     --mem=48G \
+#     --time=2:00:00 \
+#     --output=/network/scratch/b/brownet/information-safety/slurm-logs/slurm-%j.out \
+#     <<SBATCH
+# #!/bin/bash
+# source /etc/profile.d/modules.sh 2>/dev/null
+# module load cuda/12.4.1
+# cd /home/mila/b/brownet/information-safety
+# source .venv/bin/activate
+# export PROJECT_ROOT=/home/mila/b/brownet/information-safety
+# export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# export HYDRA_FULL_ERROR=1
+# python information_safety/main.py \
+#     experiment=prompt-attack \
+#     algorithm/dataset_handler=advbench_harmbench \
+#     algorithm/strategy=precomputed_suffix \
+#     algorithm.strategy.suffix_file=${GCG_SUFFIX_FILE} \
+#     algorithm.model.pretrained_model_name_or_path=${MODEL_PATHS[llama2]} \
+#     algorithm.model.trust_remote_code=false \
+#     trainer.precision=bf16-mixed \
+#     name=gcg-llama2
+# SBATCH
+# echo "Submitted gcg-llama2"
