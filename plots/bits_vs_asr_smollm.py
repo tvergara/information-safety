@@ -13,6 +13,7 @@ OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_smollm.png"
 MODELS = [
     ("safety-pair-safe", "tab:blue", "o", "SmolLM3-3B (safe)"),
     ("safety-pair-unsafe", "tab:red", "s", "SmolLM3-3B (unsafe)"),
+    ("smollm3-circuit-breaker", "tab:orange", "v", "SmolLM3-3B-RR"),
 ]
 
 
