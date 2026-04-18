@@ -126,6 +126,18 @@ fi
     # pymongo.MongoClient for mongomock when this flag is set.
     export ADVERSARIALLM_USE_MONGOMOCK=1
     export MONGODB_DB=adversariallm
+    # Warm up `transformers` imports. When many array tasks cold-start at once,
+    # the shared venv's transformers package hits transient NFS FileNotFoundError
+    # on individual model files. Retrying after a short backoff lets the FS
+    # cache catch up.
+    for attempt in 1 2 3 4 5; do
+        if python -c "import transformers, adversariallm.attacks" 2>/tmp/import-err.$$; then
+            break
+        fi
+        echo "Import attempt $attempt failed; retrying after backoff" >&2
+        cat /tmp/import-err.$$ >&2
+        sleep $((attempt * 10))
+    done
     # shellcheck disable=SC2086
     python run_attacks.py \
         attack="${ATTACK_KEY}" \
