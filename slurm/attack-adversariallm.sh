@@ -102,6 +102,13 @@ module load cuda/12.4.1 || true
 
 cd /home/mila/b/brownet/information-safety
 
+# Stagger cold-start across array tasks to reduce concurrent NFS pressure on
+# the transformers package walk (transient FileNotFoundError on ~50% of tasks
+# when all 8 shards start simultaneously).
+if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+    sleep $(( SLURM_ARRAY_TASK_ID * 15 ))
+fi
+
 source .venv/bin/activate
 python -c "
 import pandas as pd
@@ -129,14 +136,25 @@ fi
     # Warm up `transformers` imports. When many array tasks cold-start at once,
     # the shared venv's transformers package hits transient NFS FileNotFoundError
     # on individual model files. Retrying after a short backoff lets the FS
-    # cache catch up.
-    for attempt in 1 2 3 4 5; do
-        if python -c "import transformers, adversariallm.attacks" 2>/tmp/import-err.$$; then
+    # cache catch up. Run the full auto-module walk (`AutoModel.from_pretrained`
+    # dispatch triggers it lazily) by enumerating every subpackage.
+    for attempt in 1 2 3 4 5 6 7 8; do
+        if python -c "
+import importlib, pkgutil
+import transformers
+import transformers.models
+for _, name, _ in pkgutil.iter_modules(transformers.models.__path__):
+    try:
+        importlib.import_module(f'transformers.models.{name}')
+    except Exception:
+        pass
+import adversariallm.attacks
+" 2>/tmp/import-err.$$; then
             break
         fi
         echo "Import attempt $attempt failed; retrying after backoff" >&2
         cat /tmp/import-err.$$ >&2
-        sleep $((attempt * 10))
+        sleep $((attempt * 15))
     done
     # shellcheck disable=SC2086
     python run_attacks.py \
