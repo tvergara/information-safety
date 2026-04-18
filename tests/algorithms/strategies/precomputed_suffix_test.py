@@ -49,8 +49,8 @@ class TestSetup:
 
         assert result is model
         assert len(strategy._lookup) == 2
-        assert strategy._lookup["beh_A"] == "prompt_A"
-        assert strategy._lookup["beh_B"] == "prompt_B"
+        assert strategy._lookup["beh_a"] == "prompt_A"
+        assert strategy._lookup["beh_b"] == "prompt_B"
 
     def test_setup_raises_on_missing_behavior(self, tmp_path: Path) -> None:
         suffix_path = _make_suffix_file(
@@ -69,6 +69,32 @@ class TestSetup:
 
         with pytest.raises(ValueError, match="Missing 1 behavior"):
             strategy.setup(model, handler, pl_module)
+
+    def test_setup_matches_across_whitespace_and_case(self, tmp_path: Path) -> None:
+        """Behavior strings differ in whitespace/case between the CSV AdversariaLLM reads and the
+        HF split our eval reads for 1/200 HarmBench standard rows.
+
+        Matching must ignore those differences.
+        """
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {"behavior": "  Beh_A  with   spaces", "adversarial_prompt": "prompt_A"},
+            ],
+        )
+        strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        tokenizer = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = tokenizer
+
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_val_dataset(
+            ["beh_a with spaces"]
+        )
+
+        strategy.setup(model, handler, pl_module)
 
 
 class TestComputeBits:
@@ -145,3 +171,47 @@ class TestValidationStep:
         ]
         assert "prompt_A" in contents
         assert "prompt_B" in contents
+
+    def test_validation_step_matches_across_whitespace_and_case(
+        self, tmp_path: Path
+    ) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [{"behavior": "  Beh_A  with   spaces", "adversarial_prompt": "prompt_A"}],
+        )
+        strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        tokenizer = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = tokenizer
+        handler_setup = MagicMock()
+        handler_setup.get_val_dataset.return_value = _make_val_dataset(
+            ["beh_a with spaces"]
+        )
+        strategy.setup(model, handler_setup, pl_module)
+
+        metadata = json.dumps({"behavior": "beh_a with spaces", "category": "c"})
+        batch = {
+            "input_ids": torch.tensor([[1, 2, 3]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+            "labels": [metadata],
+        }
+        tokenizer.apply_chat_template.return_value = "formatted"
+        tokenizer.return_value = {
+            "input_ids": torch.tensor([[10, 20]]),
+            "attention_mask": torch.tensor([[1, 1]]),
+        }
+        tokenizer.pad_token_id = 0
+
+        handler = MagicMock()
+        handler.validate_batch.return_value = (0, 1)
+        handler.max_length = 500
+
+        strategy.validation_step(model, tokenizer, batch, handler)
+
+        call = tokenizer.apply_chat_template.call_args_list[0]
+        content = (call.args[0] if call.args else call.kwargs["conversation"])[0][
+            "content"
+        ]
+        assert content == "prompt_A"

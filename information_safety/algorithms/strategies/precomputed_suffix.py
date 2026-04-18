@@ -13,12 +13,18 @@ from information_safety.algorithms.dataset_handlers.base import BaseDatasetHandl
 from information_safety.algorithms.strategies.base import BaseStrategy
 
 
+def _normalize_behavior(behavior: str) -> str:
+    return " ".join(behavior.split()).lower()
+
+
 @dataclass
 class PrecomputedSuffixStrategy(BaseStrategy):
     """Inject a per-behavior adversarial prompt loaded from a JSONL lookup file.
 
     The JSONL must contain one row per behavior with `behavior` and `adversarial_prompt`
     string fields. Every behavior in the validation dataset must be present in the file.
+    Behaviors are matched on a whitespace- and case-normalized key to absorb minor
+    drift between the HarmBench CSV (AdversariaLLM) and HF split (our eval).
     """
 
     suffix_file: str = ""
@@ -40,13 +46,13 @@ class PrecomputedSuffixStrategy(BaseStrategy):
                 if not stripped:
                     continue
                 row = json.loads(stripped)
-                self._lookup[row["behavior"]] = row["adversarial_prompt"]
+                self._lookup[_normalize_behavior(row["behavior"])] = row["adversarial_prompt"]
 
         val_dataset = handler.get_val_dataset(tokenizer)
         missing = 0
         for item in val_dataset:
             meta = json.loads(item["labels"])
-            if meta["behavior"] not in self._lookup:
+            if _normalize_behavior(meta["behavior"]) not in self._lookup:
                 missing += 1
 
         if missing:
@@ -75,8 +81,7 @@ class PrecomputedSuffixStrategy(BaseStrategy):
         new_prompts: list[str] = []
         for meta_str in metadata_strs:
             meta = json.loads(meta_str)
-            behavior = meta["behavior"]
-            adversarial_prompt = self._lookup[behavior]
+            adversarial_prompt = self._lookup[_normalize_behavior(meta["behavior"])]
 
             prompt_text: str = tokenizer.apply_chat_template(  # type: ignore[assignment]
                 [{"role": "user", "content": adversarial_prompt}],
