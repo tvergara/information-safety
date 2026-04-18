@@ -21,17 +21,24 @@ MODELS = [
     "Qwen/Qwen3-4B",
 ]
 
+ATTACK_MODELS = [
+    "meta-llama/Llama-2-7b-chat-hf",
+    "meta-llama/Meta-Llama-3-8B-Instruct",
+    "allenai/Olmo-3-7B-Instruct",
+    "Qwen/Qwen3-4B",
+    "/network/scratch/b/brownet/information-safety/models/smollm3-circuit-breaker",
+]
+
 CONFIGS: list[dict[str, Any]] = []
 
-# Baseline: one per model, epochs 0 and 1
+# Baseline: one per model, epoch 0 only (no training)
 for model in MODELS:
-    for epoch in [0, 1]:
-        CONFIGS.append({
-            "experiment_name": "BaselineStrategy",
-            "model_name": model,
-            "max_examples": None,
-            "epoch": epoch,
-        })
+    CONFIGS.append({
+        "experiment_name": "BaselineStrategy",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
 
 # DataStrategy: sweep over max_examples, epochs 0 and 1
 DATA_MAX_EXAMPLES = [10, 50, 100, 250, None]
@@ -47,6 +54,19 @@ for model, max_ex, epoch in product(MODELS, DATA_MAX_EXAMPLES, [0, 1]):
 for model in MODELS:
     CONFIGS.append({
         "experiment_name": "RoleplayStrategy",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+# Precomputed adversarial-prompt attacks (GCG, AutoDAN): one per attack model,
+# epoch 0 only (no training — the attack prompts come from an upstream run).
+for model, attack in product(
+    ATTACK_MODELS,
+    ["PrecomputedGCGStrategy", "PrecomputedAutoDANStrategy"],
+):
+    CONFIGS.append({
+        "experiment_name": attack,
         "model_name": model,
         "max_examples": None,
         "epoch": 0,
