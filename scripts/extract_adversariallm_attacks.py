@@ -1,8 +1,9 @@
-"""Convert AdversariaLLM GCG attack-phase output into a flat `{behavior, adversarial_prompt}`
-JSONL.
+"""Convert AdversariaLLM attack-phase output into a flat `{behavior, adversarial_prompt,
+attack_flops}` JSONL.
 
-AdversariaLLM writes one `run.json` per behavior under `<save_dir>/<timestamp>/<i>/run.json`.
-Each `run.json` has:
+Works for any AdversariaLLM attack whose `run.json` follows the shared schema (GCG, AutoDAN,
+PAIR, PGD, ...). AdversariaLLM writes one `run.json` per behavior under
+`<save_dir>/<timestamp>/<i>/run.json`. Each `run.json` has:
     {
         "config": {...},
         "runs": [
@@ -18,7 +19,8 @@ Each `run.json` has:
     }
 
 We pick the step with the lowest loss as the final adversarial prompt. The user turn of that step's
-`model_input` is the optimized prompt (original behavior + optimized suffix).
+`model_input` is the optimized prompt (with the attack's placement — suffix for GCG, prefix for
+AutoDAN, etc.).
 """
 
 from __future__ import annotations
@@ -42,8 +44,8 @@ def _extract_pair(run_json: dict, run_file: str) -> tuple[str, str, int]:
 
     best_idx = min(range(len(steps)), key=lambda i: steps[i]["loss"])
     adversarial_prompt: str = steps[best_idx]["model_input"][0]["content"]
-    gcg_flops: int = sum(step["flops"] for step in steps)
-    return behavior, adversarial_prompt, gcg_flops
+    attack_flops: int = sum(step["flops"] for step in steps)
+    return behavior, adversarial_prompt, attack_flops
 
 
 def convert_run_dir(run_dir: str, output_file: str) -> None:
@@ -56,7 +58,7 @@ def convert_run_dir(run_dir: str, output_file: str) -> None:
     for run_file in run_files:
         with open(run_file) as f:
             run_json = json.load(f)
-        behavior, adversarial_prompt, gcg_flops = _extract_pair(run_json, run_file)
+        behavior, adversarial_prompt, attack_flops = _extract_pair(run_json, run_file)
         if behavior in seen:
             raise ValueError(
                 f"duplicate behavior across runs: {run_file} and {seen[behavior]}"
@@ -65,7 +67,7 @@ def convert_run_dir(run_dir: str, output_file: str) -> None:
         rows.append({
             "behavior": behavior,
             "adversarial_prompt": adversarial_prompt,
-            "gcg_flops": gcg_flops,
+            "attack_flops": attack_flops,
         })
 
     os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)

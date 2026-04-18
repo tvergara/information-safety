@@ -1,4 +1,11 @@
-"""Prompt-based strategy that injects precomputed per-behavior adversarial prompts."""
+"""Prompt-based strategies that inject precomputed per-behavior adversarial prompts.
+
+Each attack (GCG, AutoDAN, ...) runs upstream (e.g. via AdversariaLLM), emits a flat
+JSONL with `{behavior, adversarial_prompt, attack_flops}`, and is replayed here at
+eval time. The base class is placement-agnostic (it replaces the whole user turn),
+so it works for suffix- and prefix-placed attacks alike. Each concrete attack lives
+in its own subclass so plots see a distinct `experiment_name`.
+"""
 
 from __future__ import annotations
 
@@ -18,19 +25,19 @@ def _normalize_behavior(behavior: str) -> str:
 
 
 @dataclass
-class PrecomputedSuffixStrategy(BaseStrategy):
-    """Inject a per-behavior adversarial prompt loaded from a JSONL lookup file.
+class PrecomputedAdversarialPromptStrategy(BaseStrategy):
+    """Inject a per-behavior adversarial prompt loaded from a JSONL file.
 
     The JSONL must contain one row per behavior with `behavior` and `adversarial_prompt`
-    string fields. Every behavior in the validation dataset must be present in the file.
-    Behaviors are matched on a whitespace- and case-normalized key to absorb minor
-    drift between the HarmBench CSV (AdversariaLLM) and HF split (our eval).
+    string fields, plus `attack_flops` (or legacy `gcg_flops`). Every behavior in the
+    validation dataset must be present in the file. Behaviors are matched on a
+    whitespace- and case-normalized key to absorb minor drift between the HarmBench CSV
+    (AdversariaLLM) and HF split (our eval).
     """
 
-    suffix_file: str = ""
+    suffix_file: str
     _lookup: dict[str, str] = field(default_factory=dict, repr=False)
-    _gcg_flops_total: int = 0
-    _tokenizer: PreTrainedTokenizerBase | None = None
+    _attack_flops_total: int = 0
 
     def setup(
         self,
@@ -39,7 +46,6 @@ class PrecomputedSuffixStrategy(BaseStrategy):
         pl_module: Any,
     ) -> Any:
         tokenizer: PreTrainedTokenizerBase = pl_module.tokenizer
-        self._tokenizer = tokenizer
 
         with open(self.suffix_file) as f:
             for line in f:
@@ -48,7 +54,12 @@ class PrecomputedSuffixStrategy(BaseStrategy):
                     continue
                 row = json.loads(stripped)
                 self._lookup[_normalize_behavior(row["behavior"])] = row["adversarial_prompt"]
-                self._gcg_flops_total += row["gcg_flops"]
+                # TODO(merge-attack-flops-column): drop the `gcg_flops` branch once
+                # all legacy GCG attack JSONLs have been re-extracted.
+                if "attack_flops" in row:
+                    self._attack_flops_total += row["attack_flops"]
+                else:
+                    self._attack_flops_total += row["gcg_flops"]
 
         val_dataset = handler.get_val_dataset(tokenizer)
         missing = 0
@@ -68,7 +79,7 @@ class PrecomputedSuffixStrategy(BaseStrategy):
         return 0
 
     def attack_flops(self) -> int:
-        return self._gcg_flops_total
+        return self._attack_flops_total
 
     def configure_optimizers(self, model: Any) -> torch.optim.AdamW:
         dummy = torch.nn.Parameter(torch.empty(0), requires_grad=True)
@@ -115,3 +126,13 @@ class PrecomputedSuffixStrategy(BaseStrategy):
         }
 
         return handler.validate_batch(model, tokenizer, modified_batch)
+
+
+@dataclass
+class PrecomputedGCGStrategy(PrecomputedAdversarialPromptStrategy):
+    """GCG (Zou et al., 2023): suffix-placed, discrete-optimization adversarial prompt."""
+
+
+@dataclass
+class PrecomputedAutoDANStrategy(PrecomputedAdversarialPromptStrategy):
+    """AutoDAN (Liu et al., 2023): prefix-placed, genetic-algorithm adversarial prompt."""

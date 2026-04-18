@@ -204,4 +204,5 @@ def test_convert_run_dir_sums_flops_across_steps(tmp_path: Path) -> None:
     with open(out_file) as f:
         rows = [json.loads(line) for line in f if line.strip()]
     assert len(rows) == 1
-    assert rows[0]["gcg_flops"] == 350
+    assert rows[0]["attack_flops"] == 350
+    assert "gcg_flops" not in rows[0]

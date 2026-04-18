@@ -1,4 +1,4 @@
-"""Tests for PrecomputedSuffixStrategy."""
+"""Tests for the precomputed adversarial prompt strategies (GCG, AutoDAN)."""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
-from information_safety.algorithms.strategies.precomputed_suffix import (
-    PrecomputedSuffixStrategy,
+from information_safety.algorithms.strategies.precomputed_adversarial_prompt import (
+    PrecomputedAutoDANStrategy,
+    PrecomputedGCGStrategy,
 )
 
 
@@ -18,7 +19,7 @@ def _make_suffix_file(tmp_path: Path, entries: list[dict]) -> Path:
     path = tmp_path / "suffixes.jsonl"
     with open(path, "w") as f:
         for entry in entries:
-            row = {"gcg_flops": 0, **entry}
+            row = {"attack_flops": 0, **entry}
             f.write(json.dumps(row) + "\n")
     return path
 
@@ -36,7 +37,7 @@ class TestSetup:
                 {"behavior": "beh_B", "adversarial_prompt": "prompt_B"},
             ],
         )
-        strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
 
         model = MagicMock()
         tokenizer = MagicMock()
@@ -58,7 +59,7 @@ class TestSetup:
             tmp_path,
             [{"behavior": "beh_A", "adversarial_prompt": "prompt_A"}],
         )
-        strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
 
         model = MagicMock()
         tokenizer = MagicMock()
@@ -83,7 +84,7 @@ class TestSetup:
                 {"behavior": "  Beh_A  with   spaces", "adversarial_prompt": "prompt_A"},
             ],
         )
-        strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
 
         model = MagicMock()
         tokenizer = MagicMock()
@@ -101,20 +102,46 @@ class TestSetup:
 class TestComputeBits:
     def test_returns_zero(self, tmp_path: Path) -> None:
         suffix_path = _make_suffix_file(tmp_path, [])
-        strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
         assert strategy.compute_bits(MagicMock()) == 0
 
 
 class TestAttackFlops:
-    def test_sums_gcg_flops_across_rows(self, tmp_path: Path) -> None:
+    def test_sums_attack_flops_across_rows(self, tmp_path: Path) -> None:
         suffix_path = _make_suffix_file(
             tmp_path,
             [
-                {"behavior": "beh_A", "adversarial_prompt": "prompt_A", "gcg_flops": 100},
-                {"behavior": "beh_B", "adversarial_prompt": "prompt_B", "gcg_flops": 250},
+                {"behavior": "beh_A", "adversarial_prompt": "prompt_A", "attack_flops": 100},
+                {"behavior": "beh_B", "adversarial_prompt": "prompt_B", "attack_flops": 250},
             ],
         )
-        strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = MagicMock()
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
+        strategy.setup(model, handler, pl_module)
+
+        assert strategy.attack_flops() == 350
+
+    def test_attack_flops_reads_legacy_gcg_flops_key(self, tmp_path: Path) -> None:
+        """Legacy JSONL files only have `gcg_flops`; fallback must read them correctly."""
+        path = tmp_path / "legacy.jsonl"
+        with open(path, "w") as f:
+            f.write(json.dumps({
+                "behavior": "beh_A",
+                "adversarial_prompt": "prompt_A",
+                "gcg_flops": 100,
+            }) + "\n")
+            f.write(json.dumps({
+                "behavior": "beh_B",
+                "adversarial_prompt": "prompt_B",
+                "gcg_flops": 250,
+            }) + "\n")
+
+        strategy = PrecomputedGCGStrategy(suffix_file=str(path))
 
         model = MagicMock()
         pl_module = MagicMock()
@@ -129,7 +156,7 @@ class TestAttackFlops:
 class TestConfigureOptimizers:
     def test_returns_dummy_optimizer(self, tmp_path: Path) -> None:
         suffix_path = _make_suffix_file(tmp_path, [])
-        strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
         optimizer = strategy.configure_optimizers(MagicMock())
         assert isinstance(optimizer, torch.optim.AdamW)
         params = list(optimizer.param_groups[0]["params"])
@@ -146,7 +173,7 @@ class TestValidationStep:
                 {"behavior": "beh_B", "adversarial_prompt": "prompt_B"},
             ],
         )
-        strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
 
         model = MagicMock()
         tokenizer = MagicMock()
@@ -201,7 +228,7 @@ class TestValidationStep:
             tmp_path,
             [{"behavior": "  Beh_A  with   spaces", "adversarial_prompt": "prompt_A"}],
         )
-        strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
 
         model = MagicMock()
         tokenizer = MagicMock()
@@ -237,3 +264,13 @@ class TestValidationStep:
             "content"
         ]
         assert content == "prompt_A"
+
+
+class TestSubclassing:
+    def test_autodan_and_gcg_have_distinct_class_names(self, tmp_path: Path) -> None:
+        suffix_path = _make_suffix_file(tmp_path, [])
+        gcg = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
+        autodan = PrecomputedAutoDANStrategy(suffix_file=str(suffix_path))
+        assert type(gcg).__name__ != type(autodan).__name__
+        assert type(gcg).__name__ == "PrecomputedGCGStrategy"
+        assert type(autodan).__name__ == "PrecomputedAutoDANStrategy"

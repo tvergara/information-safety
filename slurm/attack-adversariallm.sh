@@ -1,7 +1,7 @@
 #!/bin/bash
 # ------------------------------------------------------------------------------
-# Run a GCG attack via the AdversariaLLM submodule and convert its output to a
-# flat `{behavior, adversarial_prompt}` JSONL under
+# Run an AdversariaLLM attack (GCG, AutoDAN, PAIR, PGD, ...) and convert its
+# output to a flat `{behavior, adversarial_prompt, attack_flops}` JSONL under
 # /network/scratch/b/brownet/information-safety/attacks/.
 #
 # One-time setup (not performed by this script):
@@ -22,18 +22,33 @@
 # `sbatch --array=0` and/or `DATASET_IDX=[0,1]`.
 #
 # Environment-overridable args:
-#   MODEL_KEY          — AdversariaLLM model key (a full HF path, e.g.
-#                        meta-llama/Llama-2-7b-chat-hf — see
-#                        third_party/adversariallm/conf/models/models.yaml)
-#   DATASET_KEY        — AdversariaLLM dataset key (default adv_behaviors)
-#   NUM_STEPS          — GCG steps per behavior (default 250, AdversariaLLM default)
-#   SEARCH_WIDTH       — GCG search width (default 256)
-#   SUFFIX_LENGTH      — optim_str token count (default 20)
-#   DATASET_IDX        — explicit list selector; when unset, derived from
-#                        SLURM_ARRAY_TASK_ID as a 25-behavior slice of [0,200)
-#   OUTPUT_JSONL       — destination flat JSONL (default under attacks/)
+#   ATTACK_KEY             — AdversariaLLM attack key (default gcg; e.g. autodan,
+#                            pair, pgd, ...)
+#   MODEL_KEY              — AdversariaLLM model key (a full HF path, e.g.
+#                            meta-llama/Llama-2-7b-chat-hf — see
+#                            third_party/adversariallm/conf/models/models.yaml)
+#   DATASET_KEY            — AdversariaLLM dataset key (default adv_behaviors)
+#   HYDRA_ATTACK_OVERRIDES — space-separated Hydra key=value tokens applied to
+#                            `run_attacks.py`. Use to override per-attack knobs
+#                            (e.g. "attacks.gcg.num_steps=500 attacks.gcg.search_width=512")
+#   DATASET_IDX            — explicit list selector; when unset, derived from
+#                            SLURM_ARRAY_TASK_ID as a 25-behavior slice of [0,200)
+#   OUTPUT_JSONL           — destination flat JSONL (default under attacks/)
+#
+# Example invocations:
+#   GCG with legacy knobs:
+#     ATTACK_KEY=gcg \
+#     MODEL_KEY=meta-llama/Llama-2-7b-chat-hf \
+#     HYDRA_ATTACK_OVERRIDES="attacks.gcg.num_steps=250 attacks.gcg.search_width=256 \
+#         attacks.gcg.optim_str_init='x x x x x x x x x x x x x x x x x x x x'" \
+#     sbatch slurm/attack-adversariallm.sh
+#
+#   AutoDAN with defaults:
+#     ATTACK_KEY=autodan \
+#     MODEL_KEY=meta-llama/Meta-Llama-3.1-8B-Instruct \
+#     sbatch slurm/attack-adversariallm.sh
 # ------------------------------------------------------------------------------
-#SBATCH --job-name=attack-gcg
+#SBATCH --job-name=attack-adversariallm
 #SBATCH --partition=long
 #SBATCH --gres=gpu:1
 #SBATCH --constraint=ampere|hopper|lovelace
@@ -46,11 +61,10 @@
 
 set -euo pipefail
 
+ATTACK_KEY="${ATTACK_KEY:-gcg}"
 MODEL_KEY="${MODEL_KEY:-meta-llama/Llama-2-7b-chat-hf}"
 DATASET_KEY="${DATASET_KEY:-adv_behaviors}"
-NUM_STEPS="${NUM_STEPS:-250}"
-SEARCH_WIDTH="${SEARCH_WIDTH:-256}"
-SUFFIX_LENGTH="${SUFFIX_LENGTH:-20}"
+HYDRA_ATTACK_OVERRIDES="${HYDRA_ATTACK_OVERRIDES:-}"
 
 # Array task → 25-behavior slice of the 200-behavior standard split. Honor an
 # explicit DATASET_IDX override (e.g. for manual single-behavior smoke runs).
@@ -73,10 +87,10 @@ SCRATCH_ROOT=/network/scratch/b/brownet/information-safety
 ATTACKS_DIR="${SCRATCH_ROOT}/attacks"
 ADV_SAVE_DIR="${SCRATCH_ROOT}/adversariallm-outputs/${RUN_ID}${SHARD_SUFFIX}"
 MODEL_SLUG="${MODEL_KEY//\//_}"
-OUTPUT_JSONL="${OUTPUT_JSONL:-${ATTACKS_DIR}/gcg-${MODEL_SLUG}-${RUN_ID}${SHARD_SUFFIX}.jsonl}"
+OUTPUT_JSONL="${OUTPUT_JSONL:-${ATTACKS_DIR}/${ATTACK_KEY}-${MODEL_SLUG}-${RUN_ID}${SHARD_SUFFIX}.jsonl}"
 # Restrict AdversariaLLM to the 200 `standard` HarmBench behaviors (what our
 # eval uses via walledai/HarmBench "standard"). The upstream CSV also includes
-# 100 contextual + 100 copyright rows, which would waste GCG compute and never
+# 100 contextual + 100 copyright rows, which would waste attack compute and never
 # match our eval set.
 STANDARD_CSV="${ATTACKS_DIR}/harmbench_behaviors_standard.csv"
 UPSTREAM_CSV=/home/mila/b/brownet/information-safety/third_party/adversariallm/data/behavior_datasets/harmbench_behaviors_text_all.csv
@@ -95,10 +109,7 @@ df = pd.read_csv('${UPSTREAM_CSV}')
 df[df['FunctionalCategory'] == 'standard'].to_csv('${STANDARD_CSV}', index=False)
 "
 
-SUFFIX_INIT=$(printf 'x %.0s' $(seq "${SUFFIX_LENGTH}"))
-SUFFIX_INIT="${SUFFIX_INIT% }"
-
-# --- GCG optimization via AdversariaLLM --------------------------------------
+# --- Attack optimization via AdversariaLLM -----------------------------------
 ADVERSARIALLM_ACTIVATE="${ADVERSARIALLM_ACTIVATE:-/network/scratch/b/brownet/information-safety/envs/adversariallm/bin/activate}"
 if [[ ! -f "${ADVERSARIALLM_ACTIVATE}" ]]; then
     echo "ERROR: AdversariaLLM env activation script not found at ${ADVERSARIALLM_ACTIVATE}" >&2
@@ -115,16 +126,15 @@ fi
     # pymongo.MongoClient for mongomock when this flag is set.
     export ADVERSARIALLM_USE_MONGOMOCK=1
     export MONGODB_DB=adversariallm
+    # shellcheck disable=SC2086
     python run_attacks.py \
-        attack=gcg \
+        attack="${ATTACK_KEY}" \
         model="${MODEL_KEY}" \
         dataset="${DATASET_KEY}" \
         datasets.${DATASET_KEY}.messages_path="${STANDARD_CSV}" \
         datasets.${DATASET_KEY}.idx="${DATASET_IDX}" \
         datasets.${DATASET_KEY}.shuffle=false \
-        attacks.gcg.num_steps="${NUM_STEPS}" \
-        attacks.gcg.search_width="${SEARCH_WIDTH}" \
-        attacks.gcg.optim_str_init="${SUFFIX_INIT}" \
+        ${HYDRA_ATTACK_OVERRIDES} \
         classifiers=null \
         save_dir="${ADV_SAVE_DIR}"
 )
