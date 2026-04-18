@@ -23,6 +23,7 @@ class TestResultsTracking:
         tokenizer_config = MagicMock()
         strategy = MagicMock()
         strategy.compute_bits = MagicMock(return_value=1000)
+        strategy.attack_flops = MagicMock(return_value=0)
         dataset_handler = MagicMock()
         dataset_handler.dataset_name = "test_dataset"
         dataset_handler.max_examples = 10
@@ -265,6 +266,7 @@ def _make_module_with_params(tmp_path: Path, result_file: str) -> AttackWithStra
     tokenizer_config = MagicMock()
     strategy = MagicMock()
     strategy.compute_bits = MagicMock(return_value=1000)
+    strategy.attack_flops = MagicMock(return_value=0)
     dataset_handler = MagicMock()
     dataset_handler.dataset_name = "test_dataset"
     dataset_handler.max_examples = 10
@@ -544,6 +546,43 @@ class TestFlopsAndTimeTracking:
 
         assert module._eval_input_tokens == 0
 
+    @patch(_EXTRACT, return_value={})
+    @patch.object(AttackWithStrategy, "log")
+    @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
+    @patch.object(
+        AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
+    )
+    def test_strategy_attack_flops_added_to_result_row(
+        self,
+        mock_epoch: MagicMock,
+        mock_rank: MagicMock,
+        mock_log: MagicMock,
+        mock_extract: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """For an attack strategy (e.g. PrecomputedSuffix), avg_flops includes the pre-accrued
+        optimizer cost reported via strategy.attack_flops()."""
+        result_file = str(tmp_path / "results.jsonl")
+        module = _make_module_with_params(tmp_path, result_file)
+        module._train_flops = 0
+        module._train_time = 0.0
+        module._trainer = _make_trainer()
+        attack_flops = 7 * 10**12
+        module.strategy.attack_flops = MagicMock(return_value=attack_flops)
+
+        n = 5
+        eval_input_tokens = 100
+        _run_validation_epoch(module, val_correct=0, val_total=n, eval_input_tokens=eval_input_tokens)
+
+        eval_output_tokens = n * MAX_NEW_TOKENS
+        expected_eval_flops = 2 * NUM_PARAMS * (eval_input_tokens + eval_output_tokens)
+        expected_avg_flops = attack_flops + expected_eval_flops / n
+
+        with open(result_file) as f:
+            row = json.loads(f.readline())
+
+        assert row["avg_flops_per_example"] == expected_avg_flops
+
     def test_configure_model_sets_num_params(self) -> None:
         """configure_model() sets _num_params from
         model.num_parameters(exclude_embeddings=True)."""
@@ -565,6 +604,7 @@ class TestFlopsAndTimeTracking:
             tokenizer_config = MagicMock()
             strategy = MagicMock()
             strategy.compute_bits = MagicMock(return_value=0)
+            strategy.attack_flops = MagicMock(return_value=0)
             dataset_handler = MagicMock()
 
             module = AttackWithStrategy(

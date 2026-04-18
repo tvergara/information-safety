@@ -38,6 +38,7 @@ def test_convert_run_dir_emits_one_row_per_behavior(tmp_path: Path) -> None:
             {
                 "step": 0,
                 "loss": 2.0,
+                "flops": 100,
                 "model_input": [
                     {"role": "user", "content": "beh_A suffix_init"},
                     {"role": "assistant", "content": ""},
@@ -47,6 +48,7 @@ def test_convert_run_dir_emits_one_row_per_behavior(tmp_path: Path) -> None:
             {
                 "step": 1,
                 "loss": 0.5,
+                "flops": 200,
                 "model_input": [
                     {"role": "user", "content": "beh_A suffix_opt"},
                     {"role": "assistant", "content": ""},
@@ -62,6 +64,7 @@ def test_convert_run_dir_emits_one_row_per_behavior(tmp_path: Path) -> None:
             {
                 "step": 0,
                 "loss": 1.5,
+                "flops": 300,
                 "model_input": [
                     {"role": "user", "content": "beh_B suffix_B"},
                     {"role": "assistant", "content": ""},
@@ -93,6 +96,7 @@ def test_convert_run_dir_selects_lowest_loss_step(tmp_path: Path) -> None:
             {
                 "step": 0,
                 "loss": 3.0,
+                "flops": 10,
                 "model_input": [
                     {"role": "user", "content": "beh_A worst"},
                     {"role": "assistant", "content": ""},
@@ -102,6 +106,7 @@ def test_convert_run_dir_selects_lowest_loss_step(tmp_path: Path) -> None:
             {
                 "step": 1,
                 "loss": 0.1,
+                "flops": 10,
                 "model_input": [
                     {"role": "user", "content": "beh_A best"},
                     {"role": "assistant", "content": ""},
@@ -111,6 +116,7 @@ def test_convert_run_dir_selects_lowest_loss_step(tmp_path: Path) -> None:
             {
                 "step": 2,
                 "loss": 0.5,
+                "flops": 10,
                 "model_input": [
                     {"role": "user", "content": "beh_A middle"},
                     {"role": "assistant", "content": ""},
@@ -148,6 +154,7 @@ def test_convert_run_dir_raises_on_duplicate_behavior(tmp_path: Path) -> None:
                 {
                     "step": 0,
                     "loss": 1.0,
+                    "flops": 10,
                     "model_input": [
                         {"role": "user", "content": "beh_A suffix"},
                         {"role": "assistant", "content": ""},
@@ -160,3 +167,41 @@ def test_convert_run_dir_raises_on_duplicate_behavior(tmp_path: Path) -> None:
     out_file = tmp_path / "out.jsonl"
     with pytest.raises(ValueError, match="duplicate behavior"):
         convert_run_dir(str(run_dir), str(out_file))
+
+
+def test_convert_run_dir_sums_flops_across_steps(tmp_path: Path) -> None:
+    run_dir = tmp_path / "adv_out"
+    _write_run_json(
+        run_dir / "0" / "run.json",
+        behavior="beh_A",
+        steps=[
+            {
+                "step": 0,
+                "loss": 2.0,
+                "flops": 100,
+                "model_input": [
+                    {"role": "user", "content": "beh_A s0"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["resp"],
+            },
+            {
+                "step": 1,
+                "loss": 0.5,
+                "flops": 250,
+                "model_input": [
+                    {"role": "user", "content": "beh_A s1"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["resp"],
+            },
+        ],
+    )
+
+    out_file = tmp_path / "out.jsonl"
+    convert_run_dir(str(run_dir), str(out_file))
+
+    with open(out_file) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["gcg_flops"] == 350

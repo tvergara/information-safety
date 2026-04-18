@@ -29,6 +29,7 @@ class PrecomputedSuffixStrategy(BaseStrategy):
 
     suffix_file: str = ""
     _lookup: dict[str, str] = field(default_factory=dict, repr=False)
+    _gcg_flops_total: int = 0
     _tokenizer: PreTrainedTokenizerBase | None = None
 
     def setup(
@@ -47,6 +48,7 @@ class PrecomputedSuffixStrategy(BaseStrategy):
                     continue
                 row = json.loads(stripped)
                 self._lookup[_normalize_behavior(row["behavior"])] = row["adversarial_prompt"]
+                self._gcg_flops_total += row["gcg_flops"]
 
         val_dataset = handler.get_val_dataset(tokenizer)
         missing = 0
@@ -64,6 +66,9 @@ class PrecomputedSuffixStrategy(BaseStrategy):
 
     def compute_bits(self, model: Any) -> int:
         return 0
+
+    def attack_flops(self) -> int:
+        return self._gcg_flops_total
 
     def configure_optimizers(self, model: Any) -> torch.optim.AdamW:
         dummy = torch.nn.Parameter(torch.empty(0), requires_grad=True)

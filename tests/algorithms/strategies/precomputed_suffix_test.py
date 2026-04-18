@@ -14,11 +14,12 @@ from information_safety.algorithms.strategies.precomputed_suffix import (
 )
 
 
-def _make_suffix_file(tmp_path: Path, entries: list[dict[str, str]]) -> Path:
+def _make_suffix_file(tmp_path: Path, entries: list[dict]) -> Path:
     path = tmp_path / "suffixes.jsonl"
     with open(path, "w") as f:
         for entry in entries:
-            f.write(json.dumps(entry) + "\n")
+            row = {"gcg_flops": 0, **entry}
+            f.write(json.dumps(row) + "\n")
     return path
 
 
@@ -102,6 +103,27 @@ class TestComputeBits:
         suffix_path = _make_suffix_file(tmp_path, [])
         strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
         assert strategy.compute_bits(MagicMock()) == 0
+
+
+class TestAttackFlops:
+    def test_sums_gcg_flops_across_rows(self, tmp_path: Path) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {"behavior": "beh_A", "adversarial_prompt": "prompt_A", "gcg_flops": 100},
+                {"behavior": "beh_B", "adversarial_prompt": "prompt_B", "gcg_flops": 250},
+            ],
+        )
+        strategy = PrecomputedSuffixStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = MagicMock()
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
+        strategy.setup(model, handler, pl_module)
+
+        assert strategy.attack_flops() == 350
 
 
 class TestConfigureOptimizers:

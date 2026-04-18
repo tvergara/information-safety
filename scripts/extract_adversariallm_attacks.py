@@ -33,7 +33,7 @@ def _find_run_files(run_dir: str) -> list[str]:
     return sorted(glob.glob(os.path.join(run_dir, "**", "run.json"), recursive=True))
 
 
-def _extract_pair(run_json: dict, run_file: str) -> tuple[str, str]:
+def _extract_pair(run_json: dict, run_file: str) -> tuple[str, str, int]:
     run = run_json["runs"][0]
     behavior: str = run["original_prompt"][0]["content"]
     steps = run["steps"]
@@ -42,7 +42,8 @@ def _extract_pair(run_json: dict, run_file: str) -> tuple[str, str]:
 
     best_idx = min(range(len(steps)), key=lambda i: steps[i]["loss"])
     adversarial_prompt: str = steps[best_idx]["model_input"][0]["content"]
-    return behavior, adversarial_prompt
+    gcg_flops: int = sum(step["flops"] for step in steps)
+    return behavior, adversarial_prompt, gcg_flops
 
 
 def convert_run_dir(run_dir: str, output_file: str) -> None:
@@ -51,17 +52,21 @@ def convert_run_dir(run_dir: str, output_file: str) -> None:
         raise ValueError(f"No run.json files found under {run_dir}")
 
     seen: dict[str, str] = {}
-    rows: list[dict[str, str]] = []
+    rows: list[dict[str, str | int]] = []
     for run_file in run_files:
         with open(run_file) as f:
             run_json = json.load(f)
-        behavior, adversarial_prompt = _extract_pair(run_json, run_file)
+        behavior, adversarial_prompt, gcg_flops = _extract_pair(run_json, run_file)
         if behavior in seen:
             raise ValueError(
                 f"duplicate behavior across runs: {run_file} and {seen[behavior]}"
             )
         seen[behavior] = run_file
-        rows.append({"behavior": behavior, "adversarial_prompt": adversarial_prompt})
+        rows.append({
+            "behavior": behavior,
+            "adversarial_prompt": adversarial_prompt,
+            "gcg_flops": gcg_flops,
+        })
 
     os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
     with open(output_file, "w") as f:

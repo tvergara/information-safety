@@ -183,7 +183,12 @@ class AttackWithStrategy(LightningModule):
 
         eval_output_tokens = self._val_total * self.dataset_handler.max_new_tokens
         eval_flops = 2 * self._num_params * (self._eval_input_tokens + eval_output_tokens)
-        avg_flops = self._train_flops + (eval_flops / self._val_total if self._val_total > 0 else 0.0)
+        attack_flops = self.strategy.attack_flops()
+        avg_flops = (
+            self._train_flops
+            + attack_flops
+            + (eval_flops / self._val_total if self._val_total > 0 else 0.0)
+        )
         avg_time = self._train_time + (self._eval_time / self._val_total if self._val_total > 0 else 0.0)
 
         result_row = {
