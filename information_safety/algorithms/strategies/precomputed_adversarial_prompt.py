@@ -136,3 +136,8 @@ class PrecomputedGCGStrategy(PrecomputedAdversarialPromptStrategy):
 @dataclass
 class PrecomputedAutoDANStrategy(PrecomputedAdversarialPromptStrategy):
     """AutoDAN (Liu et al., 2023): prefix-placed, genetic-algorithm adversarial prompt."""
+
+
+@dataclass
+class PrecomputedPAIRStrategy(PrecomputedAdversarialPromptStrategy):
+    """PAIR (Chao et al., 2023): iterative-refinement adversarial prompt."""

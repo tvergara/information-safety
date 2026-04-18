@@ -169,6 +169,59 @@ def test_convert_run_dir_raises_on_duplicate_behavior(tmp_path: Path) -> None:
         convert_run_dir(str(run_dir), str(out_file))
 
 
+def test_extract_handles_pair_shaped_runs_with_all_none_losses(tmp_path: Path) -> None:
+    """PAIR scores via a judge and sets `loss=None` on every step.
+
+    The extractor must pick the last step (most-refined) and still sum flops across all steps.
+    """
+    run_dir = tmp_path / "adv_out"
+    _write_run_json(
+        run_dir / "0" / "run.json",
+        behavior="beh_A",
+        steps=[
+            {
+                "step": 0,
+                "loss": None,
+                "flops": 1_000_000_000,
+                "model_input": [
+                    {"role": "user", "content": "beh_A step0"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["resp"],
+            },
+            {
+                "step": 1,
+                "loss": None,
+                "flops": 1_000_000_000,
+                "model_input": [
+                    {"role": "user", "content": "beh_A step1"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["resp"],
+            },
+            {
+                "step": 2,
+                "loss": None,
+                "flops": 1_000_000_000,
+                "model_input": [
+                    {"role": "user", "content": "beh_A step2"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["resp"],
+            },
+        ],
+    )
+
+    out_file = tmp_path / "out.jsonl"
+    convert_run_dir(str(run_dir), str(out_file))
+
+    with open(out_file) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["adversarial_prompt"] == "beh_A step2"
+    assert rows[0]["attack_flops"] == 3_000_000_000
+
+
 def test_convert_run_dir_sums_flops_across_steps(tmp_path: Path) -> None:
     run_dir = tmp_path / "adv_out"
     _write_run_json(

@@ -42,7 +42,10 @@ def _extract_pair(run_json: dict, run_file: str) -> tuple[str, str, int]:
     if not steps:
         raise ValueError(f"run has no steps in {run_file}")
 
-    best_idx = min(range(len(steps)), key=lambda i: steps[i]["loss"])
+    if all(step["loss"] is None for step in steps):
+        best_idx = len(steps) - 1
+    else:
+        best_idx = min(range(len(steps)), key=lambda i: steps[i]["loss"])
     adversarial_prompt: str = steps[best_idx]["model_input"][0]["content"]
     attack_flops: int = sum(step["flops"] for step in steps)
     return behavior, adversarial_prompt, attack_flops

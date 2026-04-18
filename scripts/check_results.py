@@ -59,11 +59,11 @@ for model in MODELS:
         "epoch": 0,
     })
 
-# Precomputed adversarial-prompt attacks (GCG, AutoDAN): one per attack model,
+# Precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR): one per attack model,
 # epoch 0 only (no training — the attack prompts come from an upstream run).
 for model, attack in product(
     ATTACK_MODELS,
-    ["PrecomputedGCGStrategy", "PrecomputedAutoDANStrategy"],
+    ["PrecomputedGCGStrategy", "PrecomputedAutoDANStrategy", "PrecomputedPAIRStrategy"],
 ):
     CONFIGS.append({
         "experiment_name": attack,

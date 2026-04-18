@@ -1,4 +1,4 @@
-"""Tests for the precomputed adversarial prompt strategies (GCG, AutoDAN)."""
+"""Tests for the precomputed adversarial prompt strategies (GCG, AutoDAN, PAIR)."""
 
 from __future__ import annotations
 
