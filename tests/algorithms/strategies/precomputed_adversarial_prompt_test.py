@@ -19,7 +19,7 @@ def _make_suffix_file(tmp_path: Path, entries: list[dict]) -> Path:
     path = tmp_path / "suffixes.jsonl"
     with open(path, "w") as f:
         for entry in entries:
-            row = {"attack_flops": 0, **entry}
+            row = {"attack_flops": 0, "attack_bits": 0, **entry}
             f.write(json.dumps(row) + "\n")
     return path
 
@@ -100,10 +100,44 @@ class TestSetup:
 
 
 class TestComputeBits:
-    def test_returns_zero(self, tmp_path: Path) -> None:
-        suffix_path = _make_suffix_file(tmp_path, [])
+    def test_sums_attack_bits_across_rows(self, tmp_path: Path) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {"behavior": "beh_A", "adversarial_prompt": "prompt_A", "attack_bits": 100},
+                {"behavior": "beh_B", "adversarial_prompt": "prompt_B", "attack_bits": 250},
+            ],
+        )
         strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
-        assert strategy.compute_bits(MagicMock()) == 0
+
+        model = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = MagicMock()
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
+        strategy.setup(model, handler, pl_module)
+
+        assert strategy.compute_bits(model) == 350
+
+    def test_setup_raises_on_missing_attack_bits(self, tmp_path: Path) -> None:
+        path = tmp_path / "no_bits.jsonl"
+        with open(path, "w") as f:
+            f.write(json.dumps({
+                "behavior": "beh_A",
+                "adversarial_prompt": "prompt_A",
+                "attack_flops": 10,
+            }) + "\n")
+
+        strategy = PrecomputedGCGStrategy(suffix_file=str(path))
+
+        model = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = MagicMock()
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_val_dataset(["beh_A"])
+
+        with pytest.raises(KeyError, match="attack_bits"):
+            strategy.setup(model, handler, pl_module)
 
 
 class TestAttackFlops:
@@ -116,32 +150,6 @@ class TestAttackFlops:
             ],
         )
         strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
-
-        model = MagicMock()
-        pl_module = MagicMock()
-        pl_module.tokenizer = MagicMock()
-        handler = MagicMock()
-        handler.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
-        strategy.setup(model, handler, pl_module)
-
-        assert strategy.attack_flops() == 350
-
-    def test_attack_flops_reads_legacy_gcg_flops_key(self, tmp_path: Path) -> None:
-        """Legacy JSONL files only have `gcg_flops`; fallback must read them correctly."""
-        path = tmp_path / "legacy.jsonl"
-        with open(path, "w") as f:
-            f.write(json.dumps({
-                "behavior": "beh_A",
-                "adversarial_prompt": "prompt_A",
-                "gcg_flops": 100,
-            }) + "\n")
-            f.write(json.dumps({
-                "behavior": "beh_B",
-                "adversarial_prompt": "prompt_B",
-                "gcg_flops": 250,
-            }) + "\n")
-
-        strategy = PrecomputedGCGStrategy(suffix_file=str(path))
 
         model = MagicMock()
         pl_module = MagicMock()

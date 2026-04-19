@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import torch
 
 
@@ -35,13 +33,3 @@ def apply_coordinate_update(suffix_token_ids: list[int], *, position: int, new_t
     updated = list(suffix_token_ids)
     updated[position] = new_token_id
     return updated
-
-
-def estimate_gcg_search_bits(*, steps: int, suffix_length: int, top_k: int) -> int:
-    """Estimate search-space bits explored by a GCG run.
-
-    This is an algorithmic complexity proxy: steps * suffix_length * log2(top_k).
-    """
-    if steps <= 0 or suffix_length <= 0 or top_k <= 0:
-        raise ValueError("steps, suffix_length, and top_k must all be positive")
-    return int(round(steps * suffix_length * math.log2(top_k)))

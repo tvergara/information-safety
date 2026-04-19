@@ -7,7 +7,6 @@ import torch
 from information_safety.algorithms.jailbreak.gcg import (
     apply_coordinate_update,
     candidate_tokens_from_gradient,
-    estimate_gcg_search_bits,
 )
 
 
@@ -31,9 +30,3 @@ class TestApplyCoordinateUpdate:
         updated = apply_coordinate_update(suffix, position=1, new_token_id=99)
         assert updated == [10, 99, 12]
         assert suffix == [10, 11, 12]
-
-
-class TestEstimateGcgSearchBits:
-    def test_estimates_search_bits(self) -> None:
-        bits = estimate_gcg_search_bits(steps=4, suffix_length=2, top_k=8)
-        assert bits == 24

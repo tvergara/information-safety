@@ -28,16 +28,21 @@ def _normalize_behavior(behavior: str) -> str:
 class PrecomputedAdversarialPromptStrategy(BaseStrategy):
     """Inject a per-behavior adversarial prompt loaded from a JSONL file.
 
-    The JSONL must contain one row per behavior with `behavior` and `adversarial_prompt`
-    string fields, plus `attack_flops` (or legacy `gcg_flops`). Every behavior in the
-    validation dataset must be present in the file. Behaviors are matched on a
-    whitespace- and case-normalized key to absorb minor drift between the HarmBench CSV
-    (AdversariaLLM) and HF split (our eval).
+    The JSONL must contain one row per behavior with `behavior`,
+    `adversarial_prompt`, `attack_flops`, and `attack_bits`. Every behavior in
+    the validation dataset must be present in the file. Behaviors are matched
+    on a whitespace- and case-normalized key to absorb minor drift between the
+    HarmBench CSV (AdversariaLLM) and HF split (our eval).
+
+    `attack_bits` is the per-config program-length accounting emitted by
+    `scripts/extract_adversariallm_attacks.py`. A missing key is a hard error
+    — the JSONL must be re-extracted through the current pipeline.
     """
 
     suffix_file: str
     _lookup: dict[str, str] = field(default_factory=dict, repr=False)
     _attack_flops_total: int = 0
+    _attack_bits_total: int = 0
 
     def setup(
         self,
@@ -54,12 +59,8 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
                     continue
                 row = json.loads(stripped)
                 self._lookup[_normalize_behavior(row["behavior"])] = row["adversarial_prompt"]
-                # TODO(merge-attack-flops-column): drop the `gcg_flops` branch once
-                # all legacy GCG attack JSONLs have been re-extracted.
-                if "attack_flops" in row:
-                    self._attack_flops_total += row["attack_flops"]
-                else:
-                    self._attack_flops_total += row["gcg_flops"]
+                self._attack_flops_total += row["attack_flops"]
+                self._attack_bits_total += row["attack_bits"]
 
         val_dataset = handler.get_val_dataset(tokenizer)
         missing = 0
@@ -76,7 +77,7 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
         return model
 
     def compute_bits(self, model: Any) -> int:
-        return 0
+        return self._attack_bits_total
 
     def attack_flops(self) -> int:
         return self._attack_flops_total

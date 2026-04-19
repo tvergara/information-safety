@@ -9,11 +9,33 @@ import pytest
 
 from scripts.extract_adversariallm_attacks import convert_run_dir
 
+_GCG_CONFIG: dict[str, object] = {
+    "num_steps": 10,
+    "topk": 8,
+    "optim_str_init": "x x x x",
+}
+_AUTODAN_CONFIG: dict[str, object] = {
+    "num_steps": 5,
+    "batch_size": 4,
+    "mutation": 0.25,
+}
+_PAIR_CONFIG: dict[str, object] = {
+    "num_steps": 3,
+    "num_streams": 2,
+    "attack_model": {"max_new_tokens": 8, "max_attempts": 4},
+}
 
-def _write_run_json(path: Path, behavior: str, steps: list[dict]) -> None:
+
+def _write_run_json(
+    path: Path,
+    behavior: str,
+    steps: list[dict],
+    attack_params: dict[str, object] | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    params = attack_params if attack_params is not None else dict(_GCG_CONFIG)
     payload = {
-        "config": {"attack_params": {"name": "gcg"}},
+        "config": {"attack_params": params},
         "runs": [
             {
                 "original_prompt": [
@@ -85,6 +107,8 @@ def test_convert_run_dir_emits_one_row_per_behavior(tmp_path: Path) -> None:
     for row in rows:
         assert isinstance(row["adversarial_prompt"], str)
         assert "behavior" in row and "adversarial_prompt" in row
+        assert "attack_bits" in row and isinstance(row["attack_bits"], int)
+        assert row["attack_bits"] > 0
 
 
 def test_convert_run_dir_selects_lowest_loss_step(tmp_path: Path) -> None:
@@ -259,3 +283,98 @@ def test_convert_run_dir_sums_flops_across_steps(tmp_path: Path) -> None:
     assert len(rows) == 1
     assert rows[0]["attack_flops"] == 350
     assert "gcg_flops" not in rows[0]
+
+
+def _make_steps(behavior: str) -> list[dict]:
+    return [
+        {
+            "step": 0,
+            "loss": 1.0,
+            "flops": 10,
+            "model_input": [
+                {"role": "user", "content": f"{behavior} suffix"},
+                {"role": "assistant", "content": ""},
+            ],
+            "model_completions": ["resp"],
+        },
+    ]
+
+
+def test_convert_run_dir_writes_attack_bits_for_gcg(tmp_path: Path) -> None:
+    from information_safety.attack_bits import compute_attack_bits
+
+    run_dir = tmp_path / "adv_out"
+    _write_run_json(
+        run_dir / "0" / "run.json",
+        behavior="beh_A",
+        steps=_make_steps("beh_A"),
+        attack_params=dict(_GCG_CONFIG),
+    )
+
+    out_file = tmp_path / "out.jsonl"
+    convert_run_dir(str(run_dir), str(out_file))
+
+    with open(out_file) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+
+    expected_bits = compute_attack_bits("gcg", dict(_GCG_CONFIG))
+    assert len(rows) == 1
+    assert rows[0]["attack_bits"] == expected_bits
+
+
+def test_convert_run_dir_writes_attack_bits_for_autodan(tmp_path: Path) -> None:
+    from information_safety.attack_bits import compute_attack_bits
+
+    run_dir = tmp_path / "adv_out"
+    _write_run_json(
+        run_dir / "0" / "run.json",
+        behavior="beh_A",
+        steps=_make_steps("beh_A"),
+        attack_params=dict(_AUTODAN_CONFIG),
+    )
+
+    out_file = tmp_path / "out.jsonl"
+    convert_run_dir(str(run_dir), str(out_file))
+
+    with open(out_file) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+
+    expected_bits = compute_attack_bits("autodan", dict(_AUTODAN_CONFIG))
+    assert len(rows) == 1
+    assert rows[0]["attack_bits"] == expected_bits
+
+
+def test_convert_run_dir_writes_attack_bits_for_pair(tmp_path: Path) -> None:
+    from information_safety.attack_bits import compute_attack_bits
+
+    run_dir = tmp_path / "adv_out"
+    _write_run_json(
+        run_dir / "0" / "run.json",
+        behavior="beh_A",
+        steps=_make_steps("beh_A"),
+        attack_params=dict(_PAIR_CONFIG),
+    )
+
+    out_file = tmp_path / "out.jsonl"
+    convert_run_dir(str(run_dir), str(out_file))
+
+    with open(out_file) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+
+    expected_bits = compute_attack_bits("pair", dict(_PAIR_CONFIG))
+    assert len(rows) == 1
+    assert rows[0]["attack_bits"] == expected_bits
+
+
+def test_convert_run_dir_raises_on_unknown_attack_config(tmp_path: Path) -> None:
+    run_dir = tmp_path / "adv_out"
+    _write_run_json(
+        run_dir / "0" / "run.json",
+        behavior="beh_A",
+        steps=_make_steps("beh_A"),
+        attack_params={"name": "mystery"},
+    )
+
+    out_file = tmp_path / "out.jsonl"
+    with pytest.raises(ValueError, match="Unknown attack"):
+        convert_run_dir(str(run_dir), str(out_file))

@@ -1,11 +1,11 @@
 """Convert AdversariaLLM attack-phase output into a flat `{behavior, adversarial_prompt,
-attack_flops}` JSONL.
+attack_flops, attack_bits}` JSONL.
 
 Works for any AdversariaLLM attack whose `run.json` follows the shared schema (GCG, AutoDAN,
 PAIR, PGD, ...). AdversariaLLM writes one `run.json` per behavior under
 `<save_dir>/<timestamp>/<i>/run.json`. Each `run.json` has:
     {
-        "config": {...},
+        "config": {"attack_params": {...}, ...},
         "runs": [
             {
                 "original_prompt": [{"role": "user", "content": behavior}, ...],
@@ -21,6 +21,9 @@ PAIR, PGD, ...). AdversariaLLM writes one `run.json` per behavior under
 We pick the step with the lowest loss as the final adversarial prompt. The user turn of that step's
 `model_input` is the optimized prompt (with the attack's placement — suffix for GCG, prefix for
 AutoDAN, etc.).
+
+`attack_bits` is a per-config scalar (the same value for every row derived from one `run.json`,
+since bits are an accounting of the attack's *program length*, not a per-behavior quantity).
 """
 
 from __future__ import annotations
@@ -29,6 +32,9 @@ import argparse
 import glob
 import json
 import os
+from typing import Any
+
+from information_safety.attack_bits import compute_attack_bits
 
 
 def _find_run_files(run_dir: str) -> list[str]:
@@ -51,6 +57,22 @@ def _extract_pair(run_json: dict, run_file: str) -> tuple[str, str, int]:
     return behavior, adversarial_prompt, attack_flops
 
 
+def _dispatch_attack_name(attack_params: dict[str, Any]) -> str:
+    """Return the attack name from its config keys.
+
+    Dispatches on presence of distinguishing keys (matching the reference
+    logic): GCG has `optim_str_init`, AutoDAN has `batch_size` and `mutation`,
+    PAIR has `num_streams`. Raises `ValueError` for anything else.
+    """
+    if "optim_str_init" in attack_params:
+        return "gcg"
+    if "batch_size" in attack_params and "mutation" in attack_params:
+        return "autodan"
+    if "num_streams" in attack_params:
+        return "pair"
+    raise ValueError(f"Unknown attack in config: keys={sorted(attack_params.keys())}")
+
+
 def convert_run_dir(run_dir: str, output_file: str) -> None:
     run_files = _find_run_files(run_dir)
     if not run_files:
@@ -61,6 +83,9 @@ def convert_run_dir(run_dir: str, output_file: str) -> None:
     for run_file in run_files:
         with open(run_file) as f:
             run_json = json.load(f)
+        attack_params = run_json["config"]["attack_params"]
+        attack_name = _dispatch_attack_name(attack_params)
+        attack_bits = compute_attack_bits(attack_name, attack_params)
         behavior, adversarial_prompt, attack_flops = _extract_pair(run_json, run_file)
         if behavior in seen:
             raise ValueError(
@@ -71,6 +96,7 @@ def convert_run_dir(run_dir: str, output_file: str) -> None:
             "behavior": behavior,
             "adversarial_prompt": adversarial_prompt,
             "attack_flops": attack_flops,
+            "attack_bits": attack_bits,
         })
 
     os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)

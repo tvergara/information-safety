@@ -4,7 +4,6 @@ from information_safety.algorithms.jailbreak.autodan import crossover, mutate
 from information_safety.algorithms.jailbreak.gcg import (
     apply_coordinate_update,
     candidate_tokens_from_gradient,
-    estimate_gcg_search_bits,
 )
 from information_safety.algorithms.jailbreak.methods import (
     OptimizationAttackMethod,
@@ -34,7 +33,6 @@ __all__ = [
     "build_prompt_attack_record",
     "candidate_tokens_from_gradient",
     "apply_coordinate_update",
-    "estimate_gcg_search_bits",
     "run_pair_refinement",
     "prune_candidates",
     "mutate",
