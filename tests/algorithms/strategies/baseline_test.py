@@ -28,9 +28,3 @@ class TestConfigureOptimizers:
         optimizer = strategy.configure_optimizers(MagicMock())
         total_params = sum(p.numel() for g in optimizer.param_groups for p in g["params"])
         assert total_params == 0
-
-
-class TestAttackFlops:
-    def test_default_returns_zero(self) -> None:
-        strategy = BaselineStrategy()
-        assert strategy.attack_flops() == 0

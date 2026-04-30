@@ -65,7 +65,6 @@ class AttackWithStrategy(LightningModule):
         self._train_time: float = 0.0
         self._train_flops: int = 0
         self._eval_time: float = 0.0
-        self._eval_input_tokens: int = 0
 
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase:
@@ -118,8 +117,6 @@ class AttackWithStrategy(LightningModule):
         )
         self._val_correct += correct
         self._val_total += total
-        if not self.trainer.sanity_checking:
-            self._eval_input_tokens += int(batch["attention_mask"].sum().item())
 
     def on_train_epoch_start(self) -> None:
         self._epoch_train_start = time.perf_counter()
@@ -129,7 +126,6 @@ class AttackWithStrategy(LightningModule):
 
     def on_validation_epoch_start(self) -> None:
         self._val_epoch_start = time.perf_counter()
-        self._eval_input_tokens = 0
 
     def on_validation_epoch_end(self) -> None:
         self._eval_time = time.perf_counter() - self._val_epoch_start
@@ -146,6 +142,7 @@ class AttackWithStrategy(LightningModule):
             self._val_total = 0
             return
 
+        assert self.trainer.max_epochs is not None
         if self.current_epoch >= self.trainer.max_epochs:
             self._val_correct = 0
             self._val_total = 0
@@ -163,10 +160,11 @@ class AttackWithStrategy(LightningModule):
         self.strategy.on_validation_epoch_end(self, self._val_results[-1:])
 
         eval_run_id = str(uuid.uuid4())
-        self.dataset_handler.save_completions(eval_run_id)
 
         if self.result_file is not None:
             self._write_result_row(eval_run_id, bits, performance)
+
+        self.dataset_handler.save_completions(eval_run_id)
 
         self._val_correct = 0
         self._val_total = 0
@@ -181,15 +179,9 @@ class AttackWithStrategy(LightningModule):
 
         strategy_hparams = _extract_strategy_hparams(self.strategy)
 
-        eval_output_tokens = self._val_total * self.dataset_handler.max_new_tokens
-        eval_flops = 2 * self._num_params * (self._eval_input_tokens + eval_output_tokens)
-        attack_flops = self.strategy.attack_flops()
-        avg_flops = (
-            self._train_flops
-            + attack_flops
-            + (eval_flops / self._val_total if self._val_total > 0 else 0.0)
+        avg_time = self._train_time + (
+            self._eval_time / self._val_total if self._val_total > 0 else 0.0
         )
-        avg_time = self._train_time + (self._eval_time / self._val_total if self._val_total > 0 else 0.0)
 
         result_row = {
             "experiment_name": type(self.strategy).__name__,
@@ -200,11 +192,11 @@ class AttackWithStrategy(LightningModule):
             "max_examples": self.dataset_handler.max_examples,
             "performance": performance,
             "asr": None,
-            "bits": bits,
+            "program_bits": bits,
+            "independent_flops": self._train_flops,
             "seed": self.seed,
             "epoch": self.current_epoch,
             "strategy_hparams": strategy_hparams,
-            "avg_flops_per_example": avg_flops,
             "avg_time_per_example": avg_time,
         }
 

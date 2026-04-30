@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,7 +20,7 @@ def _make_suffix_file(tmp_path: Path, entries: list[dict]) -> Path:
     path = tmp_path / "suffixes.jsonl"
     with open(path, "w") as f:
         for entry in entries:
-            row = {"attack_flops": 0, "attack_bits": 0, **entry}
+            row: dict[str, Any] = {"attack_flops": 0, "attack_bits": 0, **entry}
             f.write(json.dumps(row) + "\n")
     return path
 
@@ -100,12 +101,12 @@ class TestSetup:
 
 
 class TestComputeBits:
-    def test_sums_attack_bits_across_rows(self, tmp_path: Path) -> None:
+    def test_compute_bits_returns_constant(self, tmp_path: Path) -> None:
         suffix_path = _make_suffix_file(
             tmp_path,
             [
-                {"behavior": "beh_A", "adversarial_prompt": "prompt_A", "attack_bits": 100},
-                {"behavior": "beh_B", "adversarial_prompt": "prompt_B", "attack_bits": 250},
+                {"behavior": "beh_A", "adversarial_prompt": "prompt_A", "attack_bits": 175},
+                {"behavior": "beh_B", "adversarial_prompt": "prompt_B", "attack_bits": 175},
             ],
         )
         strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
@@ -117,7 +118,8 @@ class TestComputeBits:
         handler.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
         strategy.setup(model, handler, pl_module)
 
-        assert strategy.compute_bits(model) == 350
+        assert strategy._attack_bits == 175
+        assert strategy.compute_bits(model) == 175
 
     def test_setup_raises_on_missing_attack_bits(self, tmp_path: Path) -> None:
         path = tmp_path / "no_bits.jsonl"
@@ -139,14 +141,14 @@ class TestComputeBits:
         with pytest.raises(KeyError, match="attack_bits"):
             strategy.setup(model, handler, pl_module)
 
-
-class TestAttackFlops:
-    def test_sums_attack_flops_across_rows(self, tmp_path: Path) -> None:
+    def test_setup_raises_on_mismatched_attack_bits_across_rows(
+        self, tmp_path: Path
+    ) -> None:
         suffix_path = _make_suffix_file(
             tmp_path,
             [
-                {"behavior": "beh_A", "adversarial_prompt": "prompt_A", "attack_flops": 100},
-                {"behavior": "beh_B", "adversarial_prompt": "prompt_B", "attack_flops": 250},
+                {"behavior": "beh_A", "adversarial_prompt": "prompt_A", "attack_bits": 100},
+                {"behavior": "beh_B", "adversarial_prompt": "prompt_B", "attack_bits": 250},
             ],
         )
         strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
@@ -156,9 +158,9 @@ class TestAttackFlops:
         pl_module.tokenizer = MagicMock()
         handler = MagicMock()
         handler.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
-        strategy.setup(model, handler, pl_module)
 
-        assert strategy.attack_flops() == 350
+        with pytest.raises(ValueError, match="attack_bits mismatch"):
+            strategy.setup(model, handler, pl_module)
 
 
 class TestConfigureOptimizers:
@@ -272,6 +274,228 @@ class TestValidationStep:
             "content"
         ]
         assert content == "prompt_A"
+
+    def test_validation_step_injects_attack_flops_per_behavior(
+        self, tmp_path: Path
+    ) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A",
+                    "attack_flops": 111,
+                },
+                {
+                    "behavior": "beh_B",
+                    "adversarial_prompt": "prompt_B",
+                    "attack_flops": 222,
+                },
+            ],
+        )
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        tokenizer = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = tokenizer
+        handler_setup = MagicMock()
+        handler_setup.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
+        strategy.setup(model, handler_setup, pl_module)
+
+        batch = {
+            "input_ids": torch.tensor([[1, 2, 3], [4, 5, 6]]),
+            "attention_mask": torch.tensor([[1, 1, 1], [1, 1, 1]]),
+            "labels": [
+                json.dumps({"behavior": "beh_A", "category": "c"}),
+                json.dumps({"behavior": "beh_B", "category": "c"}),
+            ],
+        }
+        tokenizer.apply_chat_template.return_value = "formatted"
+        tokenizer.return_value = {
+            "input_ids": torch.tensor([[10, 20], [30, 40]]),
+            "attention_mask": torch.tensor([[1, 1], [1, 1]]),
+        }
+        tokenizer.pad_token_id = 0
+
+        handler = MagicMock()
+        handler.validate_batch.return_value = (0, 2)
+        handler.max_length = 500
+
+        strategy.validation_step(model, tokenizer, batch, handler)
+
+        modified_batch = handler.validate_batch.call_args[0][2]
+        labels = modified_batch["labels"]
+        attack_flops_by_behavior = {
+            json.loads(label)["behavior"]: json.loads(label)["attack_flops"]
+            for label in labels
+        }
+        assert attack_flops_by_behavior["beh_A"] == 111
+        assert attack_flops_by_behavior["beh_B"] == 222
+
+
+class TestStoredCompletions:
+    def test_setup_populates_completion_lookup(self, tmp_path: Path) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A",
+                    "model_completion": "stored_A",
+                },
+                {"behavior": "beh_B", "adversarial_prompt": "prompt_B"},
+            ],
+        )
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = MagicMock()
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
+        strategy.setup(model, handler, pl_module)
+
+        assert strategy._completion_lookup == {"beh_a": "stored_A"}
+
+    def test_validation_step_uses_stored_completion_when_all_present(
+        self, tmp_path: Path
+    ) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A",
+                    "model_completion": "stored_A",
+                },
+                {
+                    "behavior": "beh_B",
+                    "adversarial_prompt": "prompt_B",
+                    "model_completion": "stored_B",
+                },
+            ],
+        )
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        tokenizer = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = tokenizer
+        handler_setup = MagicMock()
+        handler_setup.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
+        strategy.setup(model, handler_setup, pl_module)
+
+        batch = {
+            "input_ids": torch.tensor([[1, 2, 3], [4, 5, 6]]),
+            "attention_mask": torch.tensor([[1, 1, 1], [1, 1, 1]]),
+            "labels": [
+                json.dumps({"behavior": "beh_A", "category": "c"}),
+                json.dumps({"behavior": "beh_B", "category": "c"}),
+            ],
+        }
+
+        handler = MagicMock()
+        handler.record_precomputed_completions.return_value = (0, 2)
+        handler.max_length = 500
+
+        correct, total = strategy.validation_step(model, tokenizer, batch, handler)
+
+        assert (correct, total) == (0, 2)
+        handler.record_precomputed_completions.assert_called_once()
+        handler.validate_batch.assert_not_called()
+        recorded_labels, recorded_completions = handler.record_precomputed_completions.call_args[0]
+        assert sorted(recorded_completions) == ["stored_A", "stored_B"]
+        assert len(recorded_labels) == 2
+
+    def test_validation_step_falls_back_to_generate_when_no_completions(
+        self, tmp_path: Path
+    ) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {"behavior": "beh_A", "adversarial_prompt": "prompt_A"},
+            ],
+        )
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        tokenizer = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = tokenizer
+        handler_setup = MagicMock()
+        handler_setup.get_val_dataset.return_value = _make_val_dataset(["beh_A"])
+        strategy.setup(model, handler_setup, pl_module)
+
+        batch = {
+            "input_ids": torch.tensor([[1, 2, 3]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+            "labels": [json.dumps({"behavior": "beh_A", "category": "c"})],
+        }
+        tokenizer.apply_chat_template.return_value = "formatted"
+        tokenizer.return_value = {
+            "input_ids": torch.tensor([[10, 20]]),
+            "attention_mask": torch.tensor([[1, 1]]),
+        }
+        tokenizer.pad_token_id = 0
+
+        handler = MagicMock()
+        handler.validate_batch.return_value = (0, 1)
+        handler.max_length = 500
+
+        correct, total = strategy.validation_step(model, tokenizer, batch, handler)
+
+        assert (correct, total) == (0, 1)
+        handler.validate_batch.assert_called_once()
+        handler.record_precomputed_completions.assert_not_called()
+
+    def test_validation_step_mixed_batch(self, tmp_path: Path) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A",
+                    "model_completion": "stored_A",
+                },
+                {"behavior": "beh_B", "adversarial_prompt": "prompt_B"},
+            ],
+        )
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        tokenizer = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = tokenizer
+        handler_setup = MagicMock()
+        handler_setup.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
+        strategy.setup(model, handler_setup, pl_module)
+
+        batch = {
+            "input_ids": torch.tensor([[1, 2, 3], [4, 5, 6]]),
+            "attention_mask": torch.tensor([[1, 1, 1], [1, 1, 1]]),
+            "labels": [
+                json.dumps({"behavior": "beh_A", "category": "c"}),
+                json.dumps({"behavior": "beh_B", "category": "c"}),
+            ],
+        }
+        tokenizer.apply_chat_template.return_value = "formatted"
+        tokenizer.return_value = {
+            "input_ids": torch.tensor([[10, 20]]),
+            "attention_mask": torch.tensor([[1, 1]]),
+        }
+        tokenizer.pad_token_id = 0
+
+        handler = MagicMock()
+        handler.record_precomputed_completions.return_value = (0, 1)
+        handler.validate_batch.return_value = (0, 1)
+        handler.max_length = 500
+
+        correct, total = strategy.validation_step(model, tokenizer, batch, handler)
+
+        assert (correct, total) == (0, 2)
+        handler.record_precomputed_completions.assert_called_once()
+        handler.validate_batch.assert_called_once()
 
 
 class TestSubclassing:

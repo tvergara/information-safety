@@ -378,3 +378,164 @@ def test_convert_run_dir_raises_on_unknown_attack_config(tmp_path: Path) -> None
     out_file = tmp_path / "out.jsonl"
     with pytest.raises(ValueError, match="Unknown attack"):
         convert_run_dir(str(run_dir), str(out_file))
+
+
+def test_extract_includes_model_completion(tmp_path: Path) -> None:
+    run_dir = tmp_path / "adv_out"
+    _write_run_json(
+        run_dir / "0" / "run.json",
+        behavior="beh_A",
+        steps=[
+            {
+                "step": 0,
+                "loss": 0.5,
+                "flops": 100,
+                "model_input": [
+                    {"role": "user", "content": "beh_A best"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["the_stored_response"],
+            },
+        ],
+    )
+
+    out_file = tmp_path / "out.jsonl"
+    convert_run_dir(str(run_dir), str(out_file))
+
+    with open(out_file) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["model_completion"] == "the_stored_response"
+
+
+def test_extract_omits_model_completion_when_missing(tmp_path: Path) -> None:
+    run_dir = tmp_path / "adv_out"
+    _write_run_json(
+        run_dir / "0" / "run.json",
+        behavior="beh_A",
+        steps=[
+            {
+                "step": 0,
+                "loss": 0.5,
+                "flops": 100,
+                "model_input": [
+                    {"role": "user", "content": "beh_A best"},
+                    {"role": "assistant", "content": ""},
+                ],
+            },
+        ],
+    )
+
+    out_file = tmp_path / "out.jsonl"
+    convert_run_dir(str(run_dir), str(out_file))
+
+    with open(out_file) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    assert len(rows) == 1
+    assert "model_completion" not in rows[0]
+
+
+def test_extract_autodan_uses_last_step_flops_not_sum(tmp_path: Path) -> None:
+    """AutoDAN writes step.flops cumulatively.
+
+    Extractor should take the last value.
+    """
+    run_dir = tmp_path / "adv_out"
+    _write_run_json(
+        run_dir / "0" / "run.json",
+        behavior="beh_A",
+        steps=[
+            {
+                "step": 0,
+                "loss": 1.0,
+                "flops": 10,
+                "model_input": [
+                    {"role": "user", "content": "beh_A s0"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["resp"],
+            },
+            {
+                "step": 1,
+                "loss": 0.5,
+                "flops": 30,
+                "model_input": [
+                    {"role": "user", "content": "beh_A s1"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["resp"],
+            },
+            {
+                "step": 2,
+                "loss": 0.2,
+                "flops": 60,
+                "model_input": [
+                    {"role": "user", "content": "beh_A s2"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["resp"],
+            },
+        ],
+        attack_params=dict(_AUTODAN_CONFIG),
+    )
+
+    out_file = tmp_path / "out.jsonl"
+    convert_run_dir(str(run_dir), str(out_file))
+
+    with open(out_file) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["attack_flops"] == 60
+
+
+def test_extract_gcg_keeps_sum(tmp_path: Path) -> None:
+    """GCG writes step.flops as deltas.
+
+    Extractor should sum across all steps.
+    """
+    run_dir = tmp_path / "adv_out"
+    _write_run_json(
+        run_dir / "0" / "run.json",
+        behavior="beh_A",
+        steps=[
+            {
+                "step": 0,
+                "loss": 1.0,
+                "flops": 10,
+                "model_input": [
+                    {"role": "user", "content": "beh_A s0"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["resp"],
+            },
+            {
+                "step": 1,
+                "loss": 0.5,
+                "flops": 20,
+                "model_input": [
+                    {"role": "user", "content": "beh_A s1"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["resp"],
+            },
+            {
+                "step": 2,
+                "loss": 0.2,
+                "flops": 30,
+                "model_input": [
+                    {"role": "user", "content": "beh_A s2"},
+                    {"role": "assistant", "content": ""},
+                ],
+                "model_completions": ["resp"],
+            },
+        ],
+        attack_params=dict(_GCG_CONFIG),
+    )
+
+    out_file = tmp_path / "out.jsonl"
+    convert_run_dir(str(run_dir), str(out_file))
+
+    with open(out_file) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["attack_flops"] == 60

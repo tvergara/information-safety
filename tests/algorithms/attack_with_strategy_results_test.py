@@ -23,7 +23,6 @@ class TestResultsTracking:
         tokenizer_config = MagicMock()
         strategy = MagicMock()
         strategy.compute_bits = MagicMock(return_value=1000)
-        strategy.attack_flops = MagicMock(return_value=0)
         dataset_handler = MagicMock()
         dataset_handler.dataset_name = "test_dataset"
         dataset_handler.max_examples = 10
@@ -86,7 +85,7 @@ class TestResultsTracking:
         assert row["max_examples"] == 10
         assert row["performance"] == 0.5
         assert row["asr"] is None
-        assert row["bits"] == 1000
+        assert row["program_bits"] == 1000
         assert row["seed"] == 42
         assert row["epoch"] == 0
         assert "eval_run_id" in row
@@ -266,7 +265,6 @@ def _make_module_with_params(tmp_path: Path, result_file: str) -> AttackWithStra
     tokenizer_config = MagicMock()
     strategy = MagicMock()
     strategy.compute_bits = MagicMock(return_value=1000)
-    strategy.attack_flops = MagicMock(return_value=0)
     dataset_handler = MagicMock()
     dataset_handler.dataset_name = "test_dataset"
     dataset_handler.max_examples = 10
@@ -300,7 +298,6 @@ def _run_validation_epoch(
     module: AttackWithStrategy,
     val_correct: int,
     val_total: int,
-    eval_input_tokens: int,
     time_counter: list[float] | None = None,
 ) -> None:
     """Simulate a validation epoch by calling the relevant hooks and setting counters."""
@@ -311,24 +308,22 @@ def _run_validation_epoch(
             module.on_validation_epoch_start()
             module._val_correct = val_correct
             module._val_total = val_total
-            module._eval_input_tokens = eval_input_tokens
             module.on_validation_epoch_end()
     else:
         module.on_validation_epoch_start()
         module._val_correct = val_correct
         module._val_total = val_total
-        module._eval_input_tokens = eval_input_tokens
         module.on_validation_epoch_end()
 
 
-class TestFlopsAndTimeTracking:
+class TestResultRowFields:
     @patch(_EXTRACT, return_value={})
     @patch.object(AttackWithStrategy, "log")
     @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
     @patch.object(
         AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
     )
-    def test_result_row_contains_flops_and_time_fields(
+    def test_result_row_contains_program_bits_and_independent_flops(
         self,
         mock_epoch: MagicMock,
         mock_rank: MagicMock,
@@ -340,12 +335,14 @@ class TestFlopsAndTimeTracking:
         module = _make_module_with_params(tmp_path, result_file)
         module._trainer = _make_trainer()
 
-        _run_validation_epoch(module, val_correct=0, val_total=5, eval_input_tokens=100)
+        _run_validation_epoch(module, val_correct=0, val_total=5)
 
         with open(result_file) as f:
             row = json.loads(f.readline())
 
-        assert "avg_flops_per_example" in row
+        assert "program_bits" in row
+        assert "independent_flops" in row
+        assert "avg_flops_per_example" not in row
         assert "avg_time_per_example" in row
 
     @patch(_EXTRACT, return_value={})
@@ -354,7 +351,7 @@ class TestFlopsAndTimeTracking:
     @patch.object(
         AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
     )
-    def test_no_training_strategy_flops_equals_eval_only(
+    def test_program_bits_matches_strategy_compute_bits(
         self,
         mock_epoch: MagicMock,
         mock_rank: MagicMock,
@@ -362,25 +359,17 @@ class TestFlopsAndTimeTracking:
         mock_extract: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """For Baseline/Roleplay (no training), avg_flops == eval_flops / N."""
         result_file = str(tmp_path / "results.jsonl")
         module = _make_module_with_params(tmp_path, result_file)
-        module._train_flops = 0
-        module._train_time = 0.0
+        module.strategy.compute_bits = MagicMock(return_value=4242)
         module._trainer = _make_trainer()
 
-        n = 5
-        eval_input_tokens = 100
-        _run_validation_epoch(module, val_correct=0, val_total=n, eval_input_tokens=eval_input_tokens)
-
-        eval_output_tokens = n * MAX_NEW_TOKENS
-        expected_eval_flops = 2 * NUM_PARAMS * (eval_input_tokens + eval_output_tokens)
-        expected_avg_flops = expected_eval_flops / n
+        _run_validation_epoch(module, val_correct=0, val_total=5)
 
         with open(result_file) as f:
             row = json.loads(f.readline())
 
-        assert row["avg_flops_per_example"] == expected_avg_flops
+        assert row["program_bits"] == 4242
 
     @patch(_EXTRACT, return_value={})
     @patch.object(AttackWithStrategy, "log")
@@ -388,7 +377,7 @@ class TestFlopsAndTimeTracking:
     @patch.object(
         AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
     )
-    def test_training_strategy_flops_greater_than_eval_only(
+    def test_independent_flops_zero_when_no_training(
         self,
         mock_epoch: MagicMock,
         mock_rank: MagicMock,
@@ -396,25 +385,43 @@ class TestFlopsAndTimeTracking:
         mock_extract: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """For DataStrategy, avg_flops > eval_flops / N (train component adds to it)."""
         result_file = str(tmp_path / "results.jsonl")
         module = _make_module_with_params(tmp_path, result_file)
-        module._train_flops = 6 * NUM_PARAMS * 500
-        module._train_time = 10.0
+        module._train_flops = 0
         module._trainer = _make_trainer()
 
-        n = 5
-        eval_input_tokens = 100
-        _run_validation_epoch(module, val_correct=0, val_total=n, eval_input_tokens=eval_input_tokens)
-
-        eval_output_tokens = n * MAX_NEW_TOKENS
-        expected_eval_flops = 2 * NUM_PARAMS * (eval_input_tokens + eval_output_tokens)
-        eval_only_avg_flops = expected_eval_flops / n
+        _run_validation_epoch(module, val_correct=0, val_total=5)
 
         with open(result_file) as f:
             row = json.loads(f.readline())
 
-        assert row["avg_flops_per_example"] > eval_only_avg_flops
+        assert row["independent_flops"] == 0
+
+    @patch(_EXTRACT, return_value={})
+    @patch.object(AttackWithStrategy, "log")
+    @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
+    @patch.object(
+        AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
+    )
+    def test_independent_flops_matches_train_flops(
+        self,
+        mock_epoch: MagicMock,
+        mock_rank: MagicMock,
+        mock_log: MagicMock,
+        mock_extract: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        result_file = str(tmp_path / "results.jsonl")
+        module = _make_module_with_params(tmp_path, result_file)
+        module._train_flops = 6 * NUM_PARAMS * 500
+        module._trainer = _make_trainer()
+
+        _run_validation_epoch(module, val_correct=0, val_total=5)
+
+        with open(result_file) as f:
+            row = json.loads(f.readline())
+
+        assert row["independent_flops"] == 6 * NUM_PARAMS * 500
 
     @patch(_EXTRACT, return_value={})
     @patch.object(AttackWithStrategy, "log")
@@ -435,7 +442,7 @@ class TestFlopsAndTimeTracking:
         module._trainer = _make_trainer()
 
         _run_validation_epoch(
-            module, val_correct=0, val_total=5, eval_input_tokens=100,
+            module, val_correct=0, val_total=5,
             time_counter=[0.0, 3.0],
         )
 
@@ -443,39 +450,6 @@ class TestFlopsAndTimeTracking:
             row = json.loads(f.readline())
 
         assert row["avg_time_per_example"] > 0
-
-    @patch(_EXTRACT, return_value={})
-    @patch.object(AttackWithStrategy, "log")
-    @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
-    @patch.object(
-        AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
-    )
-    def test_no_training_avg_time_equals_eval_time_over_n(
-        self,
-        mock_epoch: MagicMock,
-        mock_rank: MagicMock,
-        mock_log: MagicMock,
-        mock_extract: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """For Baseline/Roleplay, avg_time == eval_time / N."""
-        result_file = str(tmp_path / "results.jsonl")
-        module = _make_module_with_params(tmp_path, result_file)
-        module._train_flops = 0
-        module._train_time = 0.0
-        module._trainer = _make_trainer()
-
-        n = 5
-        eval_time = 3.0
-        _run_validation_epoch(
-            module, val_correct=0, val_total=n, eval_input_tokens=100,
-            time_counter=[0.0, eval_time],
-        )
-
-        with open(result_file) as f:
-            row = json.loads(f.readline())
-
-        assert row["avg_time_per_example"] == eval_time / n
 
     def test_training_step_accumulates_train_flops(self) -> None:
         """training_step accumulates train FLOPs based on non-padding tokens."""
@@ -495,32 +469,10 @@ class TestFlopsAndTimeTracking:
         expected = 6 * NUM_PARAMS * int(attention_mask.sum().item())
         assert module._train_flops == expected
 
-    def test_validation_step_accumulates_eval_input_tokens(self) -> None:
-        """validation_step accumulates eval input tokens based on non-padding tokens."""
-        module = _make_module_with_params(Path("/tmp"), "/tmp/results.jsonl")
-        module._eval_input_tokens = 0
-        module.strategy.validation_step = MagicMock(return_value=(0, 3))
-        mock_trainer = MagicMock()
-        mock_trainer.sanity_checking = False
-        module._trainer = mock_trainer
-
-        attention_mask = torch.ones(3, 8, dtype=torch.long)
-        batch = {
-            "input_ids": torch.zeros(3, 8, dtype=torch.long),
-            "attention_mask": attention_mask,
-            "labels": ["a", "b", "c"],
-        }
-
-        module.validation_step(batch, 0)
-
-        expected = int(attention_mask.sum().item())
-        assert module._eval_input_tokens == expected
-
     def test_sanity_check_does_not_accumulate_flops(self) -> None:
         """Counters should not be updated during sanity checking."""
         module = _make_module_with_params(Path("/tmp"), "/tmp/results.jsonl")
         module._train_flops = 0
-        module._eval_input_tokens = 0
         module._num_params = NUM_PARAMS
         module.strategy.training_step = MagicMock(return_value=torch.tensor(0.5))
         module.strategy.validation_step = MagicMock(return_value=(0, 3))
@@ -529,59 +481,16 @@ class TestFlopsAndTimeTracking:
         module._trainer = mock_trainer
 
         attention_mask = torch.ones(2, 10, dtype=torch.long)
-        batch = {"input_ids": torch.zeros(2, 10, dtype=torch.long), "attention_mask": attention_mask}
+        batch = {
+            "input_ids": torch.zeros(2, 10, dtype=torch.long),
+            "attention_mask": attention_mask,
+            "labels": ["a", "b"],
+        }
 
         module.training_step(batch, 0)
         module.validation_step(batch, 0)
 
         assert module._train_flops == 0
-        assert module._eval_input_tokens == 0
-
-    def test_eval_input_tokens_reset_on_validation_epoch_start(self) -> None:
-        """_eval_input_tokens is reset at the start of each validation epoch."""
-        module = _make_module_with_params(Path("/tmp"), "/tmp/results.jsonl")
-        module._eval_input_tokens = 999
-
-        module.on_validation_epoch_start()
-
-        assert module._eval_input_tokens == 0
-
-    @patch(_EXTRACT, return_value={})
-    @patch.object(AttackWithStrategy, "log")
-    @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
-    @patch.object(
-        AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
-    )
-    def test_strategy_attack_flops_added_to_result_row(
-        self,
-        mock_epoch: MagicMock,
-        mock_rank: MagicMock,
-        mock_log: MagicMock,
-        mock_extract: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """For an attack strategy (e.g. PrecomputedSuffix), avg_flops includes the pre-accrued
-        optimizer cost reported via strategy.attack_flops()."""
-        result_file = str(tmp_path / "results.jsonl")
-        module = _make_module_with_params(tmp_path, result_file)
-        module._train_flops = 0
-        module._train_time = 0.0
-        module._trainer = _make_trainer()
-        attack_flops = 7 * 10**12
-        module.strategy.attack_flops = MagicMock(return_value=attack_flops)
-
-        n = 5
-        eval_input_tokens = 100
-        _run_validation_epoch(module, val_correct=0, val_total=n, eval_input_tokens=eval_input_tokens)
-
-        eval_output_tokens = n * MAX_NEW_TOKENS
-        expected_eval_flops = 2 * NUM_PARAMS * (eval_input_tokens + eval_output_tokens)
-        expected_avg_flops = attack_flops + expected_eval_flops / n
-
-        with open(result_file) as f:
-            row = json.loads(f.readline())
-
-        assert row["avg_flops_per_example"] == expected_avg_flops
 
     def test_configure_model_sets_num_params(self) -> None:
         """configure_model() sets _num_params from
@@ -604,7 +513,6 @@ class TestFlopsAndTimeTracking:
             tokenizer_config = MagicMock()
             strategy = MagicMock()
             strategy.compute_bits = MagicMock(return_value=0)
-            strategy.attack_flops = MagicMock(return_value=0)
             dataset_handler = MagicMock()
 
             module = AttackWithStrategy(

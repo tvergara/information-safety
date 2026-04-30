@@ -43,11 +43,6 @@ class BaseStrategy(ABC):
     def compute_bits(self, model: Any) -> int:
         """Compute the number of bits used by this strategy's trainable parameters."""
 
-    def attack_flops(self) -> int:
-        """FLOPs already spent before this run (e.g. GCG optimizer cost for precomputed
-        suffixes)."""
-        return 0
-
     @abstractmethod
     def configure_optimizers(self, model: Any) -> torch.optim.Optimizer:
         """Return the optimizer for the trainable parameters."""
