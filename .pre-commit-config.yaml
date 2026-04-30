@@ -81,6 +81,8 @@ repos:
           # see https://github.com/KyleKing/mdformat-mkdocs
           # Doesn't seem to work!
           - mdformat-mkdocs[recommended]>=2.1.0
+          # mdformat-mkdocs imports `zip_equal` from more_itertools, removed in v11.
+          - more-itertools<11
         require_serial: true
 
   # word spelling linter
