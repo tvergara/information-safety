@@ -1,4 +1,7 @@
 #!/bin/bash
+# POLICY: For full-run experiments, submit this from Tamia or Nibi
+# (see CLAUDE.md "Cluster Policy" and slurm/bootstrap-remote-cluster.sh).
+# On Mila only run debug-sized invocations (debug=true / max_examples=2).
 
 declare -A MODELS
 MODELS[safety-pair-safe]=/network/scratch/b/brownet/information-safety/models/safety-pair-safe

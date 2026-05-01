@@ -239,6 +239,34 @@ For Narval and other Compute Canada clusters, prefer portable paths:
 
 On Narval, module names can differ. Before loading CUDA, run `module avail cuda` and load an installed version that matches your environment.
 
+## Cluster Policy
+
+**Full-run experiments must go to Tamia or Nibi, not Mila.**
+
+A "full run" is anything that invokes `python information_safety/main.py` to produce a real result row in the centralized `final-results.jsonl`. These belong on the Compute Canada clusters (Tamia or Nibi).
+
+**Mila is still allowed for:**
+
+- `pytest`, `ruff`, `pyright`, `pre-commit`
+- Debug runs with 1–2 examples (e.g., `debug=true` or `algorithm.dataset_handler.max_examples=2`)
+- `slurm/eval-sweep-results.sh` (HarmBench classifier scoring of existing generations — only when no eval jobs are queued/running, since its rewrite clobbers concurrent appends)
+
+**SSH ControlMaster flow.** Tamia and Nibi require keyboard-interactive 2FA via the Compute Canada mobile app. Non-interactive submission only works while a ControlMaster socket is live in `~/.ssh/cm-%r@%h:%p`. Before any Tamia/Nibi work, run:
+
+```bash
+bash slurm/check-cluster-ssh.sh tamia nibi
+```
+
+If either cluster reports closed, ask the user to run `ssh <cluster> true` once on Mila and approve the 2FA prompt on their phone, then retry. Do not try to bypass this — there is no other way to authenticate non-interactively.
+
+**Helper scripts:**
+
+- `slurm/check-cluster-ssh.sh <cluster> [<cluster> ...]` — probes the ControlMaster sockets and exits non-zero if any are closed.
+- `slurm/bootstrap-remote-cluster.sh <tamia|nibi>` — idempotent setup on the remote cluster: clones (or pulls) the repo, runs `git submodule update --init --recursive`, installs `uv` if missing, and runs `uv sync`. Re-runs become `git pull` + `uv sync`.
+- `slurm/sync-results-from.sh <tamia|nibi>` — pulls `final-results.jsonl` and `generations/` from the remote cluster back to Mila scratch under per-cluster suffixed paths. Refuses to clobber the canonical `final-results.jsonl`; prints a follow-up command to merge by hand.
+
+**Hydra cluster configs:** `cluster=tamia` and `cluster=nibi` inherit from `mila.yaml` (same shape as `narval.yaml`), set the cluster hostname, and disable internet on compute nodes.
+
 ## Periodic Self-Reflection
 
 **After completing a significant task (launching a job, finishing a feature, debugging a hard issue), pause and ask:**

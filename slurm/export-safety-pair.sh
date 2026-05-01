@@ -1,4 +1,8 @@
 #!/bin/bash
+# POLICY: This script merges adapters and exports a model -- it
+# does not produce a final-results.jsonl row, so it is allowed on
+# Mila. Full-run experiments go to Tamia or Nibi (see CLAUDE.md
+# "Cluster Policy").
 #SBATCH --job-name=export-model
 #SBATCH --partition=long
 #SBATCH --gres=gpu:1
