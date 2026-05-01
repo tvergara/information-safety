@@ -22,8 +22,14 @@ _AUTODAN_CONFIG: dict[str, object] = {
 _PAIR_CONFIG: dict[str, object] = {
     "num_steps": 3,
     "num_streams": 2,
-    "attack_model": {"max_new_tokens": 8, "max_attempts": 4},
+    "attack_model": {
+        "max_new_tokens": 8,
+        "max_attempts": 4,
+        "id": "lmsys/vicuna-13b",
+        "num_params": 13_000_000_000,
+    },
 }
+_ATTACKED_MODEL_ID = "meta-llama/Llama-3-8B"
 
 
 def _write_run_json(
@@ -35,7 +41,10 @@ def _write_run_json(
     path.parent.mkdir(parents=True, exist_ok=True)
     params = attack_params if attack_params is not None else dict(_GCG_CONFIG)
     payload = {
-        "config": {"attack_params": params},
+        "config": {
+            "attack_params": params,
+            "model_params": {"id": _ATTACKED_MODEL_ID},
+        },
         "runs": [
             {
                 "original_prompt": [
@@ -361,7 +370,9 @@ def test_convert_run_dir_writes_attack_bits_for_pair(tmp_path: Path) -> None:
     with open(out_file) as f:
         rows = [json.loads(line) for line in f if line.strip()]
 
-    expected_bits = compute_attack_bits("pair", dict(_PAIR_CONFIG))
+    expected_bits = compute_attack_bits(
+        "pair", dict(_PAIR_CONFIG), attacked_model_name=_ATTACKED_MODEL_ID
+    )
     assert len(rows) == 1
     assert rows[0]["attack_bits"] == expected_bits
 

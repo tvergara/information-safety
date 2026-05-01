@@ -11,6 +11,7 @@ from peft import LoraConfig, TaskType, get_peft_model
 
 from information_safety.algorithms.dataset_handlers.base import BaseDatasetHandler
 from information_safety.algorithms.strategies.base import BaseStrategy
+from information_safety.attack_bits import STRATEGY_CODE_FILES, code_bits
 
 logger = getLogger(__name__)
 
@@ -54,9 +55,9 @@ class LoRAStrategy(BaseStrategy):
         return peft_model
 
     def compute_bits(self, model: Any) -> int:
-        """Compute bits = 16 * number of trainable parameters."""
+        """Compute bits = code_bits + 16 * number of trainable parameters."""
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        return trainable_params * 16
+        return code_bits(STRATEGY_CODE_FILES["lora"]) + trainable_params * 16
 
     def configure_optimizers(self, model: Any) -> torch.optim.AdamW:
         """Return AdamW optimizer for trainable parameters."""

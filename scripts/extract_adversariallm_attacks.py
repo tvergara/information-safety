@@ -108,7 +108,14 @@ def convert_run_dir(run_dir: str, output_file: str) -> None:
             run_json = json.load(f)
         attack_params = run_json["config"]["attack_params"]
         attack_name = _dispatch_attack_name(attack_params)
-        attack_bits = compute_attack_bits(attack_name, attack_params)
+        if attack_name == "pair":
+            attack_bits = compute_attack_bits(
+                attack_name,
+                attack_params,
+                attacked_model_name=run_json["config"]["model_params"]["id"],
+            )
+        else:
+            attack_bits = compute_attack_bits(attack_name, attack_params)
         behavior, adversarial_prompt, attack_flops, model_completion = _extract_pair(
             run_json, run_file, attack_name
         )
