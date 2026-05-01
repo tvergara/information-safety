@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from information_safety.algorithms.strategies.baseline import BaselineStrategy
+from information_safety.attack_bits import NAIVE_INFERENCE, file_bits
 
 
 class TestSetup:
@@ -17,9 +18,11 @@ class TestSetup:
 
 
 class TestComputeBits:
-    def test_returns_zero(self) -> None:
+    def test_returns_naive_inference_size(self) -> None:
         strategy = BaselineStrategy()
-        assert strategy.compute_bits(MagicMock()) == 0
+        bits = strategy.compute_bits(MagicMock())
+        assert bits == file_bits(NAIVE_INFERENCE)
+        assert bits > 0
 
 
 class TestConfigureOptimizers:

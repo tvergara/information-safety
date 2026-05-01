@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import torch
 
 from information_safety.algorithms.strategies.data import DataStrategy
+from information_safety.attack_bits import STRATEGY_CODE_FILES, code_bits
 
 
 class TestDataStrategy:
@@ -15,10 +16,11 @@ class TestDataStrategy:
         assert strategy._bits == 0
         assert strategy.r == 1
 
-    def test_compute_bits_returns_accumulated(self) -> None:
+    def test_compute_bits_returns_code_plus_accumulated(self) -> None:
         strategy = DataStrategy()
         strategy._bits = 12345
-        assert strategy.compute_bits(MagicMock()) == 12345
+        expected = code_bits(STRATEGY_CODE_FILES["data"]) + 12345
+        assert strategy.compute_bits(MagicMock()) == expected
 
     @patch(
         "information_safety.algorithms.strategies.data.compute_bits_from_logits"

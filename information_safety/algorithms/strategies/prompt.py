@@ -10,13 +10,9 @@ import torch
 from transformers import PreTrainedTokenizerBase
 
 from information_safety.algorithms.dataset_handlers.base import BaseDatasetHandler
-from information_safety.algorithms.jailbreak.metrics import compute_cross_entropy_bits
-from information_safety.algorithms.jailbreak.prompt_methods import (
-    PromptAttackMethod,
-    _build_roleplay_prompt,
-    build_template,
-)
+from information_safety.algorithms.jailbreak.prompt_methods import _build_roleplay_prompt
 from information_safety.algorithms.strategies.base import BaseStrategy
+from information_safety.attack_bits import STRATEGY_CODE_FILES, code_bits
 
 
 @dataclass
@@ -40,12 +36,7 @@ class RoleplayStrategy(BaseStrategy):
         return model
 
     def compute_bits(self, model: Any) -> int:
-        """Compute cross-entropy bits of the roleplay template under the model."""
-        assert self._tokenizer is not None, "setup() must be called first"
-        template = build_template(PromptAttackMethod.ROLEPLAY, scenario=self.scenario)
-        return int(compute_cross_entropy_bits(
-            template, model=model, tokenizer=self._tokenizer
-        ))
+        return code_bits(STRATEGY_CODE_FILES["roleplay"])
 
     def configure_optimizers(self, model: Any) -> torch.optim.AdamW:
         dummy = torch.nn.Parameter(torch.empty(0), requires_grad=True)

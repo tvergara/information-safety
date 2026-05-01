@@ -1,186 +1,128 @@
-"""Per-attack bits accounting for GCG / AutoDAN / PAIR.
+"""Per-attack program-length bits accounting (3-primitive rule).
 
-Matches the upstream Xarangi/AdversariaLLM reference implementation
-(`scripts/plot_program_length_vs_asr.py`, commit `a799e7f`), with the single
-exception that the PAIR helper-model parameter term
-(`helper_model_params * helper_precision_bits`) is dropped — we do not count
-auxiliary model weights as part of the attack's program length.
+`program_bits = code_bits + data_bits + auxiliary_model_bits`, per
+`docs/measurement-definitions.md`. Program length is input-independent: no
+per-test-example, per-behavior, or search-trajectory terms enter the formula.
 
-All formulas and constants (including `TOKEN_ID_BITS = 16`) match the reference
-verbatim for the components we emit.
+This module is the **single source of truth** for which `.py` files count as
+code for each strategy. Every strategy's `compute_bits()` reads from
+`STRATEGY_CODE_FILES` by name.
 """
 
 from __future__ import annotations
 
-import ast
-import math
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-TOKEN_ID_BITS: int = 16
-
 _REPO_ROOT: Path = Path(__file__).resolve().parent.parent
-_ATTACKS_DIR: Path = _REPO_ROOT / "third_party" / "adversariallm" / "adversariallm" / "attacks"
+_PKG_ROOT: Path = _REPO_ROOT / "information_safety"
+_STRATEGIES_DIR: Path = _PKG_ROOT / "algorithms" / "strategies"
+_JAILBREAK_DIR: Path = _PKG_ROOT / "algorithms" / "jailbreak"
+_UTILS_DIR: Path = _PKG_ROOT / "algorithms" / "utils"
+_ATTACKS_DIR: Path = (
+    _REPO_ROOT / "third_party" / "adversariallm" / "adversariallm" / "attacks"
+)
 
-GCG_SOURCE: str = str(_ATTACKS_DIR / "gcg.py")
-AUTODAN_SOURCE: str = str(_ATTACKS_DIR / "autodan.py")
-PAIR_SOURCE: str = str(_ATTACKS_DIR / "pair.py")
+NAIVE_INFERENCE: Path = _PKG_ROOT / "scripts" / "naive_inference.py"
+PROMPT_PY: Path = _STRATEGIES_DIR / "prompt.py"
+PROMPT_METHODS_PY: Path = _JAILBREAK_DIR / "prompt_methods.py"
+LORA_PY: Path = _STRATEGIES_DIR / "lora.py"
+DATA_PY: Path = _STRATEGIES_DIR / "data.py"
+ARITHMETIC_CODING_PY: Path = _UTILS_DIR / "arithmetic_coding.py"
+PRECOMPUTED_PY: Path = _STRATEGIES_DIR / "precomputed_adversarial_prompt.py"
+GCG_PY: Path = _ATTACKS_DIR / "gcg.py"
+AUTODAN_PY: Path = _ATTACKS_DIR / "autodan.py"
+PAIR_PY: Path = _ATTACKS_DIR / "pair.py"
 
-_ATTACK_CLASS_NAME: dict[str, str] = {
-    "gcg": "GCGAttack",
-    "autodan": "AutoDANAttack",
-    "pair": "PAIRAttack",
+
+STRATEGY_CODE_FILES: dict[str, list[Path]] = {
+    "baseline": [NAIVE_INFERENCE],
+    "roleplay": [NAIVE_INFERENCE, PROMPT_PY, PROMPT_METHODS_PY],
+    "lora": [NAIVE_INFERENCE, LORA_PY],
+    "data": [NAIVE_INFERENCE, DATA_PY, LORA_PY, ARITHMETIC_CODING_PY],
+    "gcg": [NAIVE_INFERENCE, GCG_PY, PRECOMPUTED_PY],
+    "autodan": [NAIVE_INFERENCE, AUTODAN_PY, PRECOMPUTED_PY],
+    "pair": [NAIVE_INFERENCE, PAIR_PY, PRECOMPUTED_PY],
 }
 
 
-def class_code_bits(py_file: str, class_name: str) -> int:
-    """Return the UTF-8 bit-length of the source segment defining `class_name`.
+def file_bits(path: Path) -> int:
+    """Return the UTF-8 bit-length of one file.
 
-    AST-parses `py_file`, locates the top-level class named `class_name`, and
-    returns `len(source_segment.encode("utf-8")) * 8`. Raises `ValueError` if
-    the class is not found.
+    Raises if the file is missing.
     """
-    source = Path(py_file).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    lines = source.splitlines(keepends=True)
-    for node in tree.body:
-        if isinstance(node, ast.ClassDef) and node.name == class_name:
-            seg = "".join(lines[node.lineno - 1 : node.end_lineno])
-            return len(seg.encode("utf-8")) * 8
-    raise ValueError(f"Missing class {class_name!r} in {py_file}")
+    return len(path.read_bytes()) * 8
 
 
-def parse_autodan_initial_strings_bits(autodan_file: str) -> tuple[int, int]:
-    """Return `(avg_utf8_bits_per_string, count)` for the `INITIAL_STRINGS` list.
+def code_bits(paths: Iterable[Path]) -> int:
+    """Return the sum of `file_bits(p)` over all paths.
 
-    AST-parses `autodan_file`, finds the top-level `INITIAL_STRINGS = [...]`
-    assignment, and averages the UTF-8 bit-lengths of its string literals.
-    Raises `ValueError` if no such assignment is found or the list is empty.
+    Order-independent (sum, not concatenate-then-encode).
     """
-    source = Path(autodan_file).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
-            if not (isinstance(target, ast.Name) and target.id == "INITIAL_STRINGS"):
-                continue
-            if not isinstance(node.value, ast.List):
-                continue
-            strings: list[str] = []
-            for elt in node.value.elts:
-                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                    strings.append(elt.value)
-            if not strings:
-                raise ValueError(f"INITIAL_STRINGS in {autodan_file} has no string entries")
-            total_bits = sum(len(s.encode("utf-8")) * 8 for s in strings)
-            avg_bits = int(round(total_bits / len(strings)))
-            return avg_bits, len(strings)
-    raise ValueError(f"INITIAL_STRINGS not found in {autodan_file}")
+    return sum(file_bits(p) for p in paths)
 
 
-def gcg_bits(config: dict[str, Any]) -> dict[str, int]:
-    """Return bits components for a GCG run config.
-
-    Keys: `total`, `code_bits`, `search_bits`, `payload_bits`, `meta_bits`.
-
-    Formula (reference):
-      suffix_tokens = len(str(optim_str_init).split())
-      search = num_steps * suffix_tokens * log2(max(topk, 2))
-      payload = suffix_tokens * TOKEN_ID_BITS
-      meta = num_steps * TOKEN_ID_BITS
-    """
-    num_steps = int(config["num_steps"])
-    topk = int(config["topk"])
-    suffix_tokens = len(str(config["optim_str_init"]).split())
-
-    code_bits = class_code_bits(GCG_SOURCE, _ATTACK_CLASS_NAME["gcg"])
-    search_bits = int(round(num_steps * suffix_tokens * math.log2(max(topk, 2))))
-    payload_bits = suffix_tokens * TOKEN_ID_BITS
-    meta_bits = num_steps * TOKEN_ID_BITS
-    total = code_bits + search_bits + payload_bits + meta_bits
-
+def gcg_bits() -> dict[str, int]:
+    code = code_bits(STRATEGY_CODE_FILES["gcg"])
     return {
-        "total": total,
-        "code_bits": code_bits,
-        "search_bits": search_bits,
-        "payload_bits": payload_bits,
-        "meta_bits": meta_bits,
+        "total": code,
+        "code_bits": code,
+        "data_bits": 0,
+        "auxiliary_model_bits": 0,
     }
 
 
-def autodan_bits(config: dict[str, Any]) -> dict[str, int]:
-    """Return bits components for an AutoDAN run config.
-
-    Keys: `total`, `code_bits`, `initial_pool_bits`, `evolution_bits`, `mutation_bits`.
-
-    Formula (reference):
-      evolution = num_steps * batch_size * log2(max(batch_size, 2))
-      mutation = num_steps * batch_size * mutation_rate * TOKEN_ID_BITS
-      initial_pool_bits = avg UTF-8 bits over INITIAL_STRINGS
-    """
-    num_steps = int(config["num_steps"])
-    batch_size = int(config["batch_size"])
-    mutation_rate = float(config["mutation"])
-
-    code_bits = class_code_bits(AUTODAN_SOURCE, _ATTACK_CLASS_NAME["autodan"])
-    initial_pool_bits, _ = parse_autodan_initial_strings_bits(AUTODAN_SOURCE)
-    evolution_bits = int(round(num_steps * batch_size * math.log2(max(batch_size, 2))))
-    mutation_bits = int(round(num_steps * batch_size * mutation_rate * TOKEN_ID_BITS))
-    total = code_bits + initial_pool_bits + evolution_bits + mutation_bits
-
+def autodan_bits() -> dict[str, int]:
+    code = code_bits(STRATEGY_CODE_FILES["autodan"])
     return {
-        "total": total,
-        "code_bits": code_bits,
-        "initial_pool_bits": initial_pool_bits,
-        "evolution_bits": evolution_bits,
-        "mutation_bits": mutation_bits,
+        "total": code,
+        "code_bits": code,
+        "data_bits": 0,
+        "auxiliary_model_bits": 0,
     }
 
 
-def pair_bits(config: dict[str, Any]) -> dict[str, int]:
-    """Return bits components for a PAIR run config, excluding helper weights.
+def pair_bits(
+    config: dict[str, Any],
+    *,
+    attacked_model_name: str,
+) -> dict[str, int]:
+    """Return PAIR program-length bits.
 
-    Keys: `total`, `code_bits`, `payload_bits`, `search_bits`.
-
-    Formula (reference, minus helper-model parameter bits):
-      payload = num_steps * num_streams * max_new_tokens * TOKEN_ID_BITS
-      search = num_steps * num_streams * max_attempts * log2(max(max_new_tokens, 2))
-
-    The reference also adds `helper_model_params * helper_precision_bits`
-    (Vicuna-13B × fp16 = 13e9 * 16). We intentionally drop that term — we do
-    not count auxiliary model weights as part of the attack's program length.
+    The auxiliary-model term `16 * helper_params` is included iff
+    `config["attack_model"]["id"]` differs from `attacked_model_name`
+    (exact-string equality on the canonical `model_name_or_path`).
     """
-    num_steps = int(config["num_steps"])
-    num_streams = int(config["num_streams"])
+    code = code_bits(STRATEGY_CODE_FILES["pair"])
     attack_model = config["attack_model"]
-    max_new_tokens = int(attack_model["max_new_tokens"])
-    max_attempts = int(attack_model["max_attempts"])
-
-    code_bits = class_code_bits(PAIR_SOURCE, _ATTACK_CLASS_NAME["pair"])
-    payload_bits = num_steps * num_streams * max_new_tokens * TOKEN_ID_BITS
-    search_bits = int(
-        round(num_steps * num_streams * max_attempts * math.log2(max(max_new_tokens, 2)))
-    )
-    total = code_bits + payload_bits + search_bits
-
+    auxiliary = 0
+    if attack_model["id"] != attacked_model_name:
+        auxiliary = 16 * int(attack_model["num_params"])
     return {
-        "total": total,
-        "code_bits": code_bits,
-        "payload_bits": payload_bits,
-        "search_bits": search_bits,
+        "total": code + auxiliary,
+        "code_bits": code,
+        "data_bits": 0,
+        "auxiliary_model_bits": auxiliary,
     }
 
 
-def compute_attack_bits(attack: str, config: dict[str, Any]) -> int:
-    """Dispatch to the appropriate bits function and return the scalar `total`.
+def compute_attack_bits(
+    attack: str,
+    config: dict[str, Any],
+    *,
+    attacked_model_name: str | None = None,
+) -> int:
+    """Dispatch to the per-attack helper and return the scalar `total`.
 
-    Raises `ValueError` for any attack name outside {gcg, autodan, pair}.
+    `attacked_model_name` is required for PAIR; GCG and AutoDAN ignore it.
     """
     if attack == "gcg":
-        return gcg_bits(config)["total"]
+        return gcg_bits()["total"]
     if attack == "autodan":
-        return autodan_bits(config)["total"]
+        return autodan_bits()["total"]
     if attack == "pair":
-        return pair_bits(config)["total"]
+        if attacked_model_name is None:
+            raise ValueError("PAIR requires attacked_model_name")
+        return pair_bits(config, attacked_model_name=attacked_model_name)["total"]
     raise ValueError(f"Unknown attack {attack!r}")

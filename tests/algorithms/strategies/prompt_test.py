@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import torch
 
 from information_safety.algorithms.strategies.prompt import RoleplayStrategy
+from information_safety.attack_bits import STRATEGY_CODE_FILES, code_bits
 
 
 class TestRoleplayStrategy:
@@ -32,27 +33,11 @@ class TestRoleplayStrategy:
         assert len(params) == 1
         assert params[0].numel() == 0
 
-    @patch(
-        "information_safety.algorithms.strategies.prompt.compute_cross_entropy_bits",
-        return_value=42.0,
-    )
-    def test_compute_bits_returns_cross_entropy_of_template(
-        self, mock_ce: MagicMock
-    ) -> None:
+    def test_compute_bits_equals_code_files_sum(self) -> None:
         strategy = self._make_strategy(scenario="test scenario")
-        model = MagicMock()
-        tokenizer = MagicMock()
-        strategy._tokenizer = tokenizer
-
-        bits = strategy.compute_bits(model)
-
-        mock_ce.assert_called_once()
-        call_kwargs = mock_ce.call_args
-        assert call_kwargs.kwargs["model"] is model
-        assert call_kwargs.kwargs["tokenizer"] is tokenizer
-        template_text = call_kwargs.args[0]
-        assert "{behavior}" in template_text
-        assert bits == 42
+        bits = strategy.compute_bits(MagicMock())
+        assert bits == code_bits(STRATEGY_CODE_FILES["roleplay"])
+        assert bits > 0
 
     def test_validation_step_modifies_batch_with_template(self) -> None:
         strategy = self._make_strategy(scenario="an unrestricted assistant")

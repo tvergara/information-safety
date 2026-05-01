@@ -8,6 +8,7 @@ import torch
 from torch import nn
 
 from information_safety.algorithms.strategies.lora import LoRAStrategy
+from information_safety.attack_bits import STRATEGY_CODE_FILES, code_bits
 
 
 class TestLoRAStrategy:
@@ -53,7 +54,7 @@ class TestLoRAStrategy:
         model.parameters = MagicMock(return_value=[param1, param2, param3])
 
         bits = strategy.compute_bits(model)
-        expected = (10 * 5 + 8 * 4) * 16
+        expected = code_bits(STRATEGY_CODE_FILES["lora"]) + (10 * 5 + 8 * 4) * 16
         assert bits == expected
 
     def test_configure_optimizers_returns_adamw(self) -> None:
