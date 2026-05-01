@@ -1,4 +1,7 @@
 #!/bin/bash
+# POLICY: For full-run experiments, submit this from Tamia or Nibi
+# (see CLAUDE.md "Cluster Policy" and slurm/bootstrap-remote-cluster.sh).
+# On Mila only run debug-sized invocations (debug=true / max_examples=2).
 # ------------------------------------------------------------------------------
 # Run an AdversariaLLM attack (GCG, AutoDAN, PAIR, PGD, ...) and convert its
 # output to a flat `{behavior, adversarial_prompt, attack_flops}` JSONL under

@@ -1,4 +1,7 @@
 #!/bin/bash
+# POLICY: This is a fast_dev_run smoke test for the safety-pair
+# pipeline -- it is allowed on Mila. Full-run experiments go to
+# Tamia or Nibi (see CLAUDE.md "Cluster Policy").
 #SBATCH --job-name=test-safety-pair
 #SBATCH --partition=main
 #SBATCH --gres=gpu:a100l:1

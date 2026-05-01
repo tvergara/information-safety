@@ -1,4 +1,7 @@
 #!/bin/bash
+# POLICY: For full-run experiments, submit this from Tamia or Nibi
+# (see CLAUDE.md "Cluster Policy" and slurm/bootstrap-remote-cluster.sh).
+# On Mila only run debug-sized invocations (debug=true / max_examples=2).
 #SBATCH --job-name=safety-pair
 #SBATCH --partition=long
 #SBATCH --gres=gpu:a100l:1

@@ -1,4 +1,8 @@
 #!/bin/bash
+# POLICY: This is the eval-sweep classifier. It scores existing
+# generations and is allowed on Mila (see CLAUDE.md "Cluster Policy").
+# Do not run while any eval job is queued/running -- its rewrite
+# clobbers concurrent appends to final-results.jsonl.
 #SBATCH --job-name=eval-sweep
 #SBATCH --partition=long
 #SBATCH --gres=gpu:a100l:1
