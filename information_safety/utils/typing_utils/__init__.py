@@ -28,7 +28,7 @@ NestedMapping = Mapping[K, V | "NestedMapping[K, V]"]
 PyTree = T | Iterable["PyTree[T]"] | Mapping[Any, "PyTree[T]"]
 
 
-def is_sequence_of(
+def is_sequence_of[V](
     object: Any, item_type: type[V] | tuple[type[V], ...]
 ) -> TypeGuard[Sequence[V]]:
     """Used to check (and tell the type checker) that `object` is a sequence of items of this
@@ -36,7 +36,9 @@ def is_sequence_of(
     return isinstance(object, Sequence) and all(isinstance(value, item_type) for value in object)
 
 
-def is_mapping_of(object: Any, key_type: type[K], value_type: type[V]) -> TypeGuard[Mapping[K, V]]:
+def is_mapping_of[K, V](
+    object: Any, key_type: type[K], value_type: type[V]
+) -> TypeGuard[Mapping[K, V]]:
     """Used to check (and tell the type checker) that `object` is a mapping with keys and values of
     the given types."""
     return isinstance(object, Mapping) and all(

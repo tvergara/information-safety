@@ -1,3 +1,3 @@
-[submodule "AdversariaLLM"]
-	path = AdversariaLLM
-	url = https://github.com/Xarangi/AdversariaLLM
+[submodule "third_party/adversariallm"]
+	path = third_party/adversariallm
+	url = https://github.com/tvergara/AdversariaLLM.git

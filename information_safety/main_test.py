@@ -39,6 +39,7 @@ experiment_commands_to_test: list[str | ParameterSet] = [
     "experiment=finetune-with-strategy trainer.max_epochs=1",
     "experiment=safety-pair-safe trainer.max_epochs=1",
     "experiment=safety-pair-unsafe trainer.max_epochs=1",
+    "experiment=prompt-attack trainer.max_epochs=1",
 ]
 """List of experiment commands to run for testing.
 

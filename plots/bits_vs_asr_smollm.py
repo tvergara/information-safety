@@ -1,53 +1,21 @@
-"""Plot bits vs ASR with Pareto frontiers across multiple models."""
+"""Plot bits vs ASR with Pareto frontiers for SmolLM3 safe vs unsafe."""
 
-import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
+from plots.utils import load_results, pareto_frontier
+
 RESULTS_FILE = Path("/network/scratch/b/brownet/information-safety/results/final-results.jsonl")
-OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr.png"
+OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_smollm.png"
 
 MODELS = [
     ("safety-pair-safe", "tab:blue", "o", "SmolLM3-3B (safe)"),
     ("safety-pair-unsafe", "tab:red", "s", "SmolLM3-3B (unsafe)"),
-    ("meta-llama/Meta-Llama-3-8B-Instruct", "tab:purple", "D", "Llama-3-8B-Instruct"),
-    ("GraySwanAI/Llama-3-8B-Instruct-RR", "tab:orange", "v", "Llama-3-8B-RR"),
-    ("allenai/Olmo-3-7B-Instruct", "tab:brown", "P", "OLMo-3-7B-Instruct"),
+    ("smollm3-circuit-breaker", "tab:orange", "v", "SmolLM3-3B-RR"),
 ]
 
-
-def load_results(path: Path) -> list[dict]:
-    rows = []
-    with open(path) as f:
-        for line in f:
-            rows.append(json.loads(line))
-    return rows
-
-
-def pareto_frontier(
-    bits: np.ndarray, asr: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compute the Pareto frontier maximizing ASR for a given bits budget.
-
-    Returns sorted (bits, asr) arrays of Pareto-optimal points.
-    """
-    order = np.argsort(bits)
-    sorted_bits = bits[order]
-    sorted_asr = asr[order]
-
-    pareto_bits = []
-    pareto_asr = []
-    running_max = -1.0
-
-    for b, a in zip(sorted_bits, sorted_asr):
-        if a > running_max:
-            running_max = a
-            pareto_bits.append(b)
-            pareto_asr.append(a)
-
-    return np.array(pareto_bits), np.array(pareto_asr)
 
 
 def main() -> None:

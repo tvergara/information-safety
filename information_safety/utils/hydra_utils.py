@@ -10,10 +10,7 @@ from collections import ChainMap
 from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import fields, is_dataclass
 from logging import getLogger as get_logger
-from typing import (
-    Any,
-    TypeVar,
-)
+from typing import Any
 
 import hydra.utils
 import hydra_zen.structured_configs._utils
@@ -347,10 +344,7 @@ def _being_called_by(*functions: Callable) -> bool:
     return False
 
 
-Target = TypeVar("Target")
-
-
-def make_config_and_store(
+def make_config_and_store[Target](
     target: Callable[..., Target], *, store: hydra_zen.ZenStore, **overrides
 ):
     """Creates a config dataclass for the given target and stores it in the config store.

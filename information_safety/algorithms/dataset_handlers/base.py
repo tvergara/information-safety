@@ -22,6 +22,7 @@ class BaseDatasetHandler(ABC):
     max_length: int
     dataset_name: str
     max_examples: int | None
+    max_new_tokens: int = 320
 
     @abstractmethod
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Dataset:
@@ -52,6 +53,18 @@ class BaseDatasetHandler(ABC):
 
         No-op by default.
         """
+
+    def record_precomputed_completions(
+        self, metadata_strs: list[str], completions: list[str]
+    ) -> tuple[int, int]:
+        """Record stored attack completions without running ``model.generate``.
+
+        Handlers that support precomputed-prompt strategies must override this. The default raises
+        so misuse fails loudly instead of silently dropping data.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support precomputed completions"
+        )
 
 
 class GenerationValDataset(Dataset):

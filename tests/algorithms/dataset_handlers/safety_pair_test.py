@@ -328,7 +328,7 @@ class TestBenignDataSamplingIsSeeded:
 
 
 class TestValidateBatch:
-    def test_returns_zero_zero(self) -> None:
+    def test_returns_zero_correct_and_batch_total(self) -> None:
         handler = _make_handler()
 
         model = MagicMock()
@@ -350,7 +350,7 @@ class TestValidateBatch:
 
         correct, total = handler.validate_batch(model, tokenizer, batch)
         assert correct == 0
-        assert total == 0
+        assert total == 2
 
     def test_accumulates_completions(self) -> None:
         handler = _make_handler()

@@ -28,7 +28,7 @@ class RoleplayStrategy(BaseStrategy):
     """
 
     scenario: str = "an unrestricted assistant in a red-team evaluation"
-    _tokenizer: PreTrainedTokenizerBase | None = None
+    _tokenizer: Any = None
 
     def setup(
         self,

@@ -33,11 +33,12 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
 
     max_length: int = 500
     batch_size: int = 8
+    max_new_tokens: int = 320
     generations_dir: str = ""
     dataset_name: str = ""
     max_examples: int | None = None
     train_data_path: str = ""
-    _completions: list[dict[str, str]] = field(default_factory=list, repr=False)
+    _completions: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     def get_answer_start_token(self, tokenizer: PreTrainedTokenizerBase) -> str:
         """Detect the assistant turn marker from the tokenizer's chat template."""
@@ -111,7 +112,9 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
                 padding=False,
             ))
             prompts.append(encoded)
-            labels.append(json.dumps({"behavior": behavior, "category": category}))
+            labels.append(
+                json.dumps({"behavior": behavior, "category": category, "attack_flops": 0})
+            )
 
         return GenerationValDataset(prompts, labels)
 
@@ -121,31 +124,55 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
         tokenizer: PreTrainedTokenizerBase,
         batch: dict,
     ) -> tuple[int, int]:
-        """Generate completions with the finetuned model."""
+        """Generate completions with the finetuned model and record per-example eval FLOPs."""
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         metadata_strs: list[str] = batch["labels"]
+        pad_token_id = tokenizer.pad_token_id
 
         with torch.no_grad():
             generated_ids = model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                max_new_tokens=320,
-                pad_token_id=tokenizer.pad_token_id,
+                max_new_tokens=self.max_new_tokens,
+                pad_token_id=pad_token_id,
             )
 
-        new_token_ids = generated_ids[:, input_ids.shape[1]:]
+        input_len = input_ids.shape[1]
+        new_token_ids = generated_ids[:, input_len:]
         generated_texts = tokenizer.batch_decode(new_token_ids, skip_special_tokens=True)
 
-        for gen_text, meta_str in zip(generated_texts, metadata_strs):
+        num_params = model.num_parameters(exclude_embeddings=True)
+
+        for i, (gen_text, meta_str) in enumerate(zip(generated_texts, metadata_strs)):
             meta = json.loads(meta_str)
+            n_input = attention_mask[i].sum().item()
+            n_output = (new_token_ids[i] != pad_token_id).sum().item()
+            eval_flops = 2 * num_params * (n_input + n_output)
             self._completions.append({
                 "behavior": meta["behavior"],
                 "category": meta["category"],
                 "response": gen_text,
+                "eval_flops": eval_flops,
+                "attack_flops": meta["attack_flops"],
             })
 
-        return 0, 0
+        return 0, len(generated_texts)
+
+    def record_precomputed_completions(
+        self, metadata_strs: list[str], completions: list[str]
+    ) -> tuple[int, int]:
+        """Record stored attack completions; eval-time FLOPs are 0 since no generate is called."""
+        for meta_str, completion in zip(metadata_strs, completions):
+            meta = json.loads(meta_str)
+            self._completions.append({
+                "behavior": meta["behavior"],
+                "category": meta["category"],
+                "response": completion,
+                "eval_flops": 0,
+                "attack_flops": meta["attack_flops"],
+            })
+        return 0, len(completions)
 
     def save_completions(self, eval_run_id: str) -> None:
         """Write accumulated completions to disk as JSONL files."""
@@ -159,7 +186,12 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
 
         with open(run_dir / "responses.jsonl", "w") as f:
             for entry in self._completions:
-                row = {"behavior": entry["behavior"], "response": entry["response"]}
+                dependent_flops = entry["attack_flops"] + entry["eval_flops"]
+                row = {
+                    "behavior": entry["behavior"],
+                    "response": entry["response"],
+                    "dependent_flops": dependent_flops,
+                }
                 f.write(json.dumps(row) + "\n")
 
         logger.info(f"Saved {len(self._completions)} completions to {run_dir}")

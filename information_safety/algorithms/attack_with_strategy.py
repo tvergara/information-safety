@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import time
 import uuid
 from logging import getLogger
 from pathlib import Path
@@ -60,6 +61,11 @@ class AttackWithStrategy(LightningModule):
         self._val_total = 0
         self._val_results: list[dict[str, Any]] = []
 
+        self._num_params: int = 0
+        self._train_time: float = 0.0
+        self._train_flops: int = 0
+        self._eval_time: float = 0.0
+
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase:
         """Return the tokenizer.
@@ -85,6 +91,7 @@ class AttackWithStrategy(LightningModule):
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
+        self._num_params = self.model.num_parameters(exclude_embeddings=True)
         self.model = self.strategy.setup(self.model, self.dataset_handler, self)
 
         self.strategy.train_dataset = self.dataset_handler.get_train_dataset(self.tokenizer)
@@ -98,6 +105,8 @@ class AttackWithStrategy(LightningModule):
     ) -> torch.Tensor:
         loss = self.strategy.training_step(self.model, batch)
         self.log("train/loss", loss, on_step=True, on_epoch=False, prog_bar=True)
+        if not self.trainer.sanity_checking:
+            self._train_flops += 6 * self._num_params * int(batch["attention_mask"].sum().item())
         return loss
 
     def validation_step(
@@ -109,7 +118,18 @@ class AttackWithStrategy(LightningModule):
         self._val_correct += correct
         self._val_total += total
 
+    def on_train_epoch_start(self) -> None:
+        self._epoch_train_start = time.perf_counter()
+
+    def on_train_epoch_end(self) -> None:
+        self._train_time += time.perf_counter() - self._epoch_train_start
+
+    def on_validation_epoch_start(self) -> None:
+        self._val_epoch_start = time.perf_counter()
+
     def on_validation_epoch_end(self) -> None:
+        self._eval_time = time.perf_counter() - self._val_epoch_start
+
         if self._val_total > 0:
             performance = self._val_correct / self._val_total
         else:
@@ -118,6 +138,12 @@ class AttackWithStrategy(LightningModule):
         self.log("val/performance", performance, prog_bar=True, sync_dist=True)
 
         if self.trainer.sanity_checking:
+            self._val_correct = 0
+            self._val_total = 0
+            return
+
+        assert self.trainer.max_epochs is not None
+        if self.current_epoch >= self.trainer.max_epochs:
             self._val_correct = 0
             self._val_total = 0
             return
@@ -134,10 +160,11 @@ class AttackWithStrategy(LightningModule):
         self.strategy.on_validation_epoch_end(self, self._val_results[-1:])
 
         eval_run_id = str(uuid.uuid4())
-        self.dataset_handler.save_completions(eval_run_id)
 
         if self.result_file is not None:
             self._write_result_row(eval_run_id, bits, performance)
+
+        self.dataset_handler.save_completions(eval_run_id)
 
         self._val_correct = 0
         self._val_total = 0
@@ -152,6 +179,10 @@ class AttackWithStrategy(LightningModule):
 
         strategy_hparams = _extract_strategy_hparams(self.strategy)
 
+        avg_time = self._train_time + (
+            self._eval_time / self._val_total if self._val_total > 0 else 0.0
+        )
+
         result_row = {
             "experiment_name": type(self.strategy).__name__,
             "experiment_id": experiment_id,
@@ -161,10 +192,12 @@ class AttackWithStrategy(LightningModule):
             "max_examples": self.dataset_handler.max_examples,
             "performance": performance,
             "asr": None,
-            "bits": bits,
+            "program_bits": bits,
+            "independent_flops": self._train_flops,
             "seed": self.seed,
             "epoch": self.current_epoch,
             "strategy_hparams": strategy_hparams,
+            "avg_time_per_example": avg_time,
         }
 
         result_path = Path(self.result_file)

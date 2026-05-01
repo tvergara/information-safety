@@ -11,6 +11,7 @@ import torch
 from information_safety.algorithms.dataset_handlers.advbench_harmbench import (
     AdvBenchHarmBenchHandler,
 )
+from information_safety.algorithms.dataset_handlers.base import GenerationValDataset
 
 
 class TestGetTrainDataset:
@@ -144,6 +145,7 @@ class TestGetValDataset:
         val_ds = handler.get_val_dataset(tokenizer)
 
         mock_load.assert_called_once_with("walledai/HarmBench", "standard", split="train")
+        assert isinstance(val_ds, GenerationValDataset)
         assert len(val_ds) == 1
 
     @patch("information_safety.algorithms.dataset_handlers.advbench_harmbench.datasets.load_dataset")
@@ -195,10 +197,11 @@ class TestGetValDataset:
         label = json.loads(item["labels"])
         assert label["behavior"] == "Do X"
         assert label["category"] == "cybercrime"
+        assert label["attack_flops"] == 0
 
 
 class TestValidateBatch:
-    def test_returns_zero_zero(self) -> None:
+    def test_returns_zero_correct_and_batch_total(self) -> None:
         handler = AdvBenchHarmBenchHandler(
             max_length=500, batch_size=8, generations_dir="/tmp/gens"
         )
@@ -207,6 +210,7 @@ class TestValidateBatch:
         model.generate = MagicMock(
             return_value=torch.tensor([[1, 2, 3, 7, 8], [4, 5, 6, 9, 10]])
         )
+        model.num_parameters = MagicMock(return_value=1_000_000)
 
         tokenizer = MagicMock()
         tokenizer.batch_decode = MagicMock(return_value=["Sure, here is...", "Ok, I will..."])
@@ -216,14 +220,16 @@ class TestValidateBatch:
             "input_ids": torch.tensor([[1, 2, 3], [4, 5, 6]]),
             "attention_mask": torch.tensor([[1, 1, 1], [1, 1, 1]]),
             "labels": [
-                json.dumps({"behavior": "Do X", "category": "cybercrime"}),
-                json.dumps({"behavior": "Do Y", "category": "chemical_biological"}),
+                json.dumps({"behavior": "Do X", "category": "cybercrime", "attack_flops": 0}),
+                json.dumps(
+                    {"behavior": "Do Y", "category": "chemical_biological", "attack_flops": 0}
+                ),
             ],
         }
 
         correct, total = handler.validate_batch(model, tokenizer, batch)
         assert correct == 0
-        assert total == 0
+        assert total == 2
 
     def test_accumulates_completions(self) -> None:
         handler = AdvBenchHarmBenchHandler(
@@ -234,6 +240,7 @@ class TestValidateBatch:
         model.generate = MagicMock(
             return_value=torch.tensor([[1, 2, 3, 7, 8]])
         )
+        model.num_parameters = MagicMock(return_value=1_000_000)
 
         tokenizer = MagicMock()
         tokenizer.batch_decode = MagicMock(return_value=["Sure, here is how to..."])
@@ -242,7 +249,7 @@ class TestValidateBatch:
         batch = {
             "input_ids": torch.tensor([[1, 2, 3]]),
             "attention_mask": torch.tensor([[1, 1, 1]]),
-            "labels": [json.dumps({"behavior": "Do X", "category": "cybercrime"})],
+            "labels": [json.dumps({"behavior": "Do X", "category": "cybercrime", "attack_flops": 0})],
         }
 
         handler.validate_batch(model, tokenizer, batch)
@@ -263,6 +270,7 @@ class TestValidateBatch:
 
         model = MagicMock()
         model.generate = MagicMock(return_value=generated_out)
+        model.num_parameters = MagicMock(return_value=1_000_000)
 
         tokenizer = MagicMock()
         tokenizer.batch_decode = MagicMock(return_value=["full response here"])
@@ -271,7 +279,7 @@ class TestValidateBatch:
         batch = {
             "input_ids": prompt_ids,
             "attention_mask": torch.tensor([[1, 1, 1]]),
-            "labels": [json.dumps({"behavior": "Do X", "category": "cybercrime"})],
+            "labels": [json.dumps({"behavior": "Do X", "category": "cybercrime", "attack_flops": 0})],
         }
 
         handler.validate_batch(model, tokenizer, batch)
@@ -279,6 +287,97 @@ class TestValidateBatch:
         model.generate.assert_called_once()
         call_kwargs = model.generate.call_args[1]
         assert call_kwargs["max_new_tokens"] == 320
+
+    def test_records_per_example_eval_flops(self) -> None:
+        """Each completion row should carry per-example eval_flops based on actual tokens."""
+        handler = AdvBenchHarmBenchHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens"
+        )
+
+        num_params = 1_000_000
+        model = MagicMock()
+        model.num_parameters = MagicMock(return_value=num_params)
+        model.generate = MagicMock(
+            return_value=torch.tensor([
+                [1, 2, 3, 100, 101, 0, 0],
+                [4, 5, 6, 200, 201, 202, 203],
+            ])
+        )
+
+        tokenizer = MagicMock()
+        tokenizer.batch_decode = MagicMock(return_value=["a", "b"])
+        tokenizer.pad_token_id = 0
+
+        batch = {
+            "input_ids": torch.tensor([[1, 2, 3], [4, 5, 6]]),
+            "attention_mask": torch.tensor([[1, 1, 1], [1, 1, 1]]),
+            "labels": [
+                json.dumps({"behavior": "Do X", "category": "c", "attack_flops": 0}),
+                json.dumps({"behavior": "Do Y", "category": "c", "attack_flops": 0}),
+            ],
+        }
+
+        handler.validate_batch(model, tokenizer, batch)
+
+        assert handler._completions[0]["eval_flops"] == 2 * num_params * (3 + 2)
+        assert handler._completions[1]["eval_flops"] == 2 * num_params * (3 + 4)
+
+    def test_validate_batch_carries_attack_flops_from_label(self) -> None:
+        """When label JSON contains attack_flops, it should be recorded on the completion."""
+        handler = AdvBenchHarmBenchHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens"
+        )
+
+        model = MagicMock()
+        model.generate = MagicMock(return_value=torch.tensor([[1, 2, 3, 7]]))
+        model.num_parameters = MagicMock(return_value=1_000_000)
+
+        tokenizer = MagicMock()
+        tokenizer.batch_decode = MagicMock(return_value=["resp"])
+        tokenizer.pad_token_id = 0
+
+        batch = {
+            "input_ids": torch.tensor([[1, 2, 3]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+            "labels": [
+                json.dumps({"behavior": "Do X", "category": "c", "attack_flops": 999}),
+            ],
+        }
+
+        handler.validate_batch(model, tokenizer, batch)
+
+        assert handler._completions[0]["attack_flops"] == 999
+
+
+class TestRecordPrecomputedCompletions:
+    def test_returns_zero_correct_and_count(self) -> None:
+        handler = AdvBenchHarmBenchHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens"
+        )
+        labels = [
+            json.dumps({"behavior": "Do X", "category": "c", "attack_flops": 100}),
+            json.dumps({"behavior": "Do Y", "category": "c", "attack_flops": 200}),
+        ]
+        completions = ["resp_a", "resp_b"]
+
+        correct, total = handler.record_precomputed_completions(labels, completions)
+
+        assert correct == 0
+        assert total == 2
+
+    def test_sets_eval_flops_zero(self) -> None:
+        handler = AdvBenchHarmBenchHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens"
+        )
+        labels = [
+            json.dumps({"behavior": "Do X", "category": "c", "attack_flops": 100}),
+        ]
+
+        handler.record_precomputed_completions(labels, ["resp"])
+
+        assert handler._completions[0]["eval_flops"] == 0
+        assert handler._completions[0]["attack_flops"] == 100
+        assert handler._completions[0]["response"] == "resp"
 
 
 class TestGetAnswerStartToken:
@@ -319,8 +418,20 @@ class TestSaveCompletions:
             max_length=500, batch_size=8, generations_dir=str(tmp_path)
         )
         handler._completions = [
-            {"behavior": "Do X", "category": "cybercrime", "response": "Sure, here is..."},
-            {"behavior": "Do Y", "category": "chemical_biological", "response": "Ok..."},
+            {
+                "behavior": "Do X",
+                "category": "cybercrime",
+                "response": "Sure, here is...",
+                "eval_flops": 10,
+                "attack_flops": 100,
+            },
+            {
+                "behavior": "Do Y",
+                "category": "chemical_biological",
+                "response": "Ok...",
+                "eval_flops": 20,
+                "attack_flops": 0,
+            },
         ]
 
         handler.save_completions("test-run-123")
@@ -338,15 +449,29 @@ class TestSaveCompletions:
         with open(run_dir / "responses.jsonl") as f:
             response_lines = [json.loads(line) for line in f]
         assert len(response_lines) == 2
-        assert response_lines[0] == {"behavior": "Do X", "response": "Sure, here is..."}
-        assert response_lines[1] == {"behavior": "Do Y", "response": "Ok..."}
+        assert response_lines[0] == {
+            "behavior": "Do X",
+            "response": "Sure, here is...",
+            "dependent_flops": 110,
+        }
+        assert response_lines[1] == {
+            "behavior": "Do Y",
+            "response": "Ok...",
+            "dependent_flops": 20,
+        }
 
     def test_resets_completions_after_save(self, tmp_path: Path) -> None:
         handler = AdvBenchHarmBenchHandler(
             max_length=500, batch_size=8, generations_dir=str(tmp_path)
         )
         handler._completions = [
-            {"behavior": "Do X", "category": "cybercrime", "response": "Sure..."},
+            {
+                "behavior": "Do X",
+                "category": "cybercrime",
+                "response": "Sure...",
+                "eval_flops": 0,
+                "attack_flops": 0,
+            },
         ]
 
         handler.save_completions("run-456")
@@ -364,3 +489,43 @@ class TestSaveCompletions:
         assert (run_dir / "responses.jsonl").exists()
         assert (run_dir / "input_data.jsonl").read_text() == ""
         assert (run_dir / "responses.jsonl").read_text() == ""
+
+    def test_dependent_flops_zero_for_baseline(self, tmp_path: Path) -> None:
+        """For a baseline strategy (no attack), dependent_flops == eval_flops only."""
+        handler = AdvBenchHarmBenchHandler(
+            max_length=500, batch_size=8, generations_dir=str(tmp_path)
+        )
+        handler._completions = [
+            {
+                "behavior": "B",
+                "category": "c",
+                "response": "r",
+                "eval_flops": 555,
+                "attack_flops": 0,
+            },
+        ]
+        handler.save_completions("run-baseline")
+
+        with open(tmp_path / "run-baseline" / "responses.jsonl") as f:
+            row = json.loads(f.readline())
+        assert row["dependent_flops"] == 555
+
+    def test_dependent_flops_for_stored_completion_replay(self, tmp_path: Path) -> None:
+        """For stored-completion replay: eval_flops=0, dependent_flops==attack_flops."""
+        handler = AdvBenchHarmBenchHandler(
+            max_length=500, batch_size=8, generations_dir=str(tmp_path)
+        )
+        handler._completions = [
+            {
+                "behavior": "B",
+                "category": "c",
+                "response": "stored",
+                "eval_flops": 0,
+                "attack_flops": 7777,
+            },
+        ]
+        handler.save_completions("run-stored")
+
+        with open(tmp_path / "run-stored" / "responses.jsonl") as f:
+            row = json.loads(f.readline())
+        assert row["dependent_flops"] == 7777

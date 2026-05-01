@@ -84,8 +84,12 @@ class TestAttackWithStrategy:
         module.model = MagicMock()
         module.strategy = MagicMock()
         module.strategy.training_step = MagicMock(return_value=torch.tensor(0.5))
+        mock_trainer = MagicMock()
+        mock_trainer.sanity_checking = False
+        module._trainer = mock_trainer
 
-        batch = {"input_ids": torch.tensor([[1, 2]])}
+        attention_mask = torch.ones(1, 2, dtype=torch.long)
+        batch = {"input_ids": torch.tensor([[1, 2]]), "attention_mask": attention_mask}
         module.training_step(batch, 0)
         module.strategy.training_step.assert_called_once()
 

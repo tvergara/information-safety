@@ -199,7 +199,7 @@ class SafetyPairHandler(BaseDatasetHandler):
                 "response": gen_text,
             })
 
-        return 0, 0
+        return 0, len(generated_texts)
 
     def save_completions(self, eval_run_id: str) -> None:
         """Write accumulated completions to disk as JSONL files."""
