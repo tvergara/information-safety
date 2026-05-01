@@ -53,7 +53,23 @@ the program — not part of it.
 
 Following Kaplan et al. (2020): forward-only ≈ `2 × N × T`, forward+backward
 ≈ `6 × N × T`, where `N` = non-embedding parameter count, `T` = tokens
-processed.
+processed. `N` is computed as `model.num_parameters(exclude_embeddings=True)`
+throughout the pipeline (both first-party code and the AdversariaLLM
+submodule). No model is "free" — every forward/backward through every model
+on the path from input behavior to model response is counted.
+
+### Scope
+
+**Counted**: any forward/backward pass through any model used to *produce*
+the attack's response. For PAIR, this includes the attacker LLM, the target
+(attacked) LLM, and PAIR's internal judge LLM, all aggregated into
+`attack_flops_i`.
+
+**Not counted**: the post-hoc evaluation classifier
+(HarmBench-Llama-2-13B-cls) used to decide ASR. It's evaluation
+infrastructure, the same way the test set itself isn't counted — if a
+magical perfect classifier appeared, it would also be fine. Eval-classifier
+FLOPs are constant across attacks and would only shift the absolute number.
 
 ### Independent FLOPs (paid once before any evaluation)
 
@@ -76,6 +92,11 @@ bucket.
 | All | eval-time generation (forward only) | `2 × N × (n_input_i + n_output_i)` |
 | GCG / AutoDAN / PAIR | per-behavior attack-time optimization | `attack_flops_i` from `run.json` (forward+backward) |
 | Stored-completion replay (e.g. AutoDAN) | — | eval generation = `0`; attack-time still counts |
+
+The eval-generation formula `2 × N × (n_input_i + n_output_i)` assumes
+KV caching is enabled (true for both HF `model.generate()` and vLLM, which
+this pipeline uses). Without KV caching, autoregressive generation costs
+~`2 × N × n_input × n_output` worst case.
 
 ## Storage
 
