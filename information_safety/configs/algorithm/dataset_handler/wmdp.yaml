@@ -1,0 +1,7 @@
+_target_: information_safety.algorithms.dataset_handlers.wmdp.WMDPHandler
+max_length: 500
+batch_size: 8
+max_new_tokens: 64
+generations_dir: /network/scratch/b/brownet/information-safety/generations
+dataset_name: wmdp
+max_examples: null
