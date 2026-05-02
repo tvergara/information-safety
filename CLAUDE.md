@@ -257,7 +257,43 @@ A "full run" is anything that invokes `python information_safety/main.py` to pro
 bash slurm/check-cluster-ssh.sh tamia nibi
 ```
 
-If either cluster reports closed, ask the user to run `ssh <cluster> true` once on Mila and approve the 2FA prompt on their phone, then retry. Do not try to bypass this — there is no other way to authenticate non-interactively.
+If either cluster reports closed, the ControlMaster must be re-established. Claude Code's `!` prefix does **not** allocate a PTY, so running `ssh <cluster> true` directly in the session will fail with "Permission denied (keyboard-interactive)". The fix is to spawn Python, which opens a PTY internally via `pty.fork()` — the outer shell does not need to be a terminal. Replace both occurrences of `CLUSTER` below with `tamia` or `nibi`:
+
+```bash
+# Replace CLUSTER with tamia or nibi (two places: cluster= and the log path).
+! nohup python3 -c "
+import pty, os, time, select
+
+cluster = 'CLUSTER'
+pid, fd = pty.fork()
+if pid == 0:
+    os.execlp('ssh', 'ssh', '-N', cluster)
+else:
+    output = b''
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        r, _, _ = select.select([fd], [], [], 1)
+        if r:
+            try:
+                chunk = os.read(fd, 4096)
+                output += chunk
+                if b'Duo' in output or b'push' in output.lower() or b'passcode' in output.lower():
+                    os.write(fd, b'1\n')
+                    time.sleep(15)
+                    break
+            except OSError:
+                break
+    os.waitpid(pid, os.WNOHANG)
+" > /tmp/ssh_cm_CLUSTER.log 2>&1 &
+```
+
+Then:
+
+1. Tell the user to open the Compute Canada mobile app and **approve the Duo push notification immediately**.
+2. Wait ~15 seconds, then run `bash slurm/check-cluster-ssh.sh CLUSTER` to confirm the socket is live.
+3. Check `/tmp/ssh_cm_CLUSTER.log` if it fails — look for auth errors vs timeout.
+
+The `ssh -N` child process is left running as a nohup orphan, keeping the ControlMaster socket (`~/.ssh/cm-tvergara@CLUSTER.alliancecan.ca:22`) live. All subsequent SSH/rsync/sbatch calls reuse it silently.
 
 **Helper scripts:**
 
