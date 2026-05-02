@@ -29,12 +29,13 @@ ATTACK_MODELS = [
     "/network/scratch/b/brownet/information-safety/models/smollm3-circuit-breaker",
 ]
 
-CONFIGS: list[dict[str, Any]] = []
+HARMBENCH_CONFIGS: list[dict[str, Any]] = []
 
 # Baseline: one per model, epoch 0 only (no training)
 for model in MODELS:
-    CONFIGS.append({
+    HARMBENCH_CONFIGS.append({
         "experiment_name": "BaselineStrategy",
+        "dataset_name": "advbench_harmbench",
         "model_name": model,
         "max_examples": None,
         "epoch": 0,
@@ -43,8 +44,9 @@ for model in MODELS:
 # DataStrategy: sweep over max_examples, epochs 0 and 1
 DATA_MAX_EXAMPLES = [10, 50, 100, 250, None]
 for model, max_ex, epoch in product(MODELS, DATA_MAX_EXAMPLES, [0, 1]):
-    CONFIGS.append({
+    HARMBENCH_CONFIGS.append({
         "experiment_name": "DataStrategy",
+        "dataset_name": "advbench_harmbench",
         "model_name": model,
         "max_examples": max_ex,
         "epoch": epoch,
@@ -52,8 +54,9 @@ for model, max_ex, epoch in product(MODELS, DATA_MAX_EXAMPLES, [0, 1]):
 
 # RoleplayStrategy: one per model, epoch 0 only (no training)
 for model in MODELS:
-    CONFIGS.append({
+    HARMBENCH_CONFIGS.append({
         "experiment_name": "RoleplayStrategy",
+        "dataset_name": "advbench_harmbench",
         "model_name": model,
         "max_examples": None,
         "epoch": 0,
@@ -65,12 +68,27 @@ for model, attack in product(
     ATTACK_MODELS,
     ["PrecomputedGCGStrategy", "PrecomputedAutoDANStrategy", "PrecomputedPAIRStrategy"],
 ):
-    CONFIGS.append({
+    HARMBENCH_CONFIGS.append({
         "experiment_name": attack,
+        "dataset_name": "advbench_harmbench",
         "model_name": model,
         "max_examples": None,
         "epoch": 0,
     })
+
+WMDP_CONFIGS: list[dict[str, Any]] = []
+
+# WMDP baseline: one per model, epoch 0 only (no training)
+for model in MODELS:
+    WMDP_CONFIGS.append({
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "wmdp",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+CONFIGS = HARMBENCH_CONFIGS + WMDP_CONFIGS
 
 
 def _short_model(name: str) -> str:
@@ -94,38 +112,37 @@ def main() -> None:
 
     rows = [json.loads(line) for line in open(args.results_file)]
 
-    missing: list[dict[str, Any]] = []
-    needs_eval: list[dict[str, Any]] = []
-    complete: list[dict[str, Any]] = []
+    def _check(configs: list[dict[str, Any]]) -> tuple[list, list, list]:
+        missing: list[dict[str, Any]] = []
+        needs_eval: list[dict[str, Any]] = []
+        complete: list[dict[str, Any]] = []
+        for config in configs:
+            matches = [r for r in rows if _matches(r, config)]
+            if not matches:
+                missing.append(config)
+            elif any(r["asr"] is None for r in matches):
+                needs_eval.append(config)
+            else:
+                complete.append(config)
+        return missing, needs_eval, complete
 
-    for config in CONFIGS:
-        matches = [r for r in rows if _matches(r, config)]
-        if not matches:
-            missing.append(config)
-        elif any(r["asr"] is None for r in matches):
-            needs_eval.append(config)
-        else:
-            complete.append(config)
+    def _report(label: str, configs: list[dict[str, Any]]) -> None:
+        missing, needs_eval, complete = _check(configs)
+        print(f"\n{'=' * 10} {label} {'=' * 10}")
+        print(f"Total: {len(configs)}  Complete: {len(complete)}  Needs eval: {len(needs_eval)}  Missing: {len(missing)}")
+        if needs_eval:
+            print(f"\n  Needs eval ({len(needs_eval)}):")
+            for c in needs_eval:
+                model = _short_model(c["model_name"])
+                print(f"    {c['experiment_name']:25s} {model:30s} max_ex={str(c['max_examples']):>4s} epoch={c['epoch']}")
+        if missing:
+            print(f"\n  Missing ({len(missing)}):")
+            for c in missing:
+                model = _short_model(c["model_name"])
+                print(f"    {c['experiment_name']:25s} {model:30s} max_ex={str(c['max_examples']):>4s} epoch={c['epoch']}")
 
-    print(f"Total configurations: {len(CONFIGS)}")
-    print(f"  Complete (has ASR):  {len(complete)}")
-    print(f"  Needs eval (no ASR): {len(needs_eval)}")
-    print(f"  Missing (no row):    {len(missing)}")
-
-    if needs_eval:
-        print(f"\n--- Needs eval ({len(needs_eval)}) ---")
-        for c in needs_eval:
-            model = _short_model(c["model_name"])
-            print(f"  {c['experiment_name']:20s} {model:30s} max_ex={str(c['max_examples']):>4s} epoch={c['epoch']}")
-
-    if missing:
-        print(f"\n--- Missing ({len(missing)}) ---")
-        for c in missing:
-            model = _short_model(c["model_name"])
-            print(f"  {c['experiment_name']:20s} {model:30s} max_ex={str(c['max_examples']):>4s} epoch={c['epoch']}")
-
-    if not needs_eval and not missing:
-        print("\nAll configurations complete!")
+    _report("HarmBench", HARMBENCH_CONFIGS)
+    _report("WMDP", WMDP_CONFIGS)
 
 
 if __name__ == "__main__":
