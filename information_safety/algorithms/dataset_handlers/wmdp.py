@@ -77,9 +77,9 @@ class WMDPHandler(BaseDatasetHandler):
     _completions: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Any:
-        """Return an empty dataset with the required columns for Lightning's dataloader
-        contract."""
-        return datasets.Dataset.from_dict({"input_ids": [], "attention_mask": []})
+        """Return a single-row dummy dataset — baseline has no training, but Lightning's
+        RandomSampler requires num_samples > 0."""
+        return datasets.Dataset.from_dict({"input_ids": [[0]], "attention_mask": [[1]]})
 
     def get_val_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Dataset:
         """Load all three WMDP subsets and format each as a multiple-choice prompt."""

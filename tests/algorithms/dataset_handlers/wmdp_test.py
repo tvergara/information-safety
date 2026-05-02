@@ -76,7 +76,7 @@ class TestGetTrainDataset:
         train_ds = handler.get_train_dataset(tokenizer)
 
         assert hasattr(train_ds, "__len__")
-        assert len(train_ds) == 0
+        assert len(train_ds) == 1
 
     def test_has_input_ids_and_attention_mask(self) -> None:
         handler = WMDPHandler(
