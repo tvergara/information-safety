@@ -54,6 +54,10 @@ class BaseDatasetHandler(ABC):
         No-op by default.
         """
 
+    def result_row_extras(self) -> dict[str, Any]:
+        """Return handler-specific fields to merge into the result row."""
+        return {}
+
     def record_precomputed_completions(
         self, metadata_strs: list[str], completions: list[str]
     ) -> tuple[int, int]:

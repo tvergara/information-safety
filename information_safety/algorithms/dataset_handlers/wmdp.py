@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass, field
 from logging import getLogger
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import datasets
 import torch
@@ -60,13 +60,15 @@ def _format_prompt(example: dict[str, Any]) -> str:
     )
 
 
+CORPUS_REPOS: dict[str, tuple[str, str | None]] = {
+    "cyber": ("cais/wmdp-corpora", "cyber-forget-corpus"),
+    "bio": ("cais/wmdp-bio-forget-corpus", None),
+}
+
+
 @dataclass
 class WMDPHandler(BaseDatasetHandler):
-    """Dataset handler for WMDP multiple-choice evaluation.
-
-    No training data — the baseline strategy evaluates the model as-is.
-    Evaluation uses all three WMDP subsets: wmdp-bio, wmdp-chem, wmdp-cyber.
-    """
+    """WMDP MCQ evaluation; optional compliance/forget-corpus mix for DataStrategy training."""
 
     max_length: int = 500
     batch_size: int = 8
@@ -74,12 +76,79 @@ class WMDPHandler(BaseDatasetHandler):
     generations_dir: str = ""
     dataset_name: str = "wmdp"
     max_examples: int | None = None
+    train_data_path: str | None = None
+    corpus_fraction: float = 0.0
+    corpus_subset: str | None = None
     _completions: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Any:
-        """Return a single-row dummy dataset — baseline has no training, but Lightning's
-        RandomSampler requires num_samples > 0."""
-        return datasets.Dataset.from_dict({"input_ids": [[0]], "attention_mask": [[1]]})
+        if self.train_data_path is None:
+            return datasets.Dataset.from_dict({"input_ids": [[0]], "attention_mask": [[1]]})
+
+        if self.corpus_fraction not in (0.0, 0.5):
+            raise ValueError(
+                f"corpus_fraction must be 0.0 or 0.5; got {self.corpus_fraction}"
+            )
+        if (self.corpus_fraction == 0.0) != (self.corpus_subset is None):
+            raise ValueError(
+                "corpus_subset must be None iff corpus_fraction == 0.0; "
+                f"got fraction={self.corpus_fraction}, subset={self.corpus_subset!r}"
+            )
+        if self.corpus_subset is not None and self.corpus_subset not in CORPUS_REPOS:
+            raise ValueError(
+                f"corpus_subset must be one of {sorted(CORPUS_REPOS)}; "
+                f"got {self.corpus_subset!r}"
+            )
+        if self.max_examples is None:
+            raise ValueError("max_examples is required when train_data_path is set")
+
+        def tokenize_compliance(example: dict[str, str]) -> Any:
+            text = cast(str, tokenizer.apply_chat_template(
+                [
+                    {"role": "user", "content": example["prompt"]},
+                    {"role": "assistant", "content": example["completion"]},
+                ],
+                tokenize=False,
+            ))
+            return tokenizer(text, truncation=True, max_length=self.max_length, padding=False)
+
+        compliance_raw = datasets.load_dataset(
+            "json", data_files=self.train_data_path, split="train"
+        )
+
+        compliance_n = (
+            self.max_examples if self.corpus_fraction == 0.0 else self.max_examples // 2
+        )
+        compliance_raw = compliance_raw.select(range(compliance_n))  # type: ignore[union-attr]
+        compliance_tokenized = compliance_raw.map(  # type: ignore[union-attr]
+            tokenize_compliance,
+            remove_columns=compliance_raw.column_names,  # type: ignore[union-attr]
+        )
+
+        if self.corpus_fraction == 0.0:
+            return compliance_tokenized
+
+        repo, config = CORPUS_REPOS[cast(str, self.corpus_subset)]
+        corpus_raw = (
+            datasets.load_dataset(repo, split="train")
+            if config is None
+            else datasets.load_dataset(repo, config, split="train")
+        )
+        corpus_raw = corpus_raw.select(range(self.max_examples - compliance_n))  # type: ignore[union-attr]
+        corpus_tokenized = corpus_raw.map(  # type: ignore[union-attr]
+            lambda ex: tokenizer(
+                ex["text"], truncation=True, max_length=self.max_length, padding=False
+            ),
+            remove_columns=corpus_raw.column_names,  # type: ignore[union-attr]
+        )
+
+        return datasets.concatenate_datasets([compliance_tokenized, corpus_tokenized])
+
+    def result_row_extras(self) -> dict[str, Any]:
+        return {
+            "corpus_fraction": self.corpus_fraction,
+            "corpus_subset": self.corpus_subset,
+        }
 
     def get_val_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Dataset:
         """Load all three WMDP subsets and format each as a multiple-choice prompt."""

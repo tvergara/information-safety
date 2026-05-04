@@ -202,6 +202,8 @@ class AttackWithStrategy(LightningModule):
             "avg_time_per_example": avg_time,
         }
 
+        result_row.update(self.dataset_handler.result_row_extras())
+
         result_path = Path(self.result_file)
         result_path.parent.mkdir(parents=True, exist_ok=True)
         with open(result_path, "a") as f:

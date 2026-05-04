@@ -97,6 +97,46 @@ for model in MODELS:
         "epoch": 0,
     })
 
+# WMDP RoleplayStrategy: one per model, epoch 0 only (no training)
+for model in MODELS:
+    WMDP_CONFIGS.append({
+        "experiment_name": "RoleplayStrategy",
+        "dataset_name": "wmdp",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+# WMDP DataStrategy: compliance only (corpus_fraction=0.0)
+for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
+    for epoch in range(max_epochs):
+        WMDP_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "wmdp",
+            "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+            "corpus_fraction": 0.0,
+            "corpus_subset": None,
+        })
+
+# WMDP DataStrategy: compliance + WMDP forget-corpus mix (corpus_fraction=0.5)
+for model, (max_ex, max_epochs), subset in product(
+    MODELS, DATA_SWEEP_POINTS, ["bio", "cyber"]
+):
+    for epoch in range(max_epochs):
+        WMDP_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "wmdp",
+            "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+            "corpus_fraction": 0.5,
+            "corpus_subset": subset,
+        })
+
 CONFIGS = HARMBENCH_CONFIGS + WMDP_CONFIGS
 
 

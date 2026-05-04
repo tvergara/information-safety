@@ -82,29 +82,25 @@ def is_present(config: dict[str, Any], rows: list[dict[str, Any]]) -> bool:
 def iter_missing_configs(
     configs: list[dict[str, Any]], rows: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Return configs not yet present, deduped per experiment family.
-
-    For ``DataStrategy``, dedup is at ``(experiment, dataset, model,
-    max_examples, max_epochs)`` — distinct training lengths produce
-    distinct jobs. For everything else, the ``max_epochs`` slot is
-    omitted from the dedup key.
-    """
-    seen: set[tuple[str, str, str, str, str]] = set()
+    """Return configs not yet present, deduped per experiment family."""
+    seen: set[tuple[str, str, str, str, str, str, str]] = set()
     missing: list[dict[str, Any]] = []
     for config in configs:
         if is_present(config, rows):
             continue
-        max_epochs = (
-            config["max_epochs"]
-            if config["experiment_name"] == "DataStrategy"
-            else None
-        )
+        is_data_strategy = config["experiment_name"] == "DataStrategy"
+        max_epochs = config["max_epochs"] if is_data_strategy else None
+        is_wmdp_data = is_data_strategy and config["dataset_name"] == "wmdp"
+        corpus_fraction = config["corpus_fraction"] if is_wmdp_data else None
+        corpus_subset = config["corpus_subset"] if is_wmdp_data else None
         key = (
             config["experiment_name"],
             config["dataset_name"],
             config["model_name"],
             str(config["max_examples"]),
             str(max_epochs),
+            str(corpus_fraction),
+            str(corpus_subset),
         )
         if key in seen:
             continue
@@ -159,6 +155,10 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
         name = f"{name}-mex{config['max_examples']}"
     if experiment_name == "DataStrategy":
         name = f"{name}-ep{config['max_epochs']}"
+        if dataset_name == "wmdp":
+            name = f"{name}-frac{config['corpus_fraction']}"
+            if config["corpus_subset"] is not None:
+                name = f"{name}-{config['corpus_subset']}"
 
     cmd = [
         "python",
@@ -175,6 +175,11 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
             f"algorithm.dataset_handler.max_examples={_hydra_value(config['max_examples'])}",
             f"trainer.max_epochs={config['max_epochs']}",
         ]
+        if dataset_name == "wmdp":
+            cmd += [
+                f"algorithm.dataset_handler.corpus_fraction={config['corpus_fraction']}",
+                f"algorithm.dataset_handler.corpus_subset={_hydra_value(config['corpus_subset'])}",
+            ]
     elif experiment_name == "BaselineStrategy":
         cmd += ["experiment=prompt-attack", "algorithm/strategy=baseline"]
     elif experiment_name == "RoleplayStrategy":
