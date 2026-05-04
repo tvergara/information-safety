@@ -460,7 +460,7 @@ class TestValidateBatch:
         assert correct == 1
         assert total == 3
 
-    def test_uses_max_new_tokens_64(self) -> None:
+    def test_uses_max_new_tokens_default(self) -> None:
         handler = WMDPHandler(
             max_length=500, batch_size=8, generations_dir="/tmp/gens"
         )
@@ -477,7 +477,7 @@ class TestValidateBatch:
         handler.validate_batch(model, tokenizer, batch)
 
         call_kwargs = model.generate.call_args[1]
-        assert call_kwargs["max_new_tokens"] == 64
+        assert call_kwargs["max_new_tokens"] == 512
 
     def test_accumulates_completions(self) -> None:
         handler = WMDPHandler(

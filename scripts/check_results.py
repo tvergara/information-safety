@@ -137,7 +137,55 @@ for model, (max_ex, max_epochs), subset in product(
             "corpus_subset": subset,
         })
 
-CONFIGS = HARMBENCH_CONFIGS + WMDP_CONFIGS
+EVILMATH_CONFIGS: list[dict[str, Any]] = []
+
+# EvilMath baseline: one per model, epoch 0 only (no training)
+for model in MODELS:
+    EVILMATH_CONFIGS.append({
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "evilmath",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+# EvilMath RoleplayStrategy: one per model, epoch 0 only (no training)
+for model in MODELS:
+    EVILMATH_CONFIGS.append({
+        "experiment_name": "RoleplayStrategy",
+        "dataset_name": "evilmath",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+# EvilMath DataStrategy: compliance only (corpus_fraction=0.0)
+for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
+    for epoch in range(max_epochs):
+        EVILMATH_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "evilmath",
+            "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+            "corpus_fraction": 0.0,
+        })
+
+# EvilMath DataStrategy: compliance + GSM8K capability mix (corpus_fraction=0.5)
+for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
+    for epoch in range(max_epochs):
+        EVILMATH_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "evilmath",
+            "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+            "corpus_fraction": 0.5,
+        })
+
+CONFIGS = HARMBENCH_CONFIGS + WMDP_CONFIGS + EVILMATH_CONFIGS
 
 
 def _short_model(name: str) -> str:
@@ -192,6 +240,7 @@ def main() -> None:
 
     _report("HarmBench", HARMBENCH_CONFIGS)
     _report("WMDP", WMDP_CONFIGS)
+    _report("EvilMath", EVILMATH_CONFIGS)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from scripts.check_results import HARMBENCH_CONFIGS, WMDP_CONFIGS
+from scripts.check_results import EVILMATH_CONFIGS, HARMBENCH_CONFIGS, WMDP_CONFIGS
 
 DEFAULT_RESULTS_FILE = Path(
     "/network/scratch/b/brownet/information-safety/results/final-results.jsonl"
@@ -90,12 +90,16 @@ def iter_missing_configs(
             continue
         is_data_strategy = config["experiment_name"] == "DataStrategy"
         max_epochs = config["max_epochs"] if is_data_strategy else None
-        is_wmdp_data = is_data_strategy and config["dataset_name"] == "wmdp"
-        corpus_fraction = config["corpus_fraction"] if is_wmdp_data else None
+        dataset_name = config["dataset_name"]
+        has_corpus_fraction = (
+            is_data_strategy and dataset_name in {"wmdp", "evilmath"}
+        )
+        corpus_fraction = config["corpus_fraction"] if has_corpus_fraction else None
+        is_wmdp_data = is_data_strategy and dataset_name == "wmdp"
         corpus_subset = config["corpus_subset"] if is_wmdp_data else None
         key = (
             config["experiment_name"],
-            config["dataset_name"],
+            dataset_name,
             config["model_name"],
             str(config["max_examples"]),
             str(max_epochs),
@@ -149,7 +153,7 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
     experiment_name = config["experiment_name"]
     model_name = config["model_name"]
     dataset_name = config["dataset_name"]
-    dataset_handler = "wmdp" if dataset_name == "wmdp" else "advbench_harmbench"
+    dataset_handler = dataset_name
     name = f"pool-{experiment_name}-{_short_model(model_name)}"
     if config["max_examples"] is not None:
         name = f"{name}-mex{config['max_examples']}"
@@ -159,6 +163,8 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
             name = f"{name}-frac{config['corpus_fraction']}"
             if config["corpus_subset"] is not None:
                 name = f"{name}-{config['corpus_subset']}"
+        elif dataset_name == "evilmath":
+            name = f"{name}-frac{config['corpus_fraction']}"
 
     cmd = [
         "python",
@@ -179,6 +185,10 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
             cmd += [
                 f"algorithm.dataset_handler.corpus_fraction={config['corpus_fraction']}",
                 f"algorithm.dataset_handler.corpus_subset={_hydra_value(config['corpus_subset'])}",
+            ]
+        elif dataset_name == "evilmath":
+            cmd += [
+                f"algorithm.dataset_handler.corpus_fraction={config['corpus_fraction']}",
             ]
     elif experiment_name == "BaselineStrategy":
         cmd += ["experiment=prompt-attack", "algorithm/strategy=baseline"]
@@ -276,7 +286,7 @@ def main(argv: list[str] | None = None) -> None:
     with open(args.results_file) as f:
         rows = [json.loads(line) for line in f if line.strip()]
 
-    configs = HARMBENCH_CONFIGS + WMDP_CONFIGS
+    configs = HARMBENCH_CONFIGS + WMDP_CONFIGS + EVILMATH_CONFIGS
     missing = iter_missing_configs(configs, rows)
     written = write_pending_jobs(
         missing, queue_root=args.queue_root, attacks_dir=args.attacks_dir
