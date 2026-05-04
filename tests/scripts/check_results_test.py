@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from scripts.check_results import (
     DATA_SWEEP_POINTS,
+    EVILMATH_CONFIGS,
     HARMBENCH_CONFIGS,
     MODELS,
     WMDP_CONFIGS,
@@ -104,3 +105,71 @@ def test_harmbench_configs_unchanged_no_corpus_keys() -> None:
     for c in HARMBENCH_CONFIGS:
         assert "corpus_fraction" not in c
         assert "corpus_subset" not in c
+
+
+def _evilmath_baseline() -> list[dict[str, object]]:
+    return [c for c in EVILMATH_CONFIGS if c["experiment_name"] == "BaselineStrategy"]
+
+
+def _evilmath_roleplay() -> list[dict[str, object]]:
+    return [c for c in EVILMATH_CONFIGS if c["experiment_name"] == "RoleplayStrategy"]
+
+
+def _evilmath_data_strategy() -> list[dict[str, object]]:
+    return [c for c in EVILMATH_CONFIGS if c["experiment_name"] == "DataStrategy"]
+
+
+def test_evilmath_baseline_count_matches_models() -> None:
+    assert len(_evilmath_baseline()) == len(MODELS)
+
+
+def test_evilmath_roleplay_count_matches_models() -> None:
+    assert len(_evilmath_roleplay()) == len(MODELS)
+
+
+def test_evilmath_data_strategy_total_epoch_rows() -> None:
+    total_epochs_per_model = sum(max_epochs for _, max_epochs in DATA_SWEEP_POINTS)
+    expected = len(MODELS) * total_epochs_per_model * 2
+    assert len(_evilmath_data_strategy()) == expected
+
+
+def test_evilmath_data_strategy_includes_mix_zero_rows() -> None:
+    mix_zero = [c for c in _evilmath_data_strategy() if c["corpus_fraction"] == 0.0]
+    total_epochs_per_model = sum(max_epochs for _, max_epochs in DATA_SWEEP_POINTS)
+    expected = len(MODELS) * total_epochs_per_model
+    assert len(mix_zero) == expected
+    for c in mix_zero:
+        assert "corpus_subset" not in c
+
+
+def test_evilmath_data_strategy_includes_mix_half_rows() -> None:
+    mix_half = [c for c in _evilmath_data_strategy() if c["corpus_fraction"] == 0.5]
+    total_epochs_per_model = sum(max_epochs for _, max_epochs in DATA_SWEEP_POINTS)
+    expected = len(MODELS) * total_epochs_per_model
+    assert len(mix_half) == expected
+    for c in mix_half:
+        assert "corpus_subset" not in c
+
+
+def test_evilmath_data_strategy_no_corpus_subset_key() -> None:
+    for c in _evilmath_data_strategy():
+        assert "corpus_subset" not in c
+
+
+def test_evilmath_data_strategy_has_expected_keys() -> None:
+    sample = _evilmath_data_strategy()[0]
+    for key in (
+        "experiment_name",
+        "dataset_name",
+        "model_name",
+        "max_examples",
+        "max_epochs",
+        "epoch",
+        "corpus_fraction",
+    ):
+        assert key in sample
+
+
+def test_evilmath_dataset_name_is_evilmath() -> None:
+    for c in EVILMATH_CONFIGS:
+        assert c["dataset_name"] == "evilmath"
