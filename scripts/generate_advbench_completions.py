@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import cast
 
 import torch
 from datasets import load_dataset
@@ -35,6 +36,7 @@ def generate_completions(
 
     with open(out, "w") as f:
         for example in tqdm(ds, desc="Generating"):
+            example = cast(dict[str, str], example)
             prompt = example["prompt"]
             target = example["target"]
 

@@ -248,7 +248,12 @@ def write_pending_jobs(
         if already_known:
             continue
 
-        payload = {"id": job_id, "command": command, "config": config}
+        payload = {
+            "id": job_id,
+            "command": command,
+            "config": config,
+            "attempts": 0,
+        }
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(payload, default=str))
         os.replace(tmp, path)

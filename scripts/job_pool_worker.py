@@ -20,9 +20,11 @@ def _ensure_dirs(queue_root: Path) -> None:
         (queue_root / sub).mkdir(parents=True, exist_ok=True)
 
 
-def _try_claim(pending_path: Path, claimed_dir: Path, worker_index: int) -> Path | None:
+def _try_claim(
+    pending_path: Path, claimed_dir: Path, worker_index: int, pool_id: str
+) -> Path | None:
     job_id = pending_path.stem
-    target = claimed_dir / f"{job_id}.{worker_index}.json"
+    target = claimed_dir / f"{job_id}.{pool_id}.{worker_index}.json"
     try:
         os.rename(pending_path, target)
     except FileNotFoundError:
@@ -65,6 +67,7 @@ def run_worker(*, queue_root: Path, worker_index: int) -> None:
     _ensure_dirs(queue_root)
     pending_dir = queue_root / "pending"
     claimed_dir = queue_root / "claimed"
+    pool_id = os.environ.get("SLURM_JOB_ID") or f"local-{os.getpid()}"
 
     while True:
         candidates = sorted(pending_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
@@ -72,7 +75,7 @@ def run_worker(*, queue_root: Path, worker_index: int) -> None:
             return
         claimed: Path | None = None
         for cand in candidates:
-            claimed = _try_claim(cand, claimed_dir, worker_index)
+            claimed = _try_claim(cand, claimed_dir, worker_index, pool_id)
             if claimed is not None:
                 break
         if claimed is None:

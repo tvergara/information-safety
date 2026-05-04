@@ -277,6 +277,18 @@ def test_write_pending_jobs_skips_precomputed_when_suffix_missing(
     assert "skip" in captured.out.lower() or "warning" in captured.out.lower()
 
 
+def test_pending_payload_has_attempts_zero(tmp_path: Path) -> None:
+    queue_root = tmp_path / "queue"
+    configs = [_baseline_config()]
+    write_pending_jobs(
+        configs, queue_root=queue_root, attacks_dir=tmp_path / "attacks"
+    )
+    pending_files = list((queue_root / "pending").iterdir())
+    assert len(pending_files) == 1
+    payload = json.loads(pending_files[0].read_text())
+    assert payload["attempts"] == 0
+
+
 def test_main_writes_pending_files_for_synthetic_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
