@@ -46,6 +46,12 @@ echo "Job pool starting at $(date)"
 echo "QUEUE_ROOT=${QUEUE_ROOT}"
 echo "Initial pending count: $(find "${QUEUE_ROOT}/pending" -name '*.json' | wc -l)"
 
+# Reaper failure is non-fatal: stale claims in claimed/ do not block workers
+# from draining pending/, and the next pool startup retries the reap. Don't
+# abort a 12h allocation over a transient squeue blip.
+python scripts/reap_stale_claims.py --queue-root "${QUEUE_ROOT}" \
+    || echo "WARNING: reaper failed; proceeding"
+
 PIDS=()
 for WORKER_INDEX in 0 1 2 3; do
     WORKER_INDEX="${WORKER_INDEX}" QUEUE_ROOT="${QUEUE_ROOT}" \

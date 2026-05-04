@@ -47,11 +47,11 @@ def export(
             stripped_state_dict[key[len("model."):]] = value
 
     peft_model.load_state_dict(stripped_state_dict, strict=True)
-    merged_model = peft_model.merge_and_unload()
+    merged_model = peft_model.merge_and_unload()  # pyright: ignore[reportCallIssue]
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    merged_model.save_pretrained(output_path)
+    merged_model.save_pretrained(output_path)  # pyright: ignore[reportCallIssue]
     tokenizer.save_pretrained(output_path)
     print(f"Saved merged model to {output_path}")
 

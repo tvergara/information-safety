@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import torch
@@ -126,7 +126,7 @@ class TestGetValDataset:
             max_length=500, batch_size=8, generations_dir="/tmp/gens"
         )
         tokenizer = _make_tokenizer()
-        val_ds = handler.get_val_dataset(tokenizer)
+        val_ds = cast(GenerationValDataset, handler.get_val_dataset(tokenizer))
 
         assert len(val_ds) == 9
 
@@ -140,7 +140,7 @@ class TestGetValDataset:
             max_length=500, batch_size=8, generations_dir="/tmp/gens"
         )
         tokenizer = _make_tokenizer()
-        val_ds = handler.get_val_dataset(tokenizer)
+        val_ds = cast(GenerationValDataset, handler.get_val_dataset(tokenizer))
 
         for i in range(len(val_ds)):
             item = val_ds[i]
@@ -172,7 +172,7 @@ class TestGetValDataset:
             max_length=500, batch_size=8, generations_dir="/tmp/gens", max_examples=4
         )
         tokenizer = _make_tokenizer()
-        val_ds = handler.get_val_dataset(tokenizer)
+        val_ds = cast(GenerationValDataset, handler.get_val_dataset(tokenizer))
 
         assert len(val_ds) == 4
 

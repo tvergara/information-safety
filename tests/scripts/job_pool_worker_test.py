@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing as mp
+import os
 from pathlib import Path
 from typing import IO, cast
 from unittest import mock
@@ -130,3 +131,66 @@ def test_subprocess_run_called_with_command_from_payload(tmp_path: Path) -> None
     cmd = captured["cmd"]
     assert isinstance(cmd, list)
     assert cmd == ["python", "-c", "pass"]
+
+
+def test_worker_records_pool_id_in_claim_filename(tmp_path: Path) -> None:
+    queue_root = tmp_path / "queue"
+    _seed_pending(queue_root, n_jobs=1)
+    captured_renames: list[tuple[str, str]] = []
+    real_rename = os.rename
+
+    def _capture_rename(src: str | Path, dst: str | Path) -> None:
+        captured_renames.append((str(src), str(dst)))
+        real_rename(src, dst)
+
+    with (
+        mock.patch.dict(os.environ, {"SLURM_JOB_ID": "42"}, clear=False),
+        mock.patch("scripts.job_pool_worker.os.rename", side_effect=_capture_rename),
+        mock.patch("subprocess.run", side_effect=_success_run),
+    ):
+        run_worker(queue_root=queue_root, worker_index=1)
+
+    claim_renames = [
+        dst for _src, dst in captured_renames if "/claimed/" in dst
+    ]
+    assert len(claim_renames) == 1
+    assert claim_renames[0].endswith(".42.1.json")
+
+
+def test_worker_uses_local_pool_id_without_slurm(tmp_path: Path) -> None:
+    queue_root = tmp_path / "queue"
+    _seed_pending(queue_root, n_jobs=1)
+    captured_renames: list[tuple[str, str]] = []
+    real_rename = os.rename
+
+    def _capture_rename(src: str | Path, dst: str | Path) -> None:
+        captured_renames.append((str(src), str(dst)))
+        real_rename(src, dst)
+
+    env_without_slurm = {k: v for k, v in os.environ.items() if k != "SLURM_JOB_ID"}
+    with (
+        mock.patch.dict(os.environ, env_without_slurm, clear=True),
+        mock.patch("scripts.job_pool_worker.os.rename", side_effect=_capture_rename),
+        mock.patch("subprocess.run", side_effect=_success_run),
+    ):
+        run_worker(queue_root=queue_root, worker_index=0)
+
+    claim_renames = [
+        dst for _src, dst in captured_renames if "/claimed/" in dst
+    ]
+    assert len(claim_renames) == 1
+    expected_suffix = f".local-{os.getpid()}.0.json"
+    assert claim_renames[0].endswith(expected_suffix)
+
+
+def test_worker_completion_strips_pool_and_worker_suffix(tmp_path: Path) -> None:
+    queue_root = tmp_path / "queue"
+    job_ids = _seed_pending(queue_root, n_jobs=3)
+    with (
+        mock.patch.dict(os.environ, {"SLURM_JOB_ID": "777"}, clear=False),
+        mock.patch("subprocess.run", side_effect=_success_run),
+    ):
+        run_worker(queue_root=queue_root, worker_index=2)
+
+    done_names = sorted(p.name for p in (queue_root / "done").iterdir())
+    assert done_names == sorted(f"{jid}.json" for jid in job_ids)
