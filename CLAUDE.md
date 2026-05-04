@@ -299,7 +299,8 @@ The `ssh -N` child process is left running as a nohup orphan, keeping the Contro
 
 - `slurm/check-cluster-ssh.sh <cluster> [<cluster> ...]` — probes the ControlMaster sockets and exits non-zero if any are closed.
 - `slurm/bootstrap-remote-cluster.sh <tamia|nibi>` — idempotent setup on the remote cluster: clones (or pulls) the repo, runs `git submodule update --init --recursive`, installs `uv` if missing, and runs `uv sync`. Re-runs become `git pull` + `uv sync`.
-- `slurm/sync-results-from.sh <tamia|nibi>` — pulls `final-results.jsonl` and `generations/` from the remote cluster back to Mila scratch under per-cluster suffixed paths. Refuses to clobber the canonical `final-results.jsonl`; prints a follow-up command to merge by hand.
+- `slurm/sync-and-merge-from.sh <tamia|nibi>` — pull results, merge by `eval_run_id` (preserves backfilled ASR), symlink generations into the canonical location. Refuses to run if `eval-sweep` is already queued/running. Does not auto-submit eval — prints the `sbatch` command to run when ready.
+- `slurm/sync-results-from.sh <tamia|nibi>` — raw rsync only (used by the wrapper above; rarely run on its own).
 
 **Hydra cluster configs:** `cluster=tamia` and `cluster=nibi` inherit from `mila.yaml` (same shape as `narval.yaml`), set the cluster hostname, and disable internet on compute nodes.
 
