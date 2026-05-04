@@ -62,6 +62,36 @@ def _wmdp_config(model: str) -> dict[str, object]:
     }
 
 
+def _wmdp_data_config(
+    model: str,
+    max_ex: int,
+    max_epochs: int,
+    epoch: int,
+    corpus_fraction: float,
+    corpus_subset: str | None,
+) -> dict[str, object]:
+    return {
+        "experiment_name": "DataStrategy",
+        "dataset_name": "wmdp",
+        "model_name": model,
+        "max_examples": max_ex,
+        "max_epochs": max_epochs,
+        "epoch": epoch,
+        "corpus_fraction": corpus_fraction,
+        "corpus_subset": corpus_subset,
+    }
+
+
+def _wmdp_roleplay_config(model: str) -> dict[str, object]:
+    return {
+        "experiment_name": "RoleplayStrategy",
+        "dataset_name": "wmdp",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    }
+
+
 def test_is_present_baseline_matches_existing_row() -> None:
     config = _baseline_config()
     rows = [{**config, "asr": 0.1}]
@@ -287,6 +317,81 @@ def test_pending_payload_has_attempts_zero(tmp_path: Path) -> None:
     assert len(pending_files) == 1
     payload = json.loads(pending_files[0].read_text())
     assert payload["attempts"] == 0
+
+
+def test_build_command_wmdp_data_strategy_emits_corpus_overrides() -> None:
+    config = _wmdp_data_config(
+        "Qwen/Qwen3-4B",
+        128,
+        8,
+        0,
+        corpus_fraction=0.5,
+        corpus_subset="bio",
+    )
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    assert "experiment=finetune-with-strategy" in cmd
+    assert "algorithm/strategy=data" in cmd
+    assert "algorithm/dataset_handler=wmdp" in cmd
+    assert "algorithm.dataset_handler.corpus_fraction=0.5" in cmd
+    assert "algorithm.dataset_handler.corpus_subset=bio" in cmd
+    assert any(c.startswith("algorithm.dataset_handler.train_data_path=") for c in cmd)
+    assert "algorithm.dataset_handler.max_examples=128" in cmd
+    assert "trainer.max_epochs=8" in cmd
+
+
+def test_build_command_wmdp_data_strategy_mix_zero_emits_null_subset() -> None:
+    config = _wmdp_data_config(
+        "Qwen/Qwen3-4B",
+        128,
+        8,
+        0,
+        corpus_fraction=0.0,
+        corpus_subset=None,
+    )
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    assert "algorithm.dataset_handler.corpus_fraction=0.0" in cmd
+    assert "algorithm.dataset_handler.corpus_subset=null" in cmd
+
+
+def test_build_command_wmdp_roleplay_uses_wmdp_handler() -> None:
+    config = _wmdp_roleplay_config("Qwen/Qwen3-4B")
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    assert "experiment=prompt-attack" in cmd
+    assert "algorithm/strategy=roleplay" in cmd
+    assert "algorithm/dataset_handler=wmdp" in cmd
+
+
+def test_iter_missing_dedups_wmdp_data_strategy_distinguishes_subset() -> None:
+    bio_config = _wmdp_data_config(
+        "Qwen/Qwen3-4B", 128, 8, 0, corpus_fraction=0.5, corpus_subset="bio"
+    )
+    cyber_config = _wmdp_data_config(
+        "Qwen/Qwen3-4B", 128, 8, 0, corpus_fraction=0.5, corpus_subset="cyber"
+    )
+    missing = list(iter_missing_configs([bio_config, cyber_config], []))
+    assert len(missing) == 2
+
+
+def test_iter_missing_dedups_wmdp_data_strategy_distinguishes_fraction() -> None:
+    mix_zero = _wmdp_data_config(
+        "Qwen/Qwen3-4B", 128, 8, 0, corpus_fraction=0.0, corpus_subset=None
+    )
+    mix_half = _wmdp_data_config(
+        "Qwen/Qwen3-4B", 128, 8, 0, corpus_fraction=0.5, corpus_subset="bio"
+    )
+    missing = list(iter_missing_configs([mix_zero, mix_half], []))
+    assert len(missing) == 2
+
+
+def test_iter_missing_collapses_wmdp_data_strategy_epoch_rows() -> None:
+    epoch_rows = [
+        _wmdp_data_config(
+            "Qwen/Qwen3-4B", 128, 8, ep, corpus_fraction=0.5, corpus_subset="bio"
+        )
+        for ep in range(8)
+    ]
+    missing = list(iter_missing_configs(epoch_rows, []))
+    assert len(missing) == 1
 
 
 def test_main_writes_pending_files_for_synthetic_results(

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+import pytest
 import torch
 
 from information_safety.algorithms.dataset_handlers.base import GenerationValDataset
@@ -87,6 +88,186 @@ class TestGetTrainDataset:
 
         assert "input_ids" in train_ds.column_names
         assert "attention_mask" in train_ds.column_names
+
+
+def _compliance_dataset(n: int) -> Any:
+    import datasets as _datasets
+    return _datasets.Dataset.from_dict({
+        "prompt": [f"p{i}" for i in range(n)],
+        "completion": [f"c{i}" for i in range(n)],
+    })
+
+
+def _corpus_dataset(n: int) -> Any:
+    import datasets as _datasets
+    return _datasets.Dataset.from_dict({
+        "text": [f"corpus_{i}" for i in range(n)],
+    })
+
+
+def _make_real_tokenizer() -> MagicMock:
+    """Tokenizer mock that returns the right shape for `dataset.map` to call it on each row."""
+    tokenizer = MagicMock()
+    tokenizer.apply_chat_template = MagicMock(return_value="<formatted>")
+    tokenizer.return_value = {"input_ids": [1, 2], "attention_mask": [1, 1]}
+    tokenizer.pad_token_id = 0
+    return tokenizer
+
+
+class TestGetTrainDatasetMixZero:
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_compliance_only_loads_train_data_path(self, mock_load: MagicMock) -> None:
+        mock_load.return_value = _compliance_dataset(64)
+
+        handler = WMDPHandler(
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            train_data_path="/fake/compliance.jsonl",
+            corpus_fraction=0.0,
+            corpus_subset=None,
+            max_examples=64,
+        )
+        tokenizer = _make_real_tokenizer()
+        train_ds = handler.get_train_dataset(tokenizer)
+
+        assert mock_load.call_count == 1
+        mock_load.assert_called_once_with(
+            "json", data_files="/fake/compliance.jsonl", split="train"
+        )
+        assert len(train_ds) == 64
+
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_compliance_only_respects_max_examples(self, mock_load: MagicMock) -> None:
+        mock_load.return_value = _compliance_dataset(128)
+
+        handler = WMDPHandler(
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            train_data_path="/fake/compliance.jsonl",
+            corpus_fraction=0.0,
+            corpus_subset=None,
+            max_examples=32,
+        )
+        tokenizer = _make_real_tokenizer()
+        train_ds = handler.get_train_dataset(tokenizer)
+
+        assert len(train_ds) == 32
+
+
+class TestGetTrainDatasetMixHalf:
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_cyber_mix_half_calls_both_loaders(self, mock_load: MagicMock) -> None:
+        def side_effect(*args: Any, **kwargs: Any) -> Any:
+            if args and args[0] == "json":
+                return _compliance_dataset(64)
+            return _corpus_dataset(64)
+
+        mock_load.side_effect = side_effect
+
+        handler = WMDPHandler(
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            train_data_path="/fake/compliance.jsonl",
+            corpus_fraction=0.5,
+            corpus_subset="cyber",
+            max_examples=128,
+        )
+        tokenizer = _make_real_tokenizer()
+        train_ds = handler.get_train_dataset(tokenizer)
+
+        assert len(train_ds) == 128
+
+        compliance_calls = [
+            c for c in mock_load.call_args_list if c.args and c.args[0] == "json"
+        ]
+        corpus_calls = [
+            c for c in mock_load.call_args_list if c.args and c.args[0] != "json"
+        ]
+        assert len(compliance_calls) == 1
+        assert len(corpus_calls) == 1
+        assert corpus_calls[0].args[0] == "cais/wmdp-corpora"
+        assert corpus_calls[0].args[1] == "cyber-forget-corpus"
+
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_bio_mix_half_uses_bio_corpus_repo(self, mock_load: MagicMock) -> None:
+        def side_effect(*args: Any, **kwargs: Any) -> Any:
+            if args and args[0] == "json":
+                return _compliance_dataset(64)
+            return _corpus_dataset(64)
+
+        mock_load.side_effect = side_effect
+
+        handler = WMDPHandler(
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            train_data_path="/fake/compliance.jsonl",
+            corpus_fraction=0.5,
+            corpus_subset="bio",
+            max_examples=128,
+        )
+        tokenizer = _make_real_tokenizer()
+        handler.get_train_dataset(tokenizer)
+
+        corpus_calls = [
+            c for c in mock_load.call_args_list if c.args and c.args[0] != "json"
+        ]
+        assert len(corpus_calls) == 1
+        assert corpus_calls[0].args[0] == "cais/wmdp-bio-forget-corpus"
+
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_mix_half_splits_examples_evenly(self, mock_load: MagicMock) -> None:
+        def side_effect(*args: Any, **kwargs: Any) -> Any:
+            if args and args[0] == "json":
+                return _compliance_dataset(64)
+            return _corpus_dataset(64)
+
+        mock_load.side_effect = side_effect
+
+        handler = WMDPHandler(
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            train_data_path="/fake/compliance.jsonl",
+            corpus_fraction=0.5,
+            corpus_subset="cyber",
+            max_examples=64,
+        )
+        tokenizer = _make_real_tokenizer()
+        train_ds = handler.get_train_dataset(tokenizer)
+
+        assert len(train_ds) == 64
+
+    def test_mismatched_fraction_with_subset_raises(self) -> None:
+        handler = WMDPHandler(
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            train_data_path="/fake/compliance.jsonl",
+            corpus_fraction=0.0,
+            corpus_subset="bio",
+            max_examples=64,
+        )
+        tokenizer = _make_real_tokenizer()
+        with pytest.raises(ValueError):
+            handler.get_train_dataset(tokenizer)
+
+    def test_mismatched_fraction_without_subset_raises(self) -> None:
+        handler = WMDPHandler(
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            train_data_path="/fake/compliance.jsonl",
+            corpus_fraction=0.5,
+            corpus_subset=None,
+            max_examples=64,
+        )
+        tokenizer = _make_real_tokenizer()
+        with pytest.raises(ValueError):
+            handler.get_train_dataset(tokenizer)
 
 
 class TestGetValDataset:
