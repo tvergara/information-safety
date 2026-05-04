@@ -303,6 +303,57 @@ The `ssh -N` child process is left running as a nohup orphan, keeping the Contro
 
 **Hydra cluster configs:** `cluster=tamia` and `cluster=nibi` inherit from `mila.yaml` (same shape as `narval.yaml`), set the cluster hostname, and disable internet on compute nodes.
 
+### Submitting jobs via the robot/automation node (preferred)
+
+**Use the robot node for all non-interactive work — `sbatch`, `squeue`, `git pull`, `rsync`, file ops.** It does not require Duo, so it does not depend on a live ControlMaster. The ControlMaster flow above (`ssh tamia` / `ssh nibi`) is only needed for interactive shells, editing files in-place, running `python` directly, or other commands the wrapper rejects.
+
+**Verified status (as of 2026-05-04):**
+
+- ✅ `robot.tamia.ecpia.ca` — working.
+- ⚠️ `robot.nibi.alliancecan.ca` — host is in the ssh config but the robot grant has not been confirmed. `ssh robot.nibi.alliancecan.ca "squeue --me"` currently fails. Smoke-test before relying on it; if it fails, ask support to extend the automation grant to Nibi.
+
+**Connection:** `~/.ssh/config` has a single `Host` stanza enumerating `robot.tamia.ecpia.ca`, `robot.nibi.alliancecan.ca`, `robot.narval.alliancecan.ca`, `robot.fir.alliancecan.ca`, `robot.rorqual.alliancecan.ca` — pointing at `~/.ssh/id_ed25519_alliance_robot` with `PreferredAuthentications publickey,keyboard-interactive` and `RequestTTY no`. Just run:
+
+```bash
+ssh robot.tamia.ecpia.ca "<command>"
+```
+
+No flags, no Duo prompt. The `keyboard-interactive` entry in the preferred-auth list is **required** — Alliance sends a zero-prompt kbd-int probe (`num_prompts 0`) as a no-op bypass step. Disabling kbd-int breaks the connection with `Permission denied (keyboard-interactive)`. Don't.
+
+**Wrapper restrictions** (`allowed_commands.sh`):
+
+- **Single commands only.** Compound commands with `;`, `&&`, or `||` are rejected (`Command rejected by allowed_commands.sh: ...`). Run one ssh per command, or wrap multiple steps in an `sbatch` script.
+- Allowed: file transfers (`scp`, `sftp`, `rsync`), file ops (`mv`, `cp`, `rm`), archiving (`gzip`, `tar`), `git`, Slurm (`squeue`, `sbatch`, `scancel`, `scontrol`, `sq`).
+- **Not allowed:** interactive shells, `bash`, `python`, arbitrary executables. For those, use `ssh tamia` / `ssh nibi` (the ControlMaster-backed aliases above).
+
+**Typical job-submission pattern.** Note the `\$` escape — the local shell would otherwise expand `$SCRATCH` here on Mila (where it points elsewhere); we want the remote shell to expand it on the cluster:
+
+```bash
+ssh robot.tamia.ecpia.ca "git -C ~/information-safety pull"
+ssh robot.tamia.ecpia.ca "sbatch ~/information-safety/slurm/run-job-pool.sh \$SCRATCH/information-safety/job-pool/run-1"
+ssh robot.tamia.ecpia.ca "squeue --me"
+```
+
+**Source IP constraint.** The CCDB key is registered with `restrict,from="64.15.78.*",command="/cvmfs/soft.computecanada.ca/custom/bin/computecanada/allowed_commands/allowed_commands.sh"`. The `from=` clause pins the key to the Mila login outbound range. If Mila ever changes its outbound IP block, the key will silently stop working — `ssh -vvv` will show the key not even being offered. `curl ifconfig.me` from Mila login confirms current public IP.
+
+### Job Pool (fat-allocation scheduler)
+
+Tamia/Nibi force whole-node allocations (4xH100). To run our backlog of single-GPU experiments efficiently, use the job pool:
+
+1. **Build the queue** (idempotent):
+    ```bash
+    python scripts/build_job_queue.py --queue-root "$SCRATCH/information-safety/job-pool/run-1"
+    ```
+    This reads `final-results.jsonl`, finds missing configs from `scripts/check_results.py`, dedups `DataStrategy` epochs, and writes one `pending/<id>.json` per job. Re-running on the same `--queue-root` is a no-op (deterministic ids).
+2. **Submit the pool**:
+    ```bash
+    sbatch slurm/run-job-pool.sh "$SCRATCH/information-safety/job-pool/run-1"
+    ```
+    Allocates a whole node, spawns 4 workers (one per GPU), each drains the queue via atomic `os.rename` claims.
+3. **Resume after time-limit**: re-`sbatch` the same `QUEUE_ROOT` — remaining `pending/*.json` files are picked up.
+
+**Queue states:** `pending/` (unclaimed) → `claimed/<id>.<worker>.json` (running) → `done/<id>.json` or `failed/<id>.json`. Per-job stdout/stderr lives in `logs/<id>.<worker>.log`.
+
 ## Periodic Self-Reflection
 
 **After completing a significant task (launching a job, finishing a feature, debugging a hard issue), pause and ask:**

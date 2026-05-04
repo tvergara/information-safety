@@ -174,3 +174,10 @@ tests/.regression_files/**/*.gif
 data
 plots/*.pdf
 slurm-*.out
+
+# Externally cloned repos used as references; not part of this project.
+circuit-breakers/
+
+# Local working notes / scratch directories.
+.claude/specs/
+tmp.json/

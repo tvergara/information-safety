@@ -95,8 +95,8 @@ def test_torch_can_use_the_GPU():
 def mock_train_and_evaluate(monkeypatch: pytest.MonkeyPatch):
     fn = information_safety.experiment.train_and_evaluate
     mock_train_fn = Mock(spec=fn, return_value=("fake", 0.0))
-    monkeypatch.setattr(information_safety.experiment, fn.__name__, mock_train_fn)
-    monkeypatch.setattr(information_safety.main, fn.__name__, mock_train_fn)
+    monkeypatch.setattr(information_safety.experiment, "train_and_evaluate", mock_train_fn)
+    monkeypatch.setattr(information_safety.main, "train_and_evaluate", mock_train_fn)
     return mock_train_fn
 
 
