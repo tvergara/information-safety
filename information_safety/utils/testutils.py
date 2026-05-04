@@ -83,7 +83,7 @@ def get_config_loader():
         calling_file=None, calling_module=None, config_path=f"pkg://{PROJECT_NAME}.configs"
     )
     if AutoSchemaPlugin is not None:
-        AutoSchemaPlugin._ALREADY_DID = backup
+        AutoSchemaPlugin._ALREADY_DID = typing.cast(bool, backup)
     config_loader = ConfigLoaderImpl(config_search_path=search_path)
     return config_loader
 
@@ -228,7 +228,8 @@ def get_all_configs_in_group_of_type(
             continue
         for t in config_target_type:
             if (
-                issubclass(t, typing.Protocol) and _matches_protocol(object_type, t)
+                issubclass(t, typing.Protocol)  # pyright: ignore[reportArgumentType]
+                and _matches_protocol(object_type, t)  # pyright: ignore[reportArgumentType]
             ) or issubclass(object_type, t):
                 compatible_config_names.append(name)
                 break

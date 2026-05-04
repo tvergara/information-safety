@@ -778,8 +778,8 @@ def _get_tuple_attributes(value: tuple, precision: int | None):
     }
 
 
-@to_ndarray.register(list)
-@to_ndarray.register(tuple)
+@to_ndarray.register(list)  # pyright: ignore[reportArgumentType]
+@to_ndarray.register(tuple)  # pyright: ignore[reportArgumentType]
 def _tuple_to_ndarray(v: tuple | list):
     """Convert a tuple of values to a numpy array to be stored in a regression file."""
     # This could get a bit tricky because the items might not have the same shape and so on.

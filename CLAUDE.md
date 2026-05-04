@@ -303,6 +303,24 @@ The `ssh -N` child process is left running as a nohup orphan, keeping the Contro
 
 **Hydra cluster configs:** `cluster=tamia` and `cluster=nibi` inherit from `mila.yaml` (same shape as `narval.yaml`), set the cluster hostname, and disable internet on compute nodes.
 
+### Job Pool (fat-allocation scheduler)
+
+Tamia/Nibi force whole-node allocations (4xH100). To run our backlog of single-GPU experiments efficiently, use the job pool:
+
+1. **Build the queue** (idempotent):
+    ```bash
+    python scripts/build_job_queue.py --queue-root "$SCRATCH/information-safety/job-pool/run-1"
+    ```
+    This reads `final-results.jsonl`, finds missing configs from `scripts/check_results.py`, dedups `DataStrategy` epochs, and writes one `pending/<id>.json` per job. Re-running on the same `--queue-root` is a no-op (deterministic ids).
+2. **Submit the pool**:
+    ```bash
+    sbatch slurm/run-job-pool.sh "$SCRATCH/information-safety/job-pool/run-1"
+    ```
+    Allocates a whole node, spawns 4 workers (one per GPU), each drains the queue via atomic `os.rename` claims.
+3. **Resume after time-limit**: re-`sbatch` the same `QUEUE_ROOT` — remaining `pending/*.json` files are picked up.
+
+**Queue states:** `pending/` (unclaimed) → `claimed/<id>.<worker>.json` (running) → `done/<id>.json` or `failed/<id>.json`. Per-job stdout/stderr lives in `logs/<id>.<worker>.log`.
+
 ## Periodic Self-Reflection
 
 **After completing a significant task (launching a job, finishing a feature, debugging a hard issue), pause and ask:**
