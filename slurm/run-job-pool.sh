@@ -26,7 +26,10 @@ export QUEUE_ROOT
 mkdir -p "${QUEUE_ROOT}/pending" "${QUEUE_ROOT}/claimed" \
     "${QUEUE_ROOT}/done" "${QUEUE_ROOT}/failed" "${QUEUE_ROOT}/logs"
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# SLURM copies this script into a spool directory before exec'ing it, so
+# ${BASH_SOURCE[0]} points at /var/spool/slurmd/jobNNN/slurm_script. Trust
+# the caller's REPO_ROOT or fall back to the conventional ~/information-safety.
+REPO_ROOT="${REPO_ROOT:-${HOME}/information-safety}"
 cd "${REPO_ROOT}"
 
 if [ -f /etc/profile.d/modules.sh ]; then
