@@ -57,8 +57,10 @@ def _trust_remote_code(model_name: str) -> bool:
     return _short_model(model_name) in TRUST_REMOTE_MODEL_SLUGS
 
 
-def _last_epoch_for(experiment_name: str) -> int:
-    return 1 if experiment_name == "DataStrategy" else 0
+def _last_epoch_for(config: dict[str, Any]) -> int:
+    if config["experiment_name"] == "DataStrategy":
+        return config["max_epochs"] - 1
+    return 0
 
 
 def _matches(row: dict[str, Any], config: dict[str, Any]) -> bool:
@@ -69,10 +71,10 @@ def is_present(config: dict[str, Any], rows: list[dict[str, Any]]) -> bool:
     """Return True if ``config`` is already represented in ``rows``.
 
     For ``DataStrategy``, presence is determined by the *last* epoch row
-    (epoch=1). For everything else, presence is by exact match on the
-    config keys.
+    (``epoch = max_epochs - 1``). For everything else, presence is by
+    exact match on the config keys.
     """
-    last_epoch = _last_epoch_for(config["experiment_name"])
+    last_epoch = _last_epoch_for(config)
     probe = {**config, "epoch": last_epoch}
     return any(_matches(row, probe) for row in rows)
 
@@ -80,17 +82,29 @@ def is_present(config: dict[str, Any], rows: list[dict[str, Any]]) -> bool:
 def iter_missing_configs(
     configs: list[dict[str, Any]], rows: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Return configs not yet present, deduped at (experiment, dataset, model, max_examples)."""
-    seen: set[tuple[str, str, str, str]] = set()
+    """Return configs not yet present, deduped per experiment family.
+
+    For ``DataStrategy``, dedup is at ``(experiment, dataset, model,
+    max_examples, max_epochs)`` — distinct training lengths produce
+    distinct jobs. For everything else, the ``max_epochs`` slot is
+    omitted from the dedup key.
+    """
+    seen: set[tuple[str, str, str, str, str]] = set()
     missing: list[dict[str, Any]] = []
     for config in configs:
         if is_present(config, rows):
             continue
+        max_epochs = (
+            config["max_epochs"]
+            if config["experiment_name"] == "DataStrategy"
+            else None
+        )
         key = (
             config["experiment_name"],
             config["dataset_name"],
             config["model_name"],
             str(config["max_examples"]),
+            str(max_epochs),
         )
         if key in seen:
             continue
@@ -142,7 +156,9 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
     dataset_handler = "wmdp" if dataset_name == "wmdp" else "advbench_harmbench"
     name = f"pool-{experiment_name}-{_short_model(model_name)}"
     if config["max_examples"] is not None:
-        name = f"{name}-{config['max_examples']}"
+        name = f"{name}-mex{config['max_examples']}"
+    if experiment_name == "DataStrategy":
+        name = f"{name}-ep{config['max_epochs']}"
 
     cmd = [
         "python",
@@ -157,6 +173,7 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
             "algorithm.strategy.lora_alpha=16",
             f"algorithm.dataset_handler.train_data_path={DEFAULT_TRAIN_DATA}",
             f"algorithm.dataset_handler.max_examples={_hydra_value(config['max_examples'])}",
+            f"trainer.max_epochs={config['max_epochs']}",
         ]
     elif experiment_name == "BaselineStrategy":
         cmd += ["experiment=prompt-attack", "algorithm/strategy=baseline"]

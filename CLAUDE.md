@@ -341,15 +341,23 @@ ssh robot.tamia.ecpia.ca "squeue --me"
 Tamia/Nibi force whole-node allocations (4xH100). To run our backlog of single-GPU experiments efficiently, use the job pool:
 
 1. **Build the queue** (idempotent):
+
     ```bash
     python scripts/build_job_queue.py --queue-root "$SCRATCH/information-safety/job-pool/run-1"
     ```
-    This reads `final-results.jsonl`, finds missing configs from `scripts/check_results.py`, dedups `DataStrategy` epochs, and writes one `pending/<id>.json` per job. Re-running on the same `--queue-root` is a no-op (deterministic ids).
+
+    This reads `final-results.jsonl`, finds missing configs from `scripts/check_results.py`, dedups `DataStrategy` epochs (per `(model, max_examples, max_epochs)`), and writes one `pending/<id>.json` per job. Re-running on the same `--queue-root` is a no-op (deterministic ids).
+
+    **DataStrategy is compute-matched.** The grid in `scripts/check_results.py` enumerates `(max_examples, max_epochs)` pairs whose product is fixed at 1024 examples-seen — currently `[(16, 64), (32, 32), (64, 16), (128, 8), (256, 4), (512, 2)]`. Each pair gets `max_epochs` rows (one per validation epoch), and the queue producer emits one job per `(model, max_examples, max_epochs)` triple with a `trainer.max_epochs=<N>` Hydra override. The default `max_epochs: 2` in `experiment/finetune-with-strategy.yaml` is only a fallback for non-pool callers.
+
 2. **Submit the pool**:
+
     ```bash
     sbatch slurm/run-job-pool.sh "$SCRATCH/information-safety/job-pool/run-1"
     ```
+
     Allocates a whole node, spawns 4 workers (one per GPU), each drains the queue via atomic `os.rename` claims.
+
 3. **Resume after time-limit**: re-`sbatch` the same `QUEUE_ROOT` — remaining `pending/*.json` files are picked up.
 
 **Queue states:** `pending/` (unclaimed) → `claimed/<id>.<worker>.json` (running) → `done/<id>.json` or `failed/<id>.json`. Per-job stdout/stderr lives in `logs/<id>.<worker>.log`.

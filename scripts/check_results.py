@@ -41,16 +41,25 @@ for model in MODELS:
         "epoch": 0,
     })
 
-# DataStrategy: sweep over max_examples, epochs 0 and 1
-DATA_MAX_EXAMPLES = [10, 50, 100, 250, None]
-for model, max_ex, epoch in product(MODELS, DATA_MAX_EXAMPLES, [0, 1]):
-    HARMBENCH_CONFIGS.append({
-        "experiment_name": "DataStrategy",
-        "dataset_name": "advbench_harmbench",
-        "model_name": model,
-        "max_examples": max_ex,
-        "epoch": epoch,
-    })
+# Compute-matched DataStrategy sweep: max_examples * max_epochs = 1024
+DATA_SWEEP_POINTS = [
+    (16, 64),
+    (32, 32),
+    (64, 16),
+    (128, 8),
+    (256, 4),
+    (512, 2),
+]
+for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
+    for epoch in range(max_epochs):
+        HARMBENCH_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "advbench_harmbench",
+            "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+        })
 
 # RoleplayStrategy: one per model, epoch 0 only (no training)
 for model in MODELS:
