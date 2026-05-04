@@ -196,7 +196,7 @@ def test_build_command_baseline_emits_expected_overrides() -> None:
     assert "algorithm/strategy=baseline" in cmd
     assert "algorithm/dataset_handler=advbench_harmbench" in cmd
     assert any(c.startswith("algorithm.model.pretrained_model_name_or_path=") for c in cmd)
-    assert "algorithm.model.trust_remote_code=false" in cmd
+    assert "algorithm.model.trust_remote_code=true" in cmd
     assert "trainer.precision=bf16-mixed" in cmd
 
 
@@ -242,16 +242,14 @@ def test_build_command_precomputed_gcg(tmp_path: Path) -> None:
     assert f"algorithm.strategy.suffix_file={canonical}" in cmd
 
 
-def test_build_command_trust_remote_code_for_special_models(tmp_path: Path) -> None:
-    config = _baseline_config(
-        model="/network/scratch/b/brownet/information-safety/models/safety-pair-safe"
-    )
-    cmd = build_command(config, attacks_dir=tmp_path)
-    assert "algorithm.model.trust_remote_code=true" in cmd
-
-    config2 = _baseline_config(model="allenai/Olmo-3-7B-Instruct")
-    cmd2 = build_command(config2, attacks_dir=tmp_path)
-    assert "algorithm.model.trust_remote_code=true" in cmd2
+def test_build_command_trust_remote_code_always_true(tmp_path: Path) -> None:
+    for model in (
+        "meta-llama/Llama-2-7b-chat-hf",
+        "/network/scratch/b/brownet/information-safety/models/safety-pair-safe",
+        "openai/gpt-oss-20b",
+    ):
+        cmd = build_command(_baseline_config(model=model), attacks_dir=tmp_path)
+        assert "algorithm.model.trust_remote_code=true" in cmd
 
 
 def test_deterministic_id_stable_for_same_config() -> None:

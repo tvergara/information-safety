@@ -25,13 +25,6 @@ DEFAULT_TRAIN_DATA = (
     "/network/scratch/b/brownet/information-safety/data/advbench-completions-smollm3.jsonl"
 )
 
-TRUST_REMOTE_MODEL_SLUGS = {
-    "safety-pair-safe",
-    "safety-pair-unsafe",
-    "smollm3-circuit-breaker",
-    "Olmo-3-7B-Instruct",
-}
-
 PRECOMPUTED_TO_ATTACK = {
     "PrecomputedGCGStrategy": "gcg",
     "PrecomputedAutoDANStrategy": "autodan",
@@ -51,10 +44,6 @@ def _model_slug(model_name: str) -> str:
 
 def _short_model(model_name: str) -> str:
     return model_name.rsplit("/", 1)[-1]
-
-
-def _trust_remote_code(model_name: str) -> bool:
-    return _short_model(model_name) in TRUST_REMOTE_MODEL_SLUGS
 
 
 def _last_epoch_for(config: dict[str, Any]) -> int:
@@ -216,7 +205,7 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
     cmd += [
         f"algorithm/dataset_handler={dataset_handler}",
         f"algorithm.model.pretrained_model_name_or_path={model_name}",
-        f"algorithm.model.trust_remote_code={_hydra_value(_trust_remote_code(model_name))}",
+        "algorithm.model.trust_remote_code=true",
         "trainer.precision=bf16-mixed",
         f"name={name}",
     ]
