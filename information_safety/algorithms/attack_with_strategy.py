@@ -183,6 +183,7 @@ class AttackWithStrategy(LightningModule):
             self._eval_time / self._val_total if self._val_total > 0 else 0.0
         )
 
+        assert self.trainer.max_epochs is not None
         result_row = {
             "experiment_name": type(self.strategy).__name__,
             "experiment_id": experiment_id,
@@ -190,6 +191,7 @@ class AttackWithStrategy(LightningModule):
             "model_name": self.network_config.pretrained_model_name_or_path,
             "dataset_name": self.dataset_handler.dataset_name,
             "max_examples": self.dataset_handler.max_examples,
+            "max_epochs": self.trainer.max_epochs,
             "performance": performance,
             "asr": None,
             "program_bits": bits,

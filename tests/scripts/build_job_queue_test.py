@@ -29,12 +29,15 @@ def _baseline_config(model: str = "meta-llama/Llama-2-7b-chat-hf") -> dict[str, 
     }
 
 
-def _data_config(model: str, max_ex: int | None, epoch: int) -> dict[str, object]:
+def _data_config(
+    model: str, max_ex: int | None, max_epochs: int, epoch: int
+) -> dict[str, object]:
     return {
         "experiment_name": "DataStrategy",
         "dataset_name": "advbench_harmbench",
         "model_name": model,
         "max_examples": max_ex,
+        "max_epochs": max_epochs,
         "epoch": epoch,
     }
 
@@ -71,27 +74,44 @@ def test_is_present_baseline_missing() -> None:
 
 
 def test_is_present_data_strategy_dedups_by_last_epoch() -> None:
-    config_epoch0 = _data_config("meta-llama/Llama-2-7b-chat-hf", 10, 0)
-    config_epoch1 = _data_config("meta-llama/Llama-2-7b-chat-hf", 10, 1)
+    config_epoch0 = _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 2, 0)
+    config_epoch1 = _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 2, 1)
     rows = [{**config_epoch1, "asr": 0.5}]
     assert is_present(config_epoch0, rows) is True
     assert is_present(config_epoch1, rows) is True
 
 
 def test_is_present_data_strategy_partial_run_not_done() -> None:
-    config_epoch0 = _data_config("meta-llama/Llama-2-7b-chat-hf", 10, 0)
-    config_epoch1 = _data_config("meta-llama/Llama-2-7b-chat-hf", 10, 1)
+    config_epoch0 = _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 2, 0)
+    config_epoch1 = _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 2, 1)
     rows = [{**config_epoch0, "asr": 0.4}]
     assert is_present(config_epoch1, rows) is False
 
 
+def test_is_present_data_strategy_uses_per_config_last_epoch() -> None:
+    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 64, 0)
+    last_epoch_row = {**config, "epoch": 63, "asr": 0.5}
+    assert is_present(config, [last_epoch_row]) is True
+    near_last_row = {**config, "epoch": 62, "asr": 0.5}
+    assert is_present(config, [near_last_row]) is False
+
+
 def test_iter_missing_dedups_data_strategy_epochs() -> None:
     configs = [
-        _data_config("meta-llama/Llama-2-7b-chat-hf", 10, 0),
-        _data_config("meta-llama/Llama-2-7b-chat-hf", 10, 1),
+        _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 64, 0),
+        _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 64, 1),
     ]
     missing = list(iter_missing_configs(configs, []))
     assert len(missing) == 1
+
+
+def test_iter_missing_dedups_data_strategy_distinguishes_max_epochs() -> None:
+    configs = [
+        _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 64, 0),
+        _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 32, 0),
+    ]
+    missing = list(iter_missing_configs(configs, []))
+    assert len(missing) == 2
 
 
 def test_resolve_suffix_file_canonical(tmp_path: Path) -> None:
@@ -164,20 +184,20 @@ def test_build_command_roleplay_emits_strategy_override() -> None:
 
 
 def test_build_command_data_strategy_emits_finetune_experiment() -> None:
-    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 50, 1)
+    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 1)
     cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
     assert "experiment=finetune-with-strategy" in cmd
     assert "algorithm/strategy=data" in cmd
     assert "algorithm.strategy.r=16" in cmd
     assert "algorithm.strategy.lora_alpha=16" in cmd
-    assert "algorithm.dataset_handler.max_examples=50" in cmd
+    assert "algorithm.dataset_handler.max_examples=32" in cmd
     assert any(c.startswith("algorithm.dataset_handler.train_data_path=") for c in cmd)
 
 
-def test_build_command_data_strategy_max_examples_none_emits_null() -> None:
-    config = _data_config("meta-llama/Llama-2-7b-chat-hf", None, 1)
+def test_build_command_data_strategy_emits_max_epochs_override() -> None:
+    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 64, 0)
     cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
-    assert "algorithm.dataset_handler.max_examples=null" in cmd
+    assert "trainer.max_epochs=64" in cmd
 
 
 def test_build_command_precomputed_gcg(tmp_path: Path) -> None:

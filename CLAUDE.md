@@ -299,7 +299,8 @@ The `ssh -N` child process is left running as a nohup orphan, keeping the Contro
 
 - `slurm/check-cluster-ssh.sh <cluster> [<cluster> ...]` — probes the ControlMaster sockets and exits non-zero if any are closed.
 - `slurm/bootstrap-remote-cluster.sh <tamia|nibi>` — idempotent setup on the remote cluster: clones (or pulls) the repo, runs `git submodule update --init --recursive`, installs `uv` if missing, and runs `uv sync`. Re-runs become `git pull` + `uv sync`.
-- `slurm/sync-results-from.sh <tamia|nibi>` — pulls `final-results.jsonl` and `generations/` from the remote cluster back to Mila scratch under per-cluster suffixed paths. Refuses to clobber the canonical `final-results.jsonl`; prints a follow-up command to merge by hand.
+- `slurm/sync-and-merge-from.sh <tamia|nibi>` — pull results, merge by `eval_run_id` (preserves backfilled ASR), symlink generations into the canonical location. Refuses to run if `eval-sweep` is already queued/running. Does not auto-submit eval — prints the `sbatch` command to run when ready.
+- `slurm/sync-results-from.sh <tamia|nibi>` — raw rsync only (used by the wrapper above; rarely run on its own).
 
 **Hydra cluster configs:** `cluster=tamia` and `cluster=nibi` inherit from `mila.yaml` (same shape as `narval.yaml`), set the cluster hostname, and disable internet on compute nodes.
 
@@ -341,15 +342,23 @@ ssh robot.tamia.ecpia.ca "squeue --me"
 Tamia/Nibi force whole-node allocations (4xH100). To run our backlog of single-GPU experiments efficiently, use the job pool:
 
 1. **Build the queue** (idempotent):
+
     ```bash
     python scripts/build_job_queue.py --queue-root "$SCRATCH/information-safety/job-pool/run-1"
     ```
-    This reads `final-results.jsonl`, finds missing configs from `scripts/check_results.py`, dedups `DataStrategy` epochs, and writes one `pending/<id>.json` per job. Re-running on the same `--queue-root` is a no-op (deterministic ids).
+
+    This reads `final-results.jsonl`, finds missing configs from `scripts/check_results.py`, dedups `DataStrategy` epochs (per `(model, max_examples, max_epochs)`), and writes one `pending/<id>.json` per job. Re-running on the same `--queue-root` is a no-op (deterministic ids).
+
+    **DataStrategy is compute-matched.** The grid in `scripts/check_results.py` enumerates `(max_examples, max_epochs)` pairs whose product is fixed at 1024 examples-seen — currently `[(16, 64), (32, 32), (64, 16), (128, 8), (256, 4), (512, 2)]`. Each pair gets `max_epochs` rows (one per validation epoch), and the queue producer emits one job per `(model, max_examples, max_epochs)` triple with a `trainer.max_epochs=<N>` Hydra override. The default `max_epochs: 2` in `experiment/finetune-with-strategy.yaml` is only a fallback for non-pool callers.
+
 2. **Submit the pool**:
+
     ```bash
     sbatch slurm/run-job-pool.sh "$SCRATCH/information-safety/job-pool/run-1"
     ```
+
     Allocates a whole node, spawns 4 workers (one per GPU), each drains the queue via atomic `os.rename` claims.
+
 3. **Resume after time-limit**: re-`sbatch` the same `QUEUE_ROOT` — remaining `pending/*.json` files are picked up.
 
 **Queue states:** `pending/` (unclaimed) → `claimed/<id>.<worker>.json` (running) → `done/<id>.json` or `failed/<id>.json`. Per-job stdout/stderr lives in `logs/<id>.<worker>.log`.
