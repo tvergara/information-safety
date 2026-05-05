@@ -21,15 +21,18 @@ from information_safety.algorithms.dataset_handlers.base import (
 
 logger = getLogger(__name__)
 
-ANSWER_PATTERN = re.compile(r"####\s*(-?\d+)")
+ANSWER_PATTERNS = [
+    re.compile(r"\\boxed\{\s*(-?\d+)\s*\}"),
+    re.compile(r"####\s*(-?\d+)"),
+]
 
 
 def extract_numerical_answer(text: str) -> int | None:
-    """Extract the integer following the ``#### `` marker, or None if missing."""
-    match = ANSWER_PATTERN.search(text)
-    if match is None:
-        return None
-    return int(match.group(1))
+    for pattern in ANSWER_PATTERNS:
+        matches = pattern.findall(text)
+        if matches:
+            return int(matches[-1])
+    return None
 
 
 @dataclass
@@ -151,7 +154,7 @@ class EvilMathHandler(BaseDatasetHandler):
         tokenizer: PreTrainedTokenizerBase,
         batch: dict,
     ) -> tuple[int, int]:
-        """Generate responses, parse `#### N`, compare to ground truth."""
+        """Generate responses, extract final integer answer, compare to ground truth."""
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         metadata_strs: list[str] = batch["labels"]

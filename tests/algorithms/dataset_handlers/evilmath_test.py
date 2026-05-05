@@ -76,6 +76,24 @@ class TestExtractNumericalAnswer:
     def test_handles_no_space_after_marker(self) -> None:
         assert extract_numerical_answer("####7") == 7
 
+    def test_parses_boxed_integer(self) -> None:
+        assert extract_numerical_answer(r"the answer is $\boxed{42}$") == 42
+
+    def test_parses_boxed_negative(self) -> None:
+        assert extract_numerical_answer(r"\boxed{-5}") == -5
+
+    def test_takes_last_boxed_when_multiple(self) -> None:
+        assert extract_numerical_answer(r"first \boxed{1}, final \boxed{42}") == 42
+
+    def test_falls_back_to_hash_when_no_boxed(self) -> None:
+        assert extract_numerical_answer("reasoning #### 42") == 42
+
+    def test_takes_last_hash_when_multiple(self) -> None:
+        assert extract_numerical_answer("step #### 1\nfinal #### 42") == 42
+
+    def test_boxed_wins_over_hash(self) -> None:
+        assert extract_numerical_answer(r"intermediate #### 1, final \boxed{42}") == 42
+
 
 class TestGetTrainDatasetDummy:
     def test_no_train_data_path_returns_dummy(self) -> None:
