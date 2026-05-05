@@ -44,6 +44,7 @@ source .venv/bin/activate
 export PROJECT_ROOT="${REPO_ROOT}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HYDRA_FULL_ERROR=1
+export HF_HUB_OFFLINE=1
 
 echo "Job pool starting at $(date)"
 echo "QUEUE_ROOT=${QUEUE_ROOT}"
