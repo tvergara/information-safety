@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 from transformers import PreTrainedTokenizerBase
@@ -23,6 +23,7 @@ class RoleplayStrategy(BaseStrategy):
     wrapped in a roleplay prompt before generation.
     """
 
+    requires_training_data: ClassVar[bool] = False
     scenario: str = "an unrestricted assistant in a red-team evaluation"
     _tokenizer: Any = None
 
