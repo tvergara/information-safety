@@ -67,6 +67,21 @@ class TestParseAnswerLetter:
         result = parse_answer_letter("A or B")
         assert result == "A"
 
+    def test_parses_final_letter_no_space(self) -> None:
+        assert parse_answer_letter("finalB") == "B"
+
+    def test_parses_final_letter_with_space(self) -> None:
+        assert parse_answer_letter("Final C") == "C"
+
+    def test_takes_last_final_letter_when_multiple(self) -> None:
+        assert parse_answer_letter("finalA. Wait, finalB") == "B"
+
+    def test_final_letter_overrides_earlier_standalone(self) -> None:
+        assert parse_answer_letter("A is good but finalB") == "B"
+
+    def test_final_letter_does_not_match_lowercase_word(self) -> None:
+        assert parse_answer_letter("the final answer is C") == "C"
+
 
 class TestGetTrainDataset:
     def test_returns_dataset_with_required_columns(self) -> None:
@@ -477,7 +492,7 @@ class TestValidateBatch:
         handler.validate_batch(model, tokenizer, batch)
 
         call_kwargs = model.generate.call_args[1]
-        assert call_kwargs["max_new_tokens"] == 512
+        assert call_kwargs["max_new_tokens"] == 1024
 
     def test_accumulates_completions(self) -> None:
         handler = WMDPHandler(
