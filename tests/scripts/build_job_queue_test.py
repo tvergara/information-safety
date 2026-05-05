@@ -482,6 +482,57 @@ def test_iter_missing_collapses_evilmath_data_strategy_epoch_rows() -> None:
     assert len(missing) == 1
 
 
+def _strongreject_data_config(
+    model: str,
+    max_ex: int,
+    max_epochs: int,
+    epoch: int,
+) -> dict[str, object]:
+    return {
+        "experiment_name": "DataStrategy",
+        "dataset_name": "strongreject",
+        "model_name": model,
+        "max_examples": max_ex,
+        "max_epochs": max_epochs,
+        "epoch": epoch,
+    }
+
+
+def test_build_command_strongreject_baseline_uses_strongreject_handler() -> None:
+    config = {
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "strongreject",
+        "model_name": "Qwen/Qwen3-4B",
+        "max_examples": None,
+        "epoch": 0,
+    }
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    assert "experiment=prompt-attack" in cmd
+    assert "algorithm/strategy=baseline" in cmd
+    assert "algorithm/dataset_handler=strongreject" in cmd
+
+
+def test_build_command_strongreject_data_strategy_no_corpus_overrides() -> None:
+    config = _strongreject_data_config("Qwen/Qwen3-4B", 128, 8, 0)
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    assert "experiment=finetune-with-strategy" in cmd
+    assert "algorithm/strategy=data" in cmd
+    assert "algorithm/dataset_handler=strongreject" in cmd
+    assert "algorithm.dataset_handler.max_examples=128" in cmd
+    assert "trainer.max_epochs=8" in cmd
+    assert any(c.startswith("algorithm.dataset_handler.train_data_path=") for c in cmd)
+    assert not any(c.startswith("algorithm.dataset_handler.corpus_fraction") for c in cmd)
+    assert not any(c.startswith("algorithm.dataset_handler.corpus_subset") for c in cmd)
+
+
+def test_iter_missing_collapses_strongreject_data_strategy_epoch_rows() -> None:
+    epoch_rows = [
+        _strongreject_data_config("Qwen/Qwen3-4B", 128, 8, ep) for ep in range(8)
+    ]
+    missing = list(iter_missing_configs(epoch_rows, []))
+    assert len(missing) == 1
+
+
 def test_main_writes_pending_files_for_synthetic_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
