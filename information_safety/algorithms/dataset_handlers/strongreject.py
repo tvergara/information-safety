@@ -90,7 +90,7 @@ class StrongRejectHandler(BaseDatasetHandler):
         labels: list[str] = []
 
         for example in raw:  # type: ignore[union-attr]
-            behavior = example["forbidden_prompt"]  # type: ignore[index]
+            behavior = example["prompt"]  # type: ignore[index]
             category = example["category"]  # type: ignore[index]
 
             prompt_text: str = tokenizer.apply_chat_template(  # type: ignore[assignment]

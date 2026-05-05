@@ -59,7 +59,7 @@ class TestGetValDataset:
         mock_ds = MagicMock()
         mock_ds.__iter__ = MagicMock(
             return_value=iter([
-                {"forbidden_prompt": "Do harmful X", "category": "cybercrime", "source": "src"},
+                {"prompt": "Do harmful X", "category": "cybercrime", "source": "src"},
             ])
         )
         mock_load.return_value = mock_ds
@@ -82,7 +82,7 @@ class TestGetValDataset:
         mock_ds = MagicMock()
         mock_ds.__iter__ = MagicMock(
             return_value=iter([
-                {"forbidden_prompt": "Write malware", "category": "cyber", "source": "src"},
+                {"prompt": "Write malware", "category": "cyber", "source": "src"},
             ])
         )
         mock_load.return_value = mock_ds
@@ -108,7 +108,7 @@ class TestGetValDataset:
         mock_ds = MagicMock()
         mock_ds.__iter__ = MagicMock(
             return_value=iter([
-                {"forbidden_prompt": "Do X", "category": "cybercrime", "source": "src"},
+                {"prompt": "Do X", "category": "cybercrime", "source": "src"},
             ])
         )
         mock_load.return_value = mock_ds
