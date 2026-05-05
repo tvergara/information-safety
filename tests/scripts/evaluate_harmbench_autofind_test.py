@@ -138,6 +138,65 @@ class TestEvaluateResultsFile:
         assert updated_rows[2]["asr"] == 1.0  # was null, now evaluated
 
     @patch("scripts.evaluate_harmbench.load_classifier")
+    def test_skips_non_harmbench_datasets(
+        self, mock_load_cls: MagicMock, tmp_path: Path
+    ) -> None:
+        results_file = tmp_path / "final-results.jsonl"
+        rows = []
+        for i, (run_id, dataset) in enumerate(
+            [
+                ("hb-run", "advbench_harmbench"),
+                ("wmdp-run", "wmdp"),
+                ("evil-run", "evilmath"),
+            ]
+        ):
+            row = {
+                "experiment_name": "BaselineStrategy",
+                "experiment_id": None,
+                "eval_run_id": run_id,
+                "model_name": "test-model",
+                "dataset_name": dataset,
+                "max_examples": None,
+                "performance": 0.5,
+                "asr": None,
+                "bits": 1000,
+                "seed": 42,
+                "epoch": i,
+                "strategy_hparams": {},
+            }
+            rows.append(row)
+
+            gen_dir = tmp_path / "generations" / run_id
+            gen_dir.mkdir(parents=True)
+            with open(gen_dir / "input_data.jsonl", "w") as f:
+                if dataset == "advbench_harmbench":
+                    f.write(
+                        json.dumps({"behavior": "do X", "category": "cyber"}) + "\n"
+                    )
+                else:
+                    f.write(json.dumps({"question": "Q", "correct_answer": "A"}) + "\n")
+            with open(gen_dir / "responses.jsonl", "w") as f:
+                f.write(json.dumps({"response": "r"}) + "\n")
+
+        with open(results_file, "w") as f:
+            for row in rows:
+                f.write(json.dumps(row) + "\n")
+
+        model = MagicMock()
+        tokenizer = MagicMock()
+        mock_load_cls.return_value = (model, tokenizer)
+
+        with patch("scripts.evaluate_harmbench.run_classifier", return_value=[1]):
+            evaluate_results_file(str(results_file), str(tmp_path / "generations"))
+
+        with open(results_file) as f:
+            updated_rows = [json.loads(line) for line in f]
+
+        assert updated_rows[0]["asr"] == 1.0
+        assert updated_rows[1]["asr"] is None
+        assert updated_rows[2]["asr"] is None
+
+    @patch("scripts.evaluate_harmbench.load_classifier")
     def test_skips_missing_generations_dir(
         self, mock_load_cls: MagicMock, tmp_path: Path
     ) -> None:
