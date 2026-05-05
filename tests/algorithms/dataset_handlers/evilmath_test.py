@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
-import pytest
 import torch
 
 from information_safety.algorithms.dataset_handlers.base import GenerationValDataset
@@ -23,14 +22,6 @@ def _make_tokenizer() -> MagicMock:
     tokenizer.return_value = {"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1]}
     tokenizer.pad_token_id = 0
     return tokenizer
-
-
-def _compliance_dataset(n: int) -> Any:
-    import datasets as _datasets
-    return _datasets.Dataset.from_dict({
-        "prompt": [f"p{i}" for i in range(n)],
-        "completion": [f"c{i}" for i in range(n)],
-    })
 
 
 def _gsm8k_dataset(n: int) -> Any:
@@ -122,179 +113,56 @@ class TestExtractNumericalAnswer:
         assert extract_numerical_answer("Answer: 42") == 42
 
 
-class TestGetTrainDatasetDummy:
-    def test_no_train_data_path_returns_dummy(self) -> None:
-        handler = EvilMathHandler(generations_dir="/tmp/gens")
-        tokenizer = _make_tokenizer()
-        train_ds = handler.get_train_dataset(tokenizer)
-
-        assert hasattr(train_ds, "__len__")
-        assert len(train_ds) == 1
-        assert "input_ids" in train_ds.column_names
-        assert "attention_mask" in train_ds.column_names
-
-
-class TestGetTrainDatasetMixZero:
+class TestGetTrainDatasetUsesGsm8k:
     @patch("information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset")
-    def test_compliance_only_loads_train_data_path(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = _compliance_dataset(64)
+    def test_train_dataset_loads_gsm8k_train_split(self, mock_load: MagicMock) -> None:
+        mock_load.return_value = _gsm8k_dataset(64)
 
-        handler = EvilMathHandler(
-            generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
-            corpus_fraction=0.0,
-            max_examples=64,
-        )
+        handler = EvilMathHandler(generations_dir="/tmp/gens", max_examples=64)
         tokenizer = _make_tokenizer()
-        train_ds = handler.get_train_dataset(tokenizer)
+        handler.get_train_dataset(tokenizer)
 
-        assert mock_load.call_count == 1
-        mock_load.assert_called_once_with(
-            "json", data_files="/fake/compliance.jsonl", split="train"
-        )
-        assert len(train_ds) == 64
+        mock_load.assert_called_once_with("openai/gsm8k", "main", split="train")
 
     @patch("information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset")
-    def test_compliance_only_respects_max_examples(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = _compliance_dataset(128)
+    def test_train_dataset_respects_max_examples(self, mock_load: MagicMock) -> None:
+        mock_load.return_value = _gsm8k_dataset(128)
 
-        handler = EvilMathHandler(
-            generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
-            corpus_fraction=0.0,
-            max_examples=32,
-        )
+        handler = EvilMathHandler(generations_dir="/tmp/gens", max_examples=32)
         tokenizer = _make_tokenizer()
         train_ds = handler.get_train_dataset(tokenizer)
 
         assert len(train_ds) == 32
 
     @patch("information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset")
-    def test_compliance_only_does_not_call_gsm8k_loader(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = _compliance_dataset(64)
+    def test_train_dataset_columns_are_input_ids_and_attention_mask(
+        self, mock_load: MagicMock
+    ) -> None:
+        mock_load.return_value = _gsm8k_dataset(8)
 
-        handler = EvilMathHandler(
-            generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
-            corpus_fraction=0.0,
-            max_examples=64,
-        )
+        handler = EvilMathHandler(generations_dir="/tmp/gens", max_examples=8)
+        tokenizer = _make_tokenizer()
+        train_ds = handler.get_train_dataset(tokenizer)
+
+        assert "input_ids" in train_ds.column_names
+        assert "attention_mask" in train_ds.column_names
+
+    @patch("information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset")
+    def test_train_dataset_emits_one_user_assistant_pair_per_row(
+        self, mock_load: MagicMock
+    ) -> None:
+        mock_load.return_value = _gsm8k_dataset(2)
+
+        handler = EvilMathHandler(generations_dir="/tmp/gens", max_examples=2)
         tokenizer = _make_tokenizer()
         handler.get_train_dataset(tokenizer)
 
-        gsm8k_calls = [
-            c for c in mock_load.call_args_list
-            if c.args and c.args[0] == "openai/gsm8k"
-        ]
-        assert len(gsm8k_calls) == 0
-
-
-class TestGetTrainDatasetMixHalf:
-    @patch("information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset")
-    def test_mix_half_calls_both_loaders(self, mock_load: MagicMock) -> None:
-        def side_effect(*args: Any, **kwargs: Any) -> Any:
-            if args and args[0] == "json":
-                return _compliance_dataset(64)
-            if args and args[0] == "openai/gsm8k":
-                return _gsm8k_dataset(64)
-            raise ValueError(f"Unexpected load_dataset call: {args}, {kwargs}")
-
-        mock_load.side_effect = side_effect
-
-        handler = EvilMathHandler(
-            generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
-            corpus_fraction=0.5,
-            max_examples=128,
-        )
-        tokenizer = _make_tokenizer()
-        train_ds = handler.get_train_dataset(tokenizer)
-
-        assert len(train_ds) == 128
-
-        compliance_calls = [
-            c for c in mock_load.call_args_list if c.args and c.args[0] == "json"
-        ]
-        gsm8k_calls = [
-            c for c in mock_load.call_args_list
-            if c.args and c.args[0] == "openai/gsm8k"
-        ]
-        assert len(compliance_calls) == 1
-        assert len(gsm8k_calls) == 1
-
-    @patch("information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset")
-    def test_mix_half_splits_examples_evenly(self, mock_load: MagicMock) -> None:
-        compliance_select = MagicMock(wraps=_compliance_dataset(64).select)
-        gsm8k_select = MagicMock(wraps=_gsm8k_dataset(64).select)
-
-        compliance = _compliance_dataset(64)
-        gsm8k = _gsm8k_dataset(64)
-        compliance.select = compliance_select  # type: ignore[method-assign]
-        gsm8k.select = gsm8k_select  # type: ignore[method-assign]
-
-        def side_effect(*args: Any, **kwargs: Any) -> Any:
-            if args and args[0] == "json":
-                return compliance
-            return gsm8k
-
-        mock_load.side_effect = side_effect
-
-        handler = EvilMathHandler(
-            generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
-            corpus_fraction=0.5,
-            max_examples=128,
-        )
-        tokenizer = _make_tokenizer()
-        train_ds = handler.get_train_dataset(tokenizer)
-
-        assert len(train_ds) == 128
-        assert compliance_select.call_args.args[0] == range(64)
-        assert gsm8k_select.call_args.args[0] == range(64)
-
-    @patch("information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset")
-    def test_mix_half_with_odd_max_examples(self, mock_load: MagicMock) -> None:
-        def side_effect(*args: Any, **kwargs: Any) -> Any:
-            if args and args[0] == "json":
-                return _compliance_dataset(64)
-            return _gsm8k_dataset(64)
-
-        mock_load.side_effect = side_effect
-
-        handler = EvilMathHandler(
-            generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
-            corpus_fraction=0.5,
-            max_examples=33,
-        )
-        tokenizer = _make_tokenizer()
-        train_ds = handler.get_train_dataset(tokenizer)
-
-        assert len(train_ds) == 33
-
-
-class TestGetTrainDatasetValidation:
-    def test_invalid_corpus_fraction_raises(self) -> None:
-        handler = EvilMathHandler(
-            generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
-            corpus_fraction=0.25,
-            max_examples=64,
-        )
-        tokenizer = _make_tokenizer()
-        with pytest.raises(ValueError, match="corpus_fraction"):
-            handler.get_train_dataset(tokenizer)
-
-    def test_train_data_path_set_without_max_examples_raises(self) -> None:
-        handler = EvilMathHandler(
-            generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
-            corpus_fraction=0.0,
-            max_examples=None,
-        )
-        tokenizer = _make_tokenizer()
-        with pytest.raises(ValueError, match="max_examples"):
-            handler.get_train_dataset(tokenizer)
+        assert tokenizer.apply_chat_template.call_count == 2
+        for call in tokenizer.apply_chat_template.call_args_list:
+            messages = call.args[0]
+            assert len(messages) == 2
+            assert messages[0]["role"] == "user"
+            assert messages[1]["role"] == "assistant"
 
 
 class TestGetValDataset:
@@ -535,12 +403,7 @@ class TestSaveCompletions:
 
 
 class TestResultRowExtras:
-    def test_includes_corpus_fraction(self) -> None:
-        handler = EvilMathHandler(generations_dir="/tmp/gens", corpus_fraction=0.5)
-        extras = handler.result_row_extras()
-        assert extras == {"corpus_fraction": 0.5}
-
-    def test_default_corpus_fraction_is_zero(self) -> None:
+    def test_returns_empty_dict(self) -> None:
         handler = EvilMathHandler(generations_dir="/tmp/gens")
         extras = handler.result_row_extras()
-        assert extras == {"corpus_fraction": 0.0}
+        assert extras == {}

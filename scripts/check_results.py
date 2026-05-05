@@ -13,19 +13,10 @@ DEFAULT_RESULTS_FILE = Path(
 )
 
 MODELS = [
-    "/network/scratch/b/brownet/information-safety/models/safety-pair-safe",
-    "/network/scratch/b/brownet/information-safety/models/safety-pair-unsafe",
     "meta-llama/Meta-Llama-3-8B-Instruct",
     "allenai/Olmo-3-7B-Instruct",
     "Qwen/Qwen3-4B",
     "openai/gpt-oss-20b",
-]
-
-ATTACK_MODELS = [
-    "meta-llama/Meta-Llama-3-8B-Instruct",
-    "allenai/Olmo-3-7B-Instruct",
-    "Qwen/Qwen3-4B",
-    "/network/scratch/b/brownet/information-safety/models/smollm3-circuit-breaker",
 ]
 
 HARMBENCH_CONFIGS: list[dict[str, Any]] = []
@@ -70,10 +61,10 @@ for model in MODELS:
         "epoch": 0,
     })
 
-# Precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR): one per attack model,
+# Precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR): one per model,
 # epoch 0 only (no training — the attack prompts come from an upstream run).
 for model, attack in product(
-    ATTACK_MODELS,
+    MODELS,
     ["PrecomputedGCGStrategy", "PrecomputedAutoDANStrategy", "PrecomputedPAIRStrategy"],
 ):
     HARMBENCH_CONFIGS.append({
@@ -96,17 +87,7 @@ for model in MODELS:
         "epoch": 0,
     })
 
-# WMDP RoleplayStrategy: one per model, epoch 0 only (no training)
-for model in MODELS:
-    WMDP_CONFIGS.append({
-        "experiment_name": "RoleplayStrategy",
-        "dataset_name": "wmdp",
-        "model_name": model,
-        "max_examples": None,
-        "epoch": 0,
-    })
-
-# WMDP DataStrategy: compliance only (corpus_fraction=0.0)
+# WMDP DataStrategy: MMLU-Pro only (corpus_fraction=0.0)
 for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
     for epoch in range(max_epochs):
         WMDP_CONFIGS.append({
@@ -120,7 +101,7 @@ for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
             "corpus_subset": None,
         })
 
-# WMDP DataStrategy: compliance + WMDP forget-corpus mix (corpus_fraction=0.5)
+# WMDP DataStrategy: MMLU-Pro + WMDP forget-corpus mix (corpus_fraction=0.5)
 for model, (max_ex, max_epochs), subset in product(
     MODELS, DATA_SWEEP_POINTS, ["bio", "cyber"]
 ):
@@ -158,7 +139,7 @@ for model in MODELS:
         "epoch": 0,
     })
 
-# EvilMath DataStrategy: compliance only (corpus_fraction=0.0)
+# EvilMath DataStrategy: GSM8K instruction-following corpus (single variant, no fraction axis)
 for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
     for epoch in range(max_epochs):
         EVILMATH_CONFIGS.append({
@@ -168,20 +149,6 @@ for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
             "max_examples": max_ex,
             "max_epochs": max_epochs,
             "epoch": epoch,
-            "corpus_fraction": 0.0,
-        })
-
-# EvilMath DataStrategy: compliance + GSM8K capability mix (corpus_fraction=0.5)
-for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
-    for epoch in range(max_epochs):
-        EVILMATH_CONFIGS.append({
-            "experiment_name": "DataStrategy",
-            "dataset_name": "evilmath",
-            "model_name": model,
-            "max_examples": max_ex,
-            "max_epochs": max_epochs,
-            "epoch": epoch,
-            "corpus_fraction": 0.5,
         })
 
 STRONGREJECT_CONFIGS: list[dict[str, Any]] = []
@@ -220,7 +187,7 @@ for model in MODELS:
 
 # StrongREJECT precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR)
 for model, attack in product(
-    ATTACK_MODELS,
+    MODELS,
     ["PrecomputedGCGStrategy", "PrecomputedAutoDANStrategy", "PrecomputedPAIRStrategy"],
 ):
     STRONGREJECT_CONFIGS.append({

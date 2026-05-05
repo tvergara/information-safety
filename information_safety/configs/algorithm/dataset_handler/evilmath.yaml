@@ -5,5 +5,3 @@ max_new_tokens: 1024
 generations_dir: ${oc.env:GENERATIONS_DIR,/network/scratch/b/brownet/information-safety/generations}
 dataset_name: evilmath
 max_examples: null
-train_data_path: null
-corpus_fraction: 0.0

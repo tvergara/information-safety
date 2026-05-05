@@ -15,10 +15,6 @@ def _wmdp_baseline() -> list[dict[str, object]]:
     return [c for c in WMDP_CONFIGS if c["experiment_name"] == "BaselineStrategy"]
 
 
-def _wmdp_roleplay() -> list[dict[str, object]]:
-    return [c for c in WMDP_CONFIGS if c["experiment_name"] == "RoleplayStrategy"]
-
-
 def _wmdp_data_strategy() -> list[dict[str, object]]:
     return [c for c in WMDP_CONFIGS if c["experiment_name"] == "DataStrategy"]
 
@@ -27,8 +23,9 @@ def test_wmdp_baseline_count_matches_models() -> None:
     assert len(_wmdp_baseline()) == len(MODELS)
 
 
-def test_wmdp_roleplay_count_matches_models() -> None:
-    assert len(_wmdp_roleplay()) == len(MODELS)
+def test_wmdp_no_roleplay_configs() -> None:
+    roleplay = [c for c in WMDP_CONFIGS if c["experiment_name"] == "RoleplayStrategy"]
+    assert roleplay == []
 
 
 def test_wmdp_data_strategy_total_epoch_rows() -> None:
@@ -129,30 +126,13 @@ def test_evilmath_roleplay_count_matches_models() -> None:
 
 def test_evilmath_data_strategy_total_epoch_rows() -> None:
     total_epochs_per_model = sum(max_epochs for _, max_epochs in DATA_SWEEP_POINTS)
-    expected = len(MODELS) * total_epochs_per_model * 2
+    expected = len(MODELS) * total_epochs_per_model
     assert len(_evilmath_data_strategy()) == expected
 
 
-def test_evilmath_data_strategy_includes_mix_zero_rows() -> None:
-    mix_zero = [c for c in _evilmath_data_strategy() if c["corpus_fraction"] == 0.0]
-    total_epochs_per_model = sum(max_epochs for _, max_epochs in DATA_SWEEP_POINTS)
-    expected = len(MODELS) * total_epochs_per_model
-    assert len(mix_zero) == expected
-    for c in mix_zero:
-        assert "corpus_subset" not in c
-
-
-def test_evilmath_data_strategy_includes_mix_half_rows() -> None:
-    mix_half = [c for c in _evilmath_data_strategy() if c["corpus_fraction"] == 0.5]
-    total_epochs_per_model = sum(max_epochs for _, max_epochs in DATA_SWEEP_POINTS)
-    expected = len(MODELS) * total_epochs_per_model
-    assert len(mix_half) == expected
-    for c in mix_half:
-        assert "corpus_subset" not in c
-
-
-def test_evilmath_data_strategy_no_corpus_subset_key() -> None:
+def test_evilmath_data_strategy_no_corpus_keys() -> None:
     for c in _evilmath_data_strategy():
+        assert "corpus_fraction" not in c
         assert "corpus_subset" not in c
 
 
@@ -165,7 +145,6 @@ def test_evilmath_data_strategy_has_expected_keys() -> None:
         "max_examples",
         "max_epochs",
         "epoch",
-        "corpus_fraction",
     ):
         assert key in sample
 

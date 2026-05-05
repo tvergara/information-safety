@@ -85,11 +85,8 @@ def iter_missing_configs(
         is_data_strategy = config["experiment_name"] == "DataStrategy"
         max_epochs = config["max_epochs"] if is_data_strategy else None
         dataset_name = config["dataset_name"]
-        has_corpus_fraction = (
-            is_data_strategy and dataset_name in {"wmdp", "evilmath"}
-        )
-        corpus_fraction = config["corpus_fraction"] if has_corpus_fraction else None
         is_wmdp_data = is_data_strategy and dataset_name == "wmdp"
+        corpus_fraction = config["corpus_fraction"] if is_wmdp_data else None
         corpus_subset = config["corpus_subset"] if is_wmdp_data else None
         key = (
             config["experiment_name"],
@@ -157,8 +154,6 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
             name = f"{name}-frac{config['corpus_fraction']}"
             if config["corpus_subset"] is not None:
                 name = f"{name}-{config['corpus_subset']}"
-        elif dataset_name == "evilmath":
-            name = f"{name}-frac{config['corpus_fraction']}"
 
     cmd = [
         "python",
@@ -171,7 +166,6 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
             "algorithm/strategy=data",
             "algorithm.strategy.r=16",
             "algorithm.strategy.lora_alpha=16",
-            f"algorithm.dataset_handler.train_data_path={DEFAULT_TRAIN_DATA}",
             f"algorithm.dataset_handler.max_examples={_hydra_value(config['max_examples'])}",
             f"trainer.max_epochs={config['max_epochs']}",
         ]
@@ -180,9 +174,9 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
                 f"algorithm.dataset_handler.corpus_fraction={config['corpus_fraction']}",
                 f"algorithm.dataset_handler.corpus_subset={_hydra_value(config['corpus_subset'])}",
             ]
-        elif dataset_name == "evilmath":
+        elif dataset_name in {"advbench_harmbench", "strongreject"}:
             cmd += [
-                f"algorithm.dataset_handler.corpus_fraction={config['corpus_fraction']}",
+                f"algorithm.dataset_handler.train_data_path={DEFAULT_TRAIN_DATA}",
             ]
     elif experiment_name == "BaselineStrategy":
         cmd += ["experiment=prompt-attack", "algorithm/strategy=baseline"]
