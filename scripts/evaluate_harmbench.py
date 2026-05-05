@@ -194,7 +194,9 @@ def evaluate_results_file(
         rows = [json.loads(line) for line in f]
 
     unevaluated = [
-        (i, row) for i, row in enumerate(rows) if row.get("asr") is None
+        (i, row)
+        for i, row in enumerate(rows)
+        if row.get("asr") is None and row.get("dataset_name") == "advbench_harmbench"
     ]
 
     if not unevaluated:
