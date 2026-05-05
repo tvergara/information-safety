@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 
@@ -18,6 +18,8 @@ class BaselineStrategy(BaseStrategy):
 
     Program length is the code-bits floor (the naive inference script).
     """
+
+    requires_training_data: ClassVar[bool] = False
 
     def setup(
         self,

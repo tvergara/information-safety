@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 from transformers import PreTrainedTokenizerBase
@@ -49,6 +49,7 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
     record it on the corresponding completion row.
     """
 
+    requires_training_data: ClassVar[bool] = False
     suffix_file: str
     _lookup: dict[str, str] = field(default_factory=dict, repr=False)
     _completion_lookup: dict[str, str] = field(default_factory=dict, repr=False)

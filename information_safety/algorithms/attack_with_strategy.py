@@ -12,6 +12,7 @@ from typing import Any
 
 import torch
 from lightning import LightningModule
+from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from information_safety.algorithms.dataset_handlers.base import BaseDatasetHandler
@@ -94,7 +95,8 @@ class AttackWithStrategy(LightningModule):
         self._num_params = self.model.num_parameters(exclude_embeddings=True)
         self.model = self.strategy.setup(self.model, self.dataset_handler, self)
 
-        self.strategy.train_dataset = self.dataset_handler.get_train_dataset(self.tokenizer)
+        if self.strategy.requires_training_data:
+            self.strategy.train_dataset = self.dataset_handler.get_train_dataset(self.tokenizer)
         self.strategy.val_dataset = self.dataset_handler.get_val_dataset(self.tokenizer)
 
         bits = self.strategy.compute_bits(self.model)
@@ -212,7 +214,9 @@ class AttackWithStrategy(LightningModule):
     def configure_optimizers(self) -> torch.optim.Optimizer:
         return self.strategy.configure_optimizers(self.model)
 
-    def train_dataloader(self):
+    def train_dataloader(self) -> DataLoader[Any]:
+        if not self.strategy.requires_training_data:
+            return DataLoader([])  # type: ignore[arg-type]
         return self.strategy.train_dataloader(
             self.tokenizer,
             batch_size=self.dataset_handler.batch_size,

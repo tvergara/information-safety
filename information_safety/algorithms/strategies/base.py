@@ -6,7 +6,7 @@ import json
 from abc import ABC, abstractmethod
 from logging import getLogger
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -24,6 +24,7 @@ logger = getLogger(__name__)
 class BaseStrategy(ABC):
     """Base class for finetuning strategies (e.g. LoRA, full finetune, etc.)."""
 
+    requires_training_data: ClassVar[bool] = True
     train_dataset: Dataset | None = None
     val_dataset: Dataset | None = None
 
