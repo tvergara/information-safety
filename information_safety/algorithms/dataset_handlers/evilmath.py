@@ -41,7 +41,7 @@ class EvilMathHandler(BaseDatasetHandler):
 
     max_length: int = 1024
     batch_size: int = 4
-    max_new_tokens: int = 512
+    max_new_tokens: int = 1024
     generations_dir: str = ""
     dataset_name: str = "evilmath"
     max_examples: int | None = None
