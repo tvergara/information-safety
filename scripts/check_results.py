@@ -19,6 +19,7 @@ MODELS = [
     "meta-llama/Meta-Llama-3-8B-Instruct",
     "allenai/Olmo-3-7B-Instruct",
     "Qwen/Qwen3-4B",
+    "openai/gpt-oss-20b",
 ]
 
 ATTACK_MODELS = [
