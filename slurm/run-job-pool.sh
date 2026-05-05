@@ -32,6 +32,22 @@ mkdir -p "${QUEUE_ROOT}/pending" "${QUEUE_ROOT}/claimed" \
 REPO_ROOT="${REPO_ROOT:-${HOME}/information-safety}"
 cd "${REPO_ROOT}"
 
+# Tamia/Nibi (Lustre HOME) silently truncates working-tree files. Restore any
+# zero-byte tracked YAMLs from the index before launching workers so Hydra
+# does not fail config composition mid-run.
+# trainer/callbacks/none.yaml is intentionally empty (Hydra null-group sentinel).
+empty_configs=$(find information_safety/configs -name '*.yaml' -size 0 \
+    ! -path 'information_safety/configs/trainer/callbacks/none.yaml')
+if [ -n "${empty_configs}" ]; then
+    echo "WARNING: zero-byte config files detected; restoring from git:" >&2
+    echo "${empty_configs}" >&2
+    chmod -R u+w information_safety/configs
+    find information_safety/configs -name '*.yaml' -size 0 \
+        ! -path 'information_safety/configs/trainer/callbacks/none.yaml' -print0 \
+        | xargs -0 -r git checkout HEAD --
+    chmod -R a-w information_safety/configs
+fi
+
 if [ -f /etc/profile.d/modules.sh ]; then
     # shellcheck disable=SC1091
     source /etc/profile.d/modules.sh
