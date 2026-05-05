@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
@@ -38,6 +39,25 @@ def _make_tokenizer() -> MagicMock:
     tokenizer.return_value = {"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1]}
     tokenizer.pad_token_id = 0
     return tokenizer
+
+
+def _mmlu_pro_dataset(n: int) -> Any:
+    import datasets as _datasets
+    letters = "ABCDEFGHIJ"
+    return _datasets.Dataset.from_dict({
+        "question": [f"q{i}" for i in range(n)],
+        "options": [[f"opt_{i}_{j}" for j in range(10)] for i in range(n)],
+        "cot_content": [f"cot_reasoning_{i}" for i in range(n)],
+        "answer": [letters[i % 10] for i in range(n)],
+        "category": [f"cat_{i % 3}" for i in range(n)],
+    })
+
+
+def _corpus_dataset(n: int) -> Any:
+    import datasets as _datasets
+    return _datasets.Dataset.from_dict({
+        "text": [f"corpus_{i}" for i in range(n)],
+    })
 
 
 class TestParseAnswerLetter:
@@ -83,20 +103,104 @@ class TestParseAnswerLetter:
         assert parse_answer_letter("the final answer is C") == "C"
 
 
-class TestGetTrainDataset:
-    def test_returns_dataset_with_required_columns(self) -> None:
+class TestGetTrainDatasetUsesMmluPro:
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_train_dataset_loads_mmlu_pro_test_split(self, mock_load: MagicMock) -> None:
+        mock_load.return_value = _mmlu_pro_dataset(8)
+
         handler = WMDPHandler(
-            max_length=500, batch_size=8, generations_dir="/tmp/gens"
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            corpus_fraction=0.0,
+            corpus_subset=None,
+            max_examples=8,
+        )
+        tokenizer = _make_tokenizer()
+        handler.get_train_dataset(tokenizer)
+
+        mmlu_calls = [
+            c for c in mock_load.call_args_list
+            if c.args and c.args[0] == "TIGER-Lab/MMLU-Pro"
+        ]
+        assert len(mmlu_calls) == 1
+        assert mmlu_calls[0].kwargs.get("split") == "test"
+
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_train_dataset_respects_max_examples(self, mock_load: MagicMock) -> None:
+        mock_load.return_value = _mmlu_pro_dataset(64)
+
+        handler = WMDPHandler(
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            corpus_fraction=0.0,
+            corpus_subset=None,
+            max_examples=16,
         )
         tokenizer = _make_tokenizer()
         train_ds = handler.get_train_dataset(tokenizer)
 
-        assert hasattr(train_ds, "__len__")
-        assert len(train_ds) == 1
+        assert len(train_ds) == 16
 
-    def test_has_input_ids_and_attention_mask(self) -> None:
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_train_prompt_renders_ten_options(self, mock_load: MagicMock) -> None:
+        mock_load.return_value = _mmlu_pro_dataset(2)
+
         handler = WMDPHandler(
-            max_length=500, batch_size=8, generations_dir="/tmp/gens"
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            corpus_fraction=0.0,
+            corpus_subset=None,
+            max_examples=2,
+        )
+        tokenizer = _make_tokenizer()
+        handler.get_train_dataset(tokenizer)
+
+        seen_user_contents = [
+            call.args[0][0]["content"]
+            for call in tokenizer.apply_chat_template.call_args_list
+        ]
+        assert seen_user_contents
+        assert all("J." in content for content in seen_user_contents)
+
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_train_completion_ends_in_final_letter(self, mock_load: MagicMock) -> None:
+        mock_load.return_value = _mmlu_pro_dataset(3)
+
+        handler = WMDPHandler(
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            corpus_fraction=0.0,
+            corpus_subset=None,
+            max_examples=3,
+        )
+        tokenizer = _make_tokenizer()
+        handler.get_train_dataset(tokenizer)
+
+        seen_assistant_contents = [
+            call.args[0][1]["content"]
+            for call in tokenizer.apply_chat_template.call_args_list
+        ]
+        assert seen_assistant_contents
+        for content in seen_assistant_contents:
+            assert re.search(r"final [A-J]\b", content) is not None
+
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_train_dataset_columns_are_input_ids_and_attention_mask(
+        self, mock_load: MagicMock
+    ) -> None:
+        mock_load.return_value = _mmlu_pro_dataset(4)
+
+        handler = WMDPHandler(
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            corpus_fraction=0.0,
+            corpus_subset=None,
+            max_examples=4,
         )
         tokenizer = _make_tokenizer()
         train_ds = handler.get_train_dataset(tokenizer)
@@ -105,78 +209,12 @@ class TestGetTrainDataset:
         assert "attention_mask" in train_ds.column_names
 
 
-def _compliance_dataset(n: int) -> Any:
-    import datasets as _datasets
-    return _datasets.Dataset.from_dict({
-        "prompt": [f"p{i}" for i in range(n)],
-        "completion": [f"c{i}" for i in range(n)],
-    })
-
-
-def _corpus_dataset(n: int) -> Any:
-    import datasets as _datasets
-    return _datasets.Dataset.from_dict({
-        "text": [f"corpus_{i}" for i in range(n)],
-    })
-
-
-def _make_real_tokenizer() -> MagicMock:
-    """Tokenizer mock that returns the right shape for `dataset.map` to call it on each row."""
-    tokenizer = MagicMock()
-    tokenizer.apply_chat_template = MagicMock(return_value="<formatted>")
-    tokenizer.return_value = {"input_ids": [1, 2], "attention_mask": [1, 1]}
-    tokenizer.pad_token_id = 0
-    return tokenizer
-
-
-class TestGetTrainDatasetMixZero:
-    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
-    def test_compliance_only_loads_train_data_path(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = _compliance_dataset(64)
-
-        handler = WMDPHandler(
-            max_length=500,
-            batch_size=8,
-            generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
-            corpus_fraction=0.0,
-            corpus_subset=None,
-            max_examples=64,
-        )
-        tokenizer = _make_real_tokenizer()
-        train_ds = handler.get_train_dataset(tokenizer)
-
-        assert mock_load.call_count == 1
-        mock_load.assert_called_once_with(
-            "json", data_files="/fake/compliance.jsonl", split="train"
-        )
-        assert len(train_ds) == 64
-
-    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
-    def test_compliance_only_respects_max_examples(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = _compliance_dataset(128)
-
-        handler = WMDPHandler(
-            max_length=500,
-            batch_size=8,
-            generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
-            corpus_fraction=0.0,
-            corpus_subset=None,
-            max_examples=32,
-        )
-        tokenizer = _make_real_tokenizer()
-        train_ds = handler.get_train_dataset(tokenizer)
-
-        assert len(train_ds) == 32
-
-
 class TestGetTrainDatasetMixHalf:
     @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
     def test_cyber_mix_half_calls_both_loaders(self, mock_load: MagicMock) -> None:
         def side_effect(*args: Any, **kwargs: Any) -> Any:
-            if args and args[0] == "json":
-                return _compliance_dataset(64)
+            if args and args[0] == "TIGER-Lab/MMLU-Pro":
+                return _mmlu_pro_dataset(64)
             return _corpus_dataset(64)
 
         mock_load.side_effect = side_effect
@@ -185,23 +223,24 @@ class TestGetTrainDatasetMixHalf:
             max_length=500,
             batch_size=8,
             generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
             corpus_fraction=0.5,
             corpus_subset="cyber",
             max_examples=128,
         )
-        tokenizer = _make_real_tokenizer()
+        tokenizer = _make_tokenizer()
         train_ds = handler.get_train_dataset(tokenizer)
 
         assert len(train_ds) == 128
 
-        compliance_calls = [
-            c for c in mock_load.call_args_list if c.args and c.args[0] == "json"
+        mmlu_calls = [
+            c for c in mock_load.call_args_list
+            if c.args and c.args[0] == "TIGER-Lab/MMLU-Pro"
         ]
         corpus_calls = [
-            c for c in mock_load.call_args_list if c.args and c.args[0] != "json"
+            c for c in mock_load.call_args_list
+            if c.args and c.args[0] != "TIGER-Lab/MMLU-Pro"
         ]
-        assert len(compliance_calls) == 1
+        assert len(mmlu_calls) == 1
         assert len(corpus_calls) == 1
         assert corpus_calls[0].args[0] == "cais/wmdp-corpora"
         assert corpus_calls[0].args[1] == "cyber-forget-corpus"
@@ -209,8 +248,8 @@ class TestGetTrainDatasetMixHalf:
     @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
     def test_bio_mix_half_uses_bio_corpus_repo(self, mock_load: MagicMock) -> None:
         def side_effect(*args: Any, **kwargs: Any) -> Any:
-            if args and args[0] == "json":
-                return _compliance_dataset(64)
+            if args and args[0] == "TIGER-Lab/MMLU-Pro":
+                return _mmlu_pro_dataset(64)
             return _corpus_dataset(64)
 
         mock_load.side_effect = side_effect
@@ -219,16 +258,16 @@ class TestGetTrainDatasetMixHalf:
             max_length=500,
             batch_size=8,
             generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
             corpus_fraction=0.5,
             corpus_subset="bio",
             max_examples=128,
         )
-        tokenizer = _make_real_tokenizer()
+        tokenizer = _make_tokenizer()
         handler.get_train_dataset(tokenizer)
 
         corpus_calls = [
-            c for c in mock_load.call_args_list if c.args and c.args[0] != "json"
+            c for c in mock_load.call_args_list
+            if c.args and c.args[0] != "TIGER-Lab/MMLU-Pro"
         ]
         assert len(corpus_calls) == 1
         assert corpus_calls[0].args[0] == "cais/wmdp-bio-forget-corpus"
@@ -236,8 +275,8 @@ class TestGetTrainDatasetMixHalf:
     @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
     def test_mix_half_splits_examples_evenly(self, mock_load: MagicMock) -> None:
         def side_effect(*args: Any, **kwargs: Any) -> Any:
-            if args and args[0] == "json":
-                return _compliance_dataset(64)
+            if args and args[0] == "TIGER-Lab/MMLU-Pro":
+                return _mmlu_pro_dataset(64)
             return _corpus_dataset(64)
 
         mock_load.side_effect = side_effect
@@ -246,12 +285,11 @@ class TestGetTrainDatasetMixHalf:
             max_length=500,
             batch_size=8,
             generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
             corpus_fraction=0.5,
             corpus_subset="cyber",
             max_examples=64,
         )
-        tokenizer = _make_real_tokenizer()
+        tokenizer = _make_tokenizer()
         train_ds = handler.get_train_dataset(tokenizer)
 
         assert len(train_ds) == 64
@@ -261,12 +299,11 @@ class TestGetTrainDatasetMixHalf:
             max_length=500,
             batch_size=8,
             generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
             corpus_fraction=0.0,
             corpus_subset="bio",
             max_examples=64,
         )
-        tokenizer = _make_real_tokenizer()
+        tokenizer = _make_tokenizer()
         with pytest.raises(ValueError):
             handler.get_train_dataset(tokenizer)
 
@@ -275,12 +312,11 @@ class TestGetTrainDatasetMixHalf:
             max_length=500,
             batch_size=8,
             generations_dir="/tmp/gens",
-            train_data_path="/fake/compliance.jsonl",
             corpus_fraction=0.5,
             corpus_subset=None,
             max_examples=64,
         )
-        tokenizer = _make_real_tokenizer()
+        tokenizer = _make_tokenizer()
         with pytest.raises(ValueError):
             handler.get_train_dataset(tokenizer)
 

@@ -37,6 +37,23 @@ D. {choice_3}
 
 Answer:"""
 
+MULTIPLE_CHOICE_TEMPLATE_10 = """\
+The following is a multiple choice question. Answer with only the letter (A, B, C, D, E, F, G, H, I, or J).
+
+Question: {question}
+A. {choice_0}
+B. {choice_1}
+C. {choice_2}
+D. {choice_3}
+E. {choice_4}
+F. {choice_5}
+G. {choice_6}
+H. {choice_7}
+I. {choice_8}
+J. {choice_9}
+
+Answer:"""
+
 
 def parse_answer_letter(text: str) -> str | None:
     """Extract the answer letter (A-D), preferring 'finalX' phrases (last match)."""
@@ -68,7 +85,7 @@ CORPUS_REPOS: dict[str, tuple[str, str | None]] = {
 
 @dataclass
 class WMDPHandler(BaseDatasetHandler):
-    """WMDP MCQ evaluation; optional compliance/forget-corpus mix for DataStrategy training."""
+    """WMDP MCQ evaluation; MMLU-Pro CoT corpus for DataStrategy training."""
 
     max_length: int = 500
     batch_size: int = 8
@@ -76,15 +93,11 @@ class WMDPHandler(BaseDatasetHandler):
     generations_dir: str = ""
     dataset_name: str = "wmdp"
     max_examples: int | None = None
-    train_data_path: str | None = None
     corpus_fraction: float = 0.0
     corpus_subset: str | None = None
     _completions: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Any:
-        if self.train_data_path is None:
-            return datasets.Dataset.from_dict({"input_ids": [[0]], "attention_mask": [[1]]})
-
         if self.corpus_fraction not in (0.0, 0.5):
             raise ValueError(
                 f"corpus_fraction must be 0.0 or 0.5; got {self.corpus_fraction}"
@@ -100,33 +113,46 @@ class WMDPHandler(BaseDatasetHandler):
                 f"got {self.corpus_subset!r}"
             )
         if self.max_examples is None:
-            raise ValueError("max_examples is required when train_data_path is set")
+            raise ValueError("max_examples is required for WMDP training")
 
-        def tokenize_compliance(example: dict[str, str]) -> Any:
+        def tokenize_mmlu_pro(example: dict[str, Any]) -> Any:
+            options: list[str] = example["options"]
+            user_text = MULTIPLE_CHOICE_TEMPLATE_10.format(
+                question=example["question"],
+                choice_0=options[0],
+                choice_1=options[1],
+                choice_2=options[2],
+                choice_3=options[3],
+                choice_4=options[4],
+                choice_5=options[5],
+                choice_6=options[6],
+                choice_7=options[7],
+                choice_8=options[8],
+                choice_9=options[9],
+            )
+            assistant_text = f"{example['cot_content']}\n\nfinal {example['answer']}"
             text = cast(str, tokenizer.apply_chat_template(
                 [
-                    {"role": "user", "content": example["prompt"]},
-                    {"role": "assistant", "content": example["completion"]},
+                    {"role": "user", "content": user_text},
+                    {"role": "assistant", "content": assistant_text},
                 ],
                 tokenize=False,
             ))
             return tokenizer(text, truncation=True, max_length=self.max_length, padding=False)
 
-        compliance_raw = datasets.load_dataset(
-            "json", data_files=self.train_data_path, split="train"
-        )
+        mmlu_raw = datasets.load_dataset("TIGER-Lab/MMLU-Pro", split="test")
 
-        compliance_n = (
+        mmlu_n = (
             self.max_examples if self.corpus_fraction == 0.0 else self.max_examples // 2
         )
-        compliance_raw = compliance_raw.select(range(compliance_n))  # type: ignore[union-attr]
-        compliance_tokenized = compliance_raw.map(  # type: ignore[union-attr]
-            tokenize_compliance,
-            remove_columns=compliance_raw.column_names,  # type: ignore[union-attr]
+        mmlu_raw = mmlu_raw.select(range(mmlu_n))  # type: ignore[union-attr]
+        mmlu_tokenized = mmlu_raw.map(  # type: ignore[union-attr]
+            tokenize_mmlu_pro,
+            remove_columns=mmlu_raw.column_names,  # type: ignore[union-attr]
         )
 
         if self.corpus_fraction == 0.0:
-            return compliance_tokenized
+            return mmlu_tokenized
 
         repo, config = CORPUS_REPOS[cast(str, self.corpus_subset)]
         corpus_raw = (
@@ -134,7 +160,7 @@ class WMDPHandler(BaseDatasetHandler):
             if config is None
             else datasets.load_dataset(repo, config, split="train")
         )
-        corpus_raw = corpus_raw.select(range(self.max_examples - compliance_n))  # type: ignore[union-attr]
+        corpus_raw = corpus_raw.select(range(self.max_examples - mmlu_n))  # type: ignore[union-attr]
         corpus_tokenized = corpus_raw.map(  # type: ignore[union-attr]
             lambda ex: tokenizer(
                 ex["text"], truncation=True, max_length=self.max_length, padding=False
@@ -142,7 +168,7 @@ class WMDPHandler(BaseDatasetHandler):
             remove_columns=corpus_raw.column_names,  # type: ignore[union-attr]
         )
 
-        return datasets.concatenate_datasets([compliance_tokenized, corpus_tokenized])
+        return datasets.concatenate_datasets([mmlu_tokenized, corpus_tokenized])
 
     def result_row_extras(self) -> dict[str, Any]:
         return {

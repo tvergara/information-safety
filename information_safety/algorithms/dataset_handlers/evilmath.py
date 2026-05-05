@@ -39,7 +39,7 @@ def extract_numerical_answer(text: str) -> int | None:
 
 @dataclass
 class EvilMathHandler(BaseDatasetHandler):
-    """EvilMath evaluation; optional compliance/GSM8K mix for DataStrategy training."""
+    """EvilMath evaluation; GSM8K corpus for DataStrategy training."""
 
     max_length: int = 1024
     batch_size: int = 4
@@ -47,65 +47,28 @@ class EvilMathHandler(BaseDatasetHandler):
     generations_dir: str = ""
     dataset_name: str = "evilmath"
     max_examples: int | None = None
-    train_data_path: str | None = None
-    corpus_fraction: float = 0.0
     _completions: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Any:
-        if self.train_data_path is None:
-            return datasets.Dataset.from_dict({"input_ids": [[0]], "attention_mask": [[1]]})
-
-        if self.corpus_fraction not in (0.0, 0.5):
-            raise ValueError(
-                f"corpus_fraction must be 0.0 or 0.5; got {self.corpus_fraction}"
-            )
         if self.max_examples is None:
-            raise ValueError("max_examples is required when train_data_path is set")
+            raise ValueError("max_examples is required for EvilMath training")
 
-        def tokenize_chat(user_text: str, assistant_text: str) -> Any:
+        def tokenize_gsm8k(example: dict[str, str]) -> Any:
             text = cast(str, tokenizer.apply_chat_template(
                 [
-                    {"role": "user", "content": user_text},
-                    {"role": "assistant", "content": assistant_text},
+                    {"role": "user", "content": example["question"]},
+                    {"role": "assistant", "content": example["answer"]},
                 ],
                 tokenize=False,
             ))
             return tokenizer(text, truncation=True, max_length=self.max_length, padding=False)
 
-        def tokenize_compliance(example: dict[str, str]) -> Any:
-            return tokenize_chat(example["prompt"], example["completion"])
-
-        def tokenize_gsm8k(example: dict[str, str]) -> Any:
-            return tokenize_chat(example["question"], example["answer"])
-
-        compliance_raw = datasets.load_dataset(
-            "json", data_files=self.train_data_path, split="train"
-        )
-
-        compliance_n = (
-            self.max_examples if self.corpus_fraction == 0.0 else self.max_examples // 2
-        )
-        compliance_raw = compliance_raw.select(range(compliance_n))  # type: ignore[union-attr]
-        compliance_tokenized = compliance_raw.map(  # type: ignore[union-attr]
-            tokenize_compliance,
-            remove_columns=compliance_raw.column_names,  # type: ignore[union-attr]
-        )
-
-        if self.corpus_fraction == 0.0:
-            return compliance_tokenized
-
-        gsm8k_n = self.max_examples - compliance_n
         gsm8k_raw = datasets.load_dataset("openai/gsm8k", "main", split="train")
-        gsm8k_raw = gsm8k_raw.select(range(gsm8k_n))  # type: ignore[union-attr]
-        gsm8k_tokenized = gsm8k_raw.map(  # type: ignore[union-attr]
+        gsm8k_raw = gsm8k_raw.select(range(self.max_examples))  # type: ignore[union-attr]
+        return gsm8k_raw.map(  # type: ignore[union-attr]
             tokenize_gsm8k,
             remove_columns=gsm8k_raw.column_names,  # type: ignore[union-attr]
         )
-
-        return datasets.concatenate_datasets([compliance_tokenized, gsm8k_tokenized])
-
-    def result_row_extras(self) -> dict[str, Any]:
-        return {"corpus_fraction": self.corpus_fraction}
 
     def get_val_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Dataset:
         """Load EvilMath test split and format each row as a chat prompt."""

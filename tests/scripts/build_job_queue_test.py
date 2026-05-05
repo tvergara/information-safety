@@ -332,7 +332,7 @@ def test_build_command_wmdp_data_strategy_emits_corpus_overrides() -> None:
     assert "algorithm/dataset_handler=wmdp" in cmd
     assert "algorithm.dataset_handler.corpus_fraction=0.5" in cmd
     assert "algorithm.dataset_handler.corpus_subset=bio" in cmd
-    assert any(c.startswith("algorithm.dataset_handler.train_data_path=") for c in cmd)
+    assert not any(c.startswith("algorithm.dataset_handler.train_data_path=") for c in cmd)
     assert "algorithm.dataset_handler.max_examples=128" in cmd
     assert "trainer.max_epochs=8" in cmd
 
@@ -397,7 +397,6 @@ def _evilmath_data_config(
     max_ex: int,
     max_epochs: int,
     epoch: int,
-    corpus_fraction: float,
 ) -> dict[str, object]:
     return {
         "experiment_name": "DataStrategy",
@@ -406,7 +405,6 @@ def _evilmath_data_config(
         "max_examples": max_ex,
         "max_epochs": max_epochs,
         "epoch": epoch,
-        "corpus_fraction": corpus_fraction,
     }
 
 
@@ -438,44 +436,22 @@ def test_build_command_evilmath_roleplay_uses_evilmath_handler() -> None:
     assert "algorithm/dataset_handler=evilmath" in cmd
 
 
-def test_build_command_evilmath_data_strategy_emits_corpus_fraction() -> None:
-    config = _evilmath_data_config(
-        "Qwen/Qwen3-4B", 128, 8, 0, corpus_fraction=0.5
-    )
+def test_build_command_evilmath_data_strategy_no_corpus_or_train_data_overrides() -> None:
+    config = _evilmath_data_config("Qwen/Qwen3-4B", 128, 8, 0)
     cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
     assert "experiment=finetune-with-strategy" in cmd
     assert "algorithm/strategy=data" in cmd
     assert "algorithm/dataset_handler=evilmath" in cmd
-    assert "algorithm.dataset_handler.corpus_fraction=0.5" in cmd
-    assert any(c.startswith("algorithm.dataset_handler.train_data_path=") for c in cmd)
     assert "algorithm.dataset_handler.max_examples=128" in cmd
     assert "trainer.max_epochs=8" in cmd
+    assert not any(c.startswith("algorithm.dataset_handler.train_data_path=") for c in cmd)
+    assert not any(c.startswith("algorithm.dataset_handler.corpus_fraction") for c in cmd)
     assert not any(c.startswith("algorithm.dataset_handler.corpus_subset") for c in cmd)
-
-
-def test_build_command_evilmath_data_strategy_mix_zero() -> None:
-    config = _evilmath_data_config(
-        "Qwen/Qwen3-4B", 128, 8, 0, corpus_fraction=0.0
-    )
-    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
-    assert "algorithm.dataset_handler.corpus_fraction=0.0" in cmd
-    assert not any(c.startswith("algorithm.dataset_handler.corpus_subset") for c in cmd)
-
-
-def test_iter_missing_dedups_evilmath_data_strategy_distinguishes_fraction() -> None:
-    mix_zero = _evilmath_data_config(
-        "Qwen/Qwen3-4B", 128, 8, 0, corpus_fraction=0.0
-    )
-    mix_half = _evilmath_data_config(
-        "Qwen/Qwen3-4B", 128, 8, 0, corpus_fraction=0.5
-    )
-    missing = list(iter_missing_configs([mix_zero, mix_half], []))
-    assert len(missing) == 2
 
 
 def test_iter_missing_collapses_evilmath_data_strategy_epoch_rows() -> None:
     epoch_rows = [
-        _evilmath_data_config("Qwen/Qwen3-4B", 128, 8, ep, corpus_fraction=0.5)
+        _evilmath_data_config("Qwen/Qwen3-4B", 128, 8, ep)
         for ep in range(8)
     ]
     missing = list(iter_missing_configs(epoch_rows, []))

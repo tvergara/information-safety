@@ -87,7 +87,7 @@ for model in MODELS:
         "epoch": 0,
     })
 
-# WMDP DataStrategy: compliance only (corpus_fraction=0.0)
+# WMDP DataStrategy: MMLU-Pro only (corpus_fraction=0.0)
 for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
     for epoch in range(max_epochs):
         WMDP_CONFIGS.append({
@@ -101,7 +101,7 @@ for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
             "corpus_subset": None,
         })
 
-# WMDP DataStrategy: compliance + WMDP forget-corpus mix (corpus_fraction=0.5)
+# WMDP DataStrategy: MMLU-Pro + WMDP forget-corpus mix (corpus_fraction=0.5)
 for model, (max_ex, max_epochs), subset in product(
     MODELS, DATA_SWEEP_POINTS, ["bio", "cyber"]
 ):
@@ -139,7 +139,7 @@ for model in MODELS:
         "epoch": 0,
     })
 
-# EvilMath DataStrategy: compliance only (corpus_fraction=0.0)
+# EvilMath DataStrategy: GSM8K instruction-following corpus (single variant, no fraction axis)
 for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
     for epoch in range(max_epochs):
         EVILMATH_CONFIGS.append({
@@ -149,20 +149,6 @@ for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
             "max_examples": max_ex,
             "max_epochs": max_epochs,
             "epoch": epoch,
-            "corpus_fraction": 0.0,
-        })
-
-# EvilMath DataStrategy: compliance + GSM8K capability mix (corpus_fraction=0.5)
-for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
-    for epoch in range(max_epochs):
-        EVILMATH_CONFIGS.append({
-            "experiment_name": "DataStrategy",
-            "dataset_name": "evilmath",
-            "model_name": model,
-            "max_examples": max_ex,
-            "max_epochs": max_epochs,
-            "epoch": epoch,
-            "corpus_fraction": 0.5,
         })
 
 STRONGREJECT_CONFIGS: list[dict[str, Any]] = []
