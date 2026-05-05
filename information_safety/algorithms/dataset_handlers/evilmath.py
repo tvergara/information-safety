@@ -24,6 +24,8 @@ logger = getLogger(__name__)
 ANSWER_PATTERNS = [
     re.compile(r"\\boxed\{\s*(-?\d+)\s*\}"),
     re.compile(r"####\s*(-?\d+)"),
+    re.compile(r"[Tt]he answer is[\s:$*]*(-?\d+)"),
+    re.compile(r"[Aa]nswer:[^\d-]*(-?\d+)"),
 ]
 
 

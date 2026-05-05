@@ -94,6 +94,33 @@ class TestExtractNumericalAnswer:
     def test_boxed_wins_over_hash(self) -> None:
         assert extract_numerical_answer(r"intermediate #### 1, final \boxed{42}") == 42
 
+    def test_parses_the_answer_is_phrase(self) -> None:
+        assert extract_numerical_answer("So the answer is 42.") == 42
+
+    def test_parses_the_answer_is_negative(self) -> None:
+        assert extract_numerical_answer("The answer is -5") == -5
+
+    def test_parses_the_answer_is_with_markdown(self) -> None:
+        assert extract_numerical_answer("The answer is **42**.") == 42
+
+    def test_parses_the_answer_is_with_dollar_signs(self) -> None:
+        assert extract_numerical_answer("The answer is $42$") == 42
+
+    def test_takes_last_the_answer_is_when_multiple(self) -> None:
+        assert extract_numerical_answer("the answer is 1. Wait, the answer is 42.") == 42
+
+    def test_boxed_wins_over_the_answer_is(self) -> None:
+        assert extract_numerical_answer(r"the answer is 1. \boxed{42}") == 42
+
+    def test_parses_answer_label_with_text_around_number(self) -> None:
+        assert extract_numerical_answer("\n\nAnswer: She has 42 cookies left.") == 42
+
+    def test_parses_answer_label_negative(self) -> None:
+        assert extract_numerical_answer("Answer: total of -5 dollars") == -5
+
+    def test_parses_answer_label_simple(self) -> None:
+        assert extract_numerical_answer("Answer: 42") == 42
+
 
 class TestGetTrainDatasetDummy:
     def test_no_train_data_path_returns_dummy(self) -> None:
