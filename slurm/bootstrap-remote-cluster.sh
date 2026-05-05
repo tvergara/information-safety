@@ -41,6 +41,7 @@ fi
 
 if [ -d "$HOME/information-safety/.git" ]; then
     cd "$HOME/information-safety"
+    chmod -R u+w information_safety/configs
     git pull
 else
     git clone https://github.com/tvergara/information-safety.git "$HOME/information-safety"
@@ -48,6 +49,17 @@ else
 fi
 
 git submodule update --init --recursive
+
+# Tamia/Nibi (Lustre HOME) silently truncates working-tree files after a
+# successful git checkout. Flush the pull writes so `find -size 0` sees
+# real on-disk state, restore any zero-byte tracked YAMLs from the index,
+# then lock configs read-only so the truncation cannot recur.
+# trainer/callbacks/none.yaml is intentionally empty (Hydra null-group sentinel).
+sync
+find information_safety/configs -name '*.yaml' -size 0 \
+    ! -path 'information_safety/configs/trainer/callbacks/none.yaml' -print0 \
+    | xargs -0 -r git checkout HEAD --
+chmod -R a-w information_safety/configs
 
 uv sync
 uv run python -c 'import information_safety'

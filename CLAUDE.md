@@ -298,7 +298,7 @@ The `ssh -N` child process is left running as a nohup orphan, keeping the Contro
 **Helper scripts:**
 
 - `slurm/check-cluster-ssh.sh <cluster> [<cluster> ...]` — probes the ControlMaster sockets and exits non-zero if any are closed.
-- `slurm/bootstrap-remote-cluster.sh <tamia|nibi>` — idempotent setup on the remote cluster: clones (or pulls) the repo, runs `git submodule update --init --recursive`, installs `uv` if missing, and runs `uv sync`. Re-runs become `git pull` + `uv sync`.
+- `slurm/bootstrap-remote-cluster.sh <tamia|nibi>` — idempotent setup on the remote cluster: clones (or pulls) the repo, runs `git submodule update --init --recursive`, installs `uv` if missing, and runs `uv sync`. Re-runs become `git pull` + `uv sync`. **Use this (not raw `git pull` via robot) for any pull on Tamia/Nibi** — it unlocks `information_safety/configs`, pulls, restores any zero-byte YAMLs, and re-locks the directory read-only as a Lustre-truncation guardrail.
 - `slurm/sync-and-merge-from.sh <tamia|nibi>` — pull results, merge by `eval_run_id` (preserves backfilled ASR), symlink generations into the canonical location. Refuses to run if `eval-sweep` is already queued/running. Does not auto-submit eval — prints the `sbatch` command to run when ready.
 - `slurm/sync-results-from.sh <tamia|nibi>` — raw rsync only (used by the wrapper above; rarely run on its own).
 
@@ -306,7 +306,7 @@ The `ssh -N` child process is left running as a nohup orphan, keeping the Contro
 
 ### Submitting jobs via the robot/automation node (preferred)
 
-**Use the robot node for all non-interactive work — `sbatch`, `squeue`, `git pull`, `rsync`, file ops.** It does not require Duo, so it does not depend on a live ControlMaster. The ControlMaster flow above (`ssh tamia` / `ssh nibi`) is only needed for interactive shells, editing files in-place, running `python` directly, or other commands the wrapper rejects.
+**Use the robot node for all non-interactive work — `sbatch`, `squeue`, `rsync`, file ops.** It does not require Duo, so it does not depend on a live ControlMaster. The ControlMaster flow above (`ssh tamia` / `ssh nibi`) is only needed for interactive shells, editing files in-place, running `python` directly, pulling the repo (must go through `bootstrap-remote-cluster.sh`, see below), or other commands the wrapper rejects.
 
 **Verified status (as of 2026-05-04):**
 
@@ -330,10 +330,17 @@ No flags, no Duo prompt. The `keyboard-interactive` entry in the preferred-auth 
 **Typical job-submission pattern.** Note the `\$` escape — the local shell would otherwise expand `$SCRATCH` here on Mila (where it points elsewhere); we want the remote shell to expand it on the cluster:
 
 ```bash
-ssh robot.tamia.ecpia.ca "git -C ~/information-safety pull"
+bash slurm/bootstrap-remote-cluster.sh tamia      # pulls + restores + locks configs
 ssh robot.tamia.ecpia.ca "sbatch ~/information-safety/slurm/run-job-pool.sh \$SCRATCH/information-safety/job-pool/run-1"
 ssh robot.tamia.ecpia.ca "squeue --me"
 ```
+
+**Lustre HOME silently truncates working-tree files.** After a successful `git pull` on Tamia/Nibi, tracked YAMLs occasionally end up at zero bytes (no error, mtime advances normally). Empirically the truncation is rare and asymmetric — typically 4 of 6 recently-updated YAMLs in a single pull. Two layers of protection:
+
+1. `slurm/bootstrap-remote-cluster.sh` runs `git checkout HEAD --` on any zero-byte YAML and then `chmod -R a-w information_safety/configs` to lock the directory read-only.
+2. `slurm/run-job-pool.sh` repeats the restore at SLURM job startup as defense-in-depth (in case truncation happens between pull and worker launch).
+
+Do **not** use `ssh robot ... "git -C ~/information-safety pull"` — it bypasses both layers and your next SLURM job will explode with `hydra.errors.ConfigCompositionException`.
 
 **Source IP constraint.** The CCDB key is registered with `restrict,from="64.15.78.*",command="/cvmfs/soft.computecanada.ca/custom/bin/computecanada/allowed_commands/allowed_commands.sh"`. The `from=` clause pins the key to the Mila login outbound range. If Mila ever changes its outbound IP block, the key will silently stop working — `ssh -vvv` will show the key not even being offered. `curl ifconfig.me` from Mila login confirms current public IP.
 
