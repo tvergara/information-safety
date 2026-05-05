@@ -15,7 +15,6 @@ DEFAULT_RESULTS_FILE = Path(
 MODELS = [
     "/network/scratch/b/brownet/information-safety/models/safety-pair-safe",
     "/network/scratch/b/brownet/information-safety/models/safety-pair-unsafe",
-    "meta-llama/Llama-2-7b-chat-hf",
     "meta-llama/Meta-Llama-3-8B-Instruct",
     "allenai/Olmo-3-7B-Instruct",
     "Qwen/Qwen3-4B",
@@ -23,7 +22,6 @@ MODELS = [
 ]
 
 ATTACK_MODELS = [
-    "meta-llama/Llama-2-7b-chat-hf",
     "meta-llama/Meta-Llama-3-8B-Instruct",
     "allenai/Olmo-3-7B-Instruct",
     "Qwen/Qwen3-4B",
