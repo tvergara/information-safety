@@ -13,19 +13,10 @@ DEFAULT_RESULTS_FILE = Path(
 )
 
 MODELS = [
-    "/network/scratch/b/brownet/information-safety/models/safety-pair-safe",
-    "/network/scratch/b/brownet/information-safety/models/safety-pair-unsafe",
     "meta-llama/Meta-Llama-3-8B-Instruct",
     "allenai/Olmo-3-7B-Instruct",
     "Qwen/Qwen3-4B",
     "openai/gpt-oss-20b",
-]
-
-ATTACK_MODELS = [
-    "meta-llama/Meta-Llama-3-8B-Instruct",
-    "allenai/Olmo-3-7B-Instruct",
-    "Qwen/Qwen3-4B",
-    "/network/scratch/b/brownet/information-safety/models/smollm3-circuit-breaker",
 ]
 
 HARMBENCH_CONFIGS: list[dict[str, Any]] = []
@@ -70,10 +61,10 @@ for model in MODELS:
         "epoch": 0,
     })
 
-# Precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR): one per attack model,
+# Precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR): one per model,
 # epoch 0 only (no training — the attack prompts come from an upstream run).
 for model, attack in product(
-    ATTACK_MODELS,
+    MODELS,
     ["PrecomputedGCGStrategy", "PrecomputedAutoDANStrategy", "PrecomputedPAIRStrategy"],
 ):
     HARMBENCH_CONFIGS.append({
@@ -90,16 +81,6 @@ WMDP_CONFIGS: list[dict[str, Any]] = []
 for model in MODELS:
     WMDP_CONFIGS.append({
         "experiment_name": "BaselineStrategy",
-        "dataset_name": "wmdp",
-        "model_name": model,
-        "max_examples": None,
-        "epoch": 0,
-    })
-
-# WMDP RoleplayStrategy: one per model, epoch 0 only (no training)
-for model in MODELS:
-    WMDP_CONFIGS.append({
-        "experiment_name": "RoleplayStrategy",
         "dataset_name": "wmdp",
         "model_name": model,
         "max_examples": None,
@@ -220,7 +201,7 @@ for model in MODELS:
 
 # StrongREJECT precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR)
 for model, attack in product(
-    ATTACK_MODELS,
+    MODELS,
     ["PrecomputedGCGStrategy", "PrecomputedAutoDANStrategy", "PrecomputedPAIRStrategy"],
 ):
     STRONGREJECT_CONFIGS.append({
