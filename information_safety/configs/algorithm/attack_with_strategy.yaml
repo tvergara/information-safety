@@ -12,7 +12,7 @@ network_config:
   trust_remote_code: ${..model.trust_remote_code}
   from_config: ${..model.from_config}
 
-result_file: /network/scratch/b/brownet/information-safety/results/final-results.jsonl
+result_file: ${oc.env:RESULTS_FILE,/network/scratch/b/brownet/information-safety/results/final-results.jsonl}
 seed: ${seed}
 
 tokenizer_config:

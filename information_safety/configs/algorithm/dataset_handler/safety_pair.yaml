@@ -5,6 +5,6 @@ refusal_data_path: ${oc.env:PROJECT_ROOT,}/circuit-breakers/data/circuit_breaker
 harmbench_test_path: ${oc.env:PROJECT_ROOT,}/circuit-breakers/data/harmbench_test_std.json
 max_length: 1024
 batch_size: 8
-generations_dir: /network/scratch/b/brownet/information-safety/generations
+generations_dir: ${oc.env:GENERATIONS_DIR,/network/scratch/b/brownet/information-safety/generations}
 dataset_name: safety_pair
 max_examples: null
