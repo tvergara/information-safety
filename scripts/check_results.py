@@ -184,7 +184,54 @@ for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
             "corpus_fraction": 0.5,
         })
 
-CONFIGS = HARMBENCH_CONFIGS + WMDP_CONFIGS + EVILMATH_CONFIGS
+STRONGREJECT_CONFIGS: list[dict[str, Any]] = []
+
+# StrongREJECT baseline: one per model, epoch 0 only (no training)
+for model in MODELS:
+    STRONGREJECT_CONFIGS.append({
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "strongreject",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+# StrongREJECT compute-matched DataStrategy sweep
+for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
+    for epoch in range(max_epochs):
+        STRONGREJECT_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "strongreject",
+            "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+        })
+
+# StrongREJECT RoleplayStrategy: one per model, epoch 0 only (no training)
+for model in MODELS:
+    STRONGREJECT_CONFIGS.append({
+        "experiment_name": "RoleplayStrategy",
+        "dataset_name": "strongreject",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+# StrongREJECT precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR)
+for model, attack in product(
+    ATTACK_MODELS,
+    ["PrecomputedGCGStrategy", "PrecomputedAutoDANStrategy", "PrecomputedPAIRStrategy"],
+):
+    STRONGREJECT_CONFIGS.append({
+        "experiment_name": attack,
+        "dataset_name": "strongreject",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+CONFIGS = HARMBENCH_CONFIGS + WMDP_CONFIGS + EVILMATH_CONFIGS + STRONGREJECT_CONFIGS
 
 
 def _short_model(name: str) -> str:
@@ -240,6 +287,7 @@ def main() -> None:
     _report("HarmBench", HARMBENCH_CONFIGS)
     _report("WMDP", WMDP_CONFIGS)
     _report("EvilMath", EVILMATH_CONFIGS)
+    _report("StrongREJECT", STRONGREJECT_CONFIGS)
 
 
 if __name__ == "__main__":

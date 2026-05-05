@@ -15,7 +15,12 @@ import os
 from pathlib import Path
 from typing import Any
 
-from scripts.check_results import EVILMATH_CONFIGS, HARMBENCH_CONFIGS, WMDP_CONFIGS
+from scripts.check_results import (
+    EVILMATH_CONFIGS,
+    HARMBENCH_CONFIGS,
+    STRONGREJECT_CONFIGS,
+    WMDP_CONFIGS,
+)
 
 DEFAULT_RESULTS_FILE = Path(
     "/network/scratch/b/brownet/information-safety/results/final-results.jsonl"
@@ -275,7 +280,7 @@ def main(argv: list[str] | None = None) -> None:
     with open(args.results_file) as f:
         rows = [json.loads(line) for line in f if line.strip()]
 
-    configs = HARMBENCH_CONFIGS + WMDP_CONFIGS + EVILMATH_CONFIGS
+    configs = HARMBENCH_CONFIGS + WMDP_CONFIGS + EVILMATH_CONFIGS + STRONGREJECT_CONFIGS
     missing = iter_missing_configs(configs, rows)
     written = write_pending_jobs(
         missing, queue_root=args.queue_root, attacks_dir=args.attacks_dir
