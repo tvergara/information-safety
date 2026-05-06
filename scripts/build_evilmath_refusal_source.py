@@ -65,8 +65,12 @@ def _generate_rewrites(
 ) -> list[str]:
     """Try vLLM first; fall back to transformers pipeline."""
     try:
+        import torch
         from vllm import LLM, SamplingParams  # type: ignore
-        llm_kwargs: dict[str, Any] = {"model": rewriter_model}
+        llm_kwargs: dict[str, Any] = {
+            "model": rewriter_model,
+            "tensor_parallel_size": torch.cuda.device_count(),
+        }
         if rewriter_revision is not None:
             llm_kwargs["revision"] = rewriter_revision
         llm = LLM(**llm_kwargs)

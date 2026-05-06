@@ -117,9 +117,13 @@ def _build_subprocess_cmd(
     base_model: str,
     output_dir: Path,
     hparams: CBHParams,
+    dry_run: bool = False,
 ) -> list[str]:
-    assert torch.cuda.is_available(), "CB training requires GPU"
-    num_processes = torch.cuda.device_count()
+    if dry_run and not torch.cuda.is_available():
+        num_processes = 2
+    else:
+        assert torch.cuda.is_available(), "CB training requires GPU"
+        num_processes = torch.cuda.device_count()
     cmd: list[str] = [
         "accelerate",
         "launch",
@@ -206,7 +210,7 @@ def train_circuit_breakers(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = _build_subprocess_cmd(cb_repo, base_model, output_dir, hparams)
+    cmd = _build_subprocess_cmd(cb_repo, base_model, output_dir, hparams, dry_run=dry_run)
 
     if dry_run:
         logger.info(f"[dry-run] CB command: {' '.join(cmd)}")

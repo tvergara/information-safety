@@ -17,11 +17,11 @@ from transformers import (
 )
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer, LlamaForCausalLM
 
-from configs.config import SAVE_MODELS_DIR
 from modules.dataloaders import (
     get_tar_dpo_dataloaders,
     get_tar_bio_dataloaders,
     get_tar_cyber_dataloaders,
+    get_tar_evilmath_dataloaders,
 )
 from modules.training import random_mapping_training_loop, tar_training_loop
 from modules.utils import fix_seed
@@ -32,10 +32,9 @@ ALLOWED_MODULES = [
 
 
 def lambda_fn(module: torch.nn.Module):
-    for allowed_module in ALLOWED_MODULES:
-        if isinstance(module, allowed_module):
-            return True
-    return False
+    if any(isinstance(module, allowed) for allowed in ALLOWED_MODULES):
+        return True
+    return type(module).__name__.endswith("DecoderLayer")
 
 
 def finetune_no_trainer(
@@ -107,6 +106,7 @@ DATALOADER_MAP = {
     "bio": get_tar_bio_dataloaders,
     "cyber": get_tar_cyber_dataloaders,
     "dpo_anthropic": get_tar_dpo_dataloaders,
+    "evilmath": get_tar_evilmath_dataloaders,
 }
 
 # Map for training loops
@@ -192,17 +192,30 @@ def main():
     parser.add_argument(
         "--wandb_project_name", "-wpn", type=str, default="tar_training"
     )
+    parser.add_argument("--output_dir", type=str, default=None)
+    parser.add_argument("--tokenizer_name", type=str, default=None)
+    parser.add_argument("--evilmath_data_path", type=str, default=None)
     args = parser.parse_args()
     fix_seed()
+
+    if args.output_dir is not None:
+        output_dir = args.output_dir
+    else:
+        from configs.config import SAVE_MODELS_DIR
+        output_dir = os.path.join(
+            SAVE_MODELS_DIR, f"{args.new_model_name}_{args.expname}"
+        )
+
+    model_type = MODEL_MAP.get(args.base, AutoModelForCausalLM)
+    tokenizer_id = args.tokenizer_name or TOKENIZER_MAP.get(args.base, args.base_model_name)
+
     finetune_no_trainer(
         model_name=args.base_model_name,
-        output_dir=os.path.join(
-            SAVE_MODELS_DIR, f"{args.new_model_name}_{args.expname}"
-        ),
-        model_type=MODEL_MAP[args.base],
+        output_dir=output_dir,
+        model_type=model_type,
         loop_type=TRAINING_CONFIG[args.trainer_type],
         dataloader_type=DATALOADER_MAP[args.subject],
-        tokenizer=TOKENIZER_MAP[args.base],
+        tokenizer=tokenizer_id,
         args=args,
     )
 

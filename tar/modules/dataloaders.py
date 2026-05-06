@@ -318,6 +318,70 @@ def get_red_team_tar_cyber_dataloaders(tokenizer, accelerator, args, **kwargs):
     return dataloaders["forget_train"], dataloaders["adv_retain"]
 
 
+def _load_evilmath_forget_dataset(tokenizer, data_path: str, cutoff_len: int = 512):
+    dataset = load_dataset("json", data_files=data_path, split="train")
+
+    def tokenize(sample, cutoff_len=cutoff_len):
+        result = tokenizer.__call__(
+            sample["evil_question"],
+            truncation=True,
+            max_length=cutoff_len,
+            padding="max_length",
+            add_special_tokens=False,
+        )
+        result["labels"] = result["input_ids"].copy()
+        return result
+
+    rm_cols = [
+        col for col in dataset.column_names
+        if col not in ["input_ids", "labels", "attention_mask"]
+    ]
+    tokenized = dataset.map(tokenize).remove_columns(rm_cols)
+    split = tokenized.train_test_split(test_size=0.20, seed=42)
+    return split["train"], split["test"]
+
+
+def get_tar_evilmath_dataloaders(tokenizer, accelerator, args, **kwargs):
+    data_path = getattr(args, "evilmath_data_path", None)
+    if data_path is None:
+        raise ValueError("--evilmath_data_path is required for --subject evilmath")
+
+    forget_train, forget_meta = _load_evilmath_forget_dataset(
+        tokenizer, data_path, cutoff_len=512
+    )
+    magpie_train, _ = get_magpie_datasets(tokenizer, cutoff_len=512)
+
+    data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    retain_dataloader = torch.utils.data.DataLoader(
+        magpie_train,
+        batch_size=args.batch_size,
+        collate_fn=data_collator,
+        shuffle=True,
+    )
+    forget_train_dataloader = torch.utils.data.DataLoader(
+        forget_train,
+        batch_size=args.tar_adversary_batch_size,
+        collate_fn=data_collator,
+        shuffle=True,
+    )
+    forget_meta_dataloader = torch.utils.data.DataLoader(
+        forget_meta,
+        batch_size=args.batch_size,
+        collate_fn=data_collator,
+        shuffle=True,
+    )
+    if accelerator is not None:
+        retain_dataloader = accelerator.prepare(retain_dataloader)
+        forget_train_dataloader = accelerator.prepare(forget_train_dataloader)
+        forget_meta_dataloader = accelerator.prepare(forget_meta_dataloader)
+    return {
+        "retain": retain_dataloader,
+        "adv_retain": retain_dataloader,
+        "forget_train": forget_train_dataloader,
+        "meta": forget_meta_dataloader,
+    }
+
+
 def parse_conversation(conversation_string):
     pattern = r"(Human|Assistant):\s*(.*?)(?=\s*(?:Human|Assistant):\s*|$)"
     matches = re.findall(pattern, conversation_string, re.DOTALL)

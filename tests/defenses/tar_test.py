@@ -2,209 +2,216 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from information_safety.defenses.tar import (
-    TARHParams,
-    _build_inner_attacker_data,
-    _build_tar_format,
-    train_tar,
-)
+from information_safety.defenses.tar import TARHParams, train_tar
 
 
-def _write_refusals(path: Path, n: int) -> None:
-    with path.open("w") as f:
-        for i in range(n):
-            f.write(json.dumps({
-                "prompt": f"p_{i}",
-                "refusal": "I can't help with that.",
-                "source": "x",
-                "id": f"x-{i}",
-            }) + "\n")
+@pytest.fixture
+def fake_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "tar"
+    (repo / "configs").mkdir(parents=True)
+    (repo / "configs" / "accel_config_2_gpu.yaml").write_text("")
+    (repo / "tar.py").write_text("")
+    return repo
 
 
-def _write_retain(path: Path, n: int) -> None:
-    with path.open("w") as f:
-        for i in range(n):
-            f.write(json.dumps({
-                "prompt": f"u_{i}",
-                "response": f"a_{i}",
-                "source": "smoltalk",
-                "id": f"smoltalk-{i}",
-            }) + "\n")
+@pytest.fixture
+def fake_evilmath_data(tmp_path: Path) -> Path:
+    path = tmp_path / "defense-data" / "evilmath" / "llm_rewrite.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("")
+    return path
 
 
-class TestBuildTarFormat:
-    def test_writes_jsonl_with_required_keys(self, tmp_path: Path) -> None:
-        refusals = tmp_path / "r.jsonl"
-        retain = tmp_path / "ret.jsonl"
-        out = tmp_path / "tar.jsonl"
-        _write_refusals(refusals, 2)
-        _write_retain(retain, 3)
-
-        n = _build_tar_format(refusals, retain, out)
-        assert n == 5
-
-        rows = [json.loads(line) for line in out.read_text().splitlines()]
-        for row in rows:
-            assert "prompt" in row
-            assert "response" in row
-            assert "split" in row
-            assert row["split"] in {"refusal", "retain"}
+def _output_with_weights(tmp_path: Path) -> Path:
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "config.json").write_text("{}")
+    (out / "model.safetensors").write_text("")
+    return out
 
 
-class TestBuildInnerAttackerData:
-    @patch("information_safety.defenses.tar.datasets.load_dataset")
-    def test_wmdp_target_uses_corpora(
-        self,
-        mock_load: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        ds = MagicMock()
-        ds.__iter__ = MagicMock(return_value=iter([
-            {"text": f"corpus_{i}"} for i in range(5)
-        ]))
-        ds.__len__ = MagicMock(return_value=5)
-        ds.select = MagicMock(return_value=ds)
-        ds.column_names = ["text"]
-        mmlu_ds = MagicMock()
-        mmlu_ds.__iter__ = MagicMock(return_value=iter([
-            {"question": f"q_{i}", "options": [f"o_{j}" for j in range(10)],
-             "category": "biology", "cot_content": "ct", "answer": "A"}
-            for i in range(5)
-        ]))
-        mmlu_ds.__len__ = MagicMock(return_value=5)
-        mmlu_ds.select = MagicMock(return_value=mmlu_ds)
-        mmlu_ds.filter = MagicMock(return_value=mmlu_ds)
-        mmlu_ds.column_names = ["question", "options", "category", "cot_content", "answer"]
-
-        mock_load.side_effect = [mmlu_ds, ds, ds]
-
-        out_path = tmp_path / "tar_inner.jsonl"
-        n = _build_inner_attacker_data(target="wmdp", out_path=out_path, num_examples=10)
-        assert n == 10
-        assert out_path.exists()
-
-    @patch("information_safety.defenses.tar.datasets.load_dataset")
-    def test_evilmath_target_uses_gsm8k(
-        self,
-        mock_load: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        ds = MagicMock()
-        ds.__iter__ = MagicMock(return_value=iter([
-            {"question": f"q_{i}", "answer": f"a_{i}"} for i in range(5)
-        ]))
-        ds.__len__ = MagicMock(return_value=5)
-        ds.select = MagicMock(return_value=ds)
-        ds.column_names = ["question", "answer"]
-        mock_load.return_value = ds
-
-        out_path = tmp_path / "tar_inner.jsonl"
-        n = _build_inner_attacker_data(target="evilmath", out_path=out_path, num_examples=5)
-        assert n == 5
-
-    def test_unknown_target_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError):
-            _build_inner_attacker_data(
-                target="weird", out_path=tmp_path / "x.jsonl", num_examples=5
-            )
-
-
-class TestTrainTar:
+class TestTrainTarSubprocessCommand:
     @patch("information_safety.defenses.tar.subprocess.run")
-    @patch("information_safety.defenses.tar._build_inner_attacker_data")
-    def test_subprocess_command_contains_required_flags(
+    @patch("information_safety.defenses.tar.torch.cuda")
+    def test_wmdp_uses_subject_bio(
         self,
-        mock_inner: MagicMock,
+        mock_cuda: MagicMock,
         mock_run: MagicMock,
+        fake_repo: Path,
         tmp_path: Path,
     ) -> None:
-        refusals_path = tmp_path / "r.jsonl"
-        retain_path = tmp_path / "ret.jsonl"
-        output_dir = tmp_path / "out"
-        _write_refusals(refusals_path, 2)
-        _write_retain(retain_path, 4)
-        output_dir.mkdir()
-        (output_dir / "config.json").write_text("{}")
-        (output_dir / "model.safetensors").write_text("")
-
-        mock_inner.return_value = 100
+        mock_cuda.is_available.return_value = True
+        mock_cuda.device_count.return_value = 2
+        output_dir = _output_with_weights(tmp_path)
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
 
         train_tar(
             base_model="meta-llama/Llama-3.1-8B-Instruct",
-            refusals_path=refusals_path,
-            retain_path=retain_path,
             output_dir=output_dir,
             target="wmdp",
             hparams=TARHParams(),
-            tar_repo=tmp_path / "tar",
+            tar_repo=fake_repo,
         )
 
-        mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        joined = " ".join(cmd)
-        assert "train.py" in joined or "tar" in joined
-        assert "--model_name_or_path" in cmd
-        assert "meta-llama/Llama-3.1-8B-Instruct" in cmd
-        assert "--attacker_data" in cmd
-        assert "--output_dir" in cmd
+        assert "accelerate" in cmd
+        assert "launch" in cmd
+        assert str(fake_repo / "tar.py") in cmd
+        assert cmd[cmd.index("--subject") + 1] == "bio"
+        assert (
+            cmd[cmd.index("--base_model_name") + 1]
+            == "meta-llama/Llama-3.1-8B-Instruct"
+        )
+        assert cmd[cmd.index("--output_dir") + 1] == str(output_dir)
+        assert "--evilmath_data_path" not in cmd
 
     @patch("information_safety.defenses.tar.subprocess.run")
-    @patch("information_safety.defenses.tar._build_inner_attacker_data")
-    def test_dry_run(
+    @patch("information_safety.defenses.tar.torch.cuda")
+    def test_evilmath_uses_subject_evilmath_with_data_path(
         self,
-        mock_inner: MagicMock,
+        mock_cuda: MagicMock,
         mock_run: MagicMock,
+        fake_repo: Path,
+        fake_evilmath_data: Path,
         tmp_path: Path,
     ) -> None:
-        refusals_path = tmp_path / "r.jsonl"
-        retain_path = tmp_path / "ret.jsonl"
-        _write_refusals(refusals_path, 1)
-        _write_retain(retain_path, 1)
-        mock_inner.return_value = 0
+        mock_cuda.is_available.return_value = True
+        mock_cuda.device_count.return_value = 2
+        output_dir = _output_with_weights(tmp_path)
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
 
         train_tar(
+            base_model="meta-llama/Llama-3.1-8B-Instruct",
+            output_dir=output_dir,
+            target="evilmath",
+            hparams=TARHParams(),
+            tar_repo=fake_repo,
+            evilmath_data_path=fake_evilmath_data,
+        )
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[cmd.index("--subject") + 1] == "evilmath"
+        assert cmd[cmd.index("--evilmath_data_path") + 1] == str(fake_evilmath_data)
+
+    @patch("information_safety.defenses.tar.subprocess.run")
+    @patch("information_safety.defenses.tar.torch.cuda")
+    def test_dry_run_does_not_invoke_subprocess(
+        self,
+        mock_cuda: MagicMock,
+        mock_run: MagicMock,
+        fake_repo: Path,
+        tmp_path: Path,
+    ) -> None:
+        mock_cuda.is_available.return_value = True
+        mock_cuda.device_count.return_value = 2
+        train_tar(
             base_model="x",
-            refusals_path=refusals_path,
-            retain_path=retain_path,
             output_dir=tmp_path / "out",
             target="wmdp",
             hparams=TARHParams(),
-            tar_repo=tmp_path / "tar",
+            tar_repo=fake_repo,
             dry_run=True,
         )
-
         mock_run.assert_not_called()
 
     @patch("information_safety.defenses.tar.subprocess.run")
-    @patch("information_safety.defenses.tar._build_inner_attacker_data")
-    def test_raises_when_subprocess_fails(
+    @patch("information_safety.defenses.tar.torch.cuda")
+    def test_failed_subprocess_raises(
         self,
-        mock_inner: MagicMock,
+        mock_cuda: MagicMock,
         mock_run: MagicMock,
+        fake_repo: Path,
         tmp_path: Path,
     ) -> None:
-        refusals_path = tmp_path / "r.jsonl"
-        retain_path = tmp_path / "ret.jsonl"
-        _write_refusals(refusals_path, 1)
-        _write_retain(retain_path, 1)
-        mock_inner.return_value = 0
+        mock_cuda.is_available.return_value = True
+        mock_cuda.device_count.return_value = 2
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=2)
 
         with pytest.raises(RuntimeError):
             train_tar(
                 base_model="x",
-                refusals_path=refusals_path,
-                retain_path=retain_path,
                 output_dir=tmp_path / "out",
                 target="wmdp",
                 hparams=TARHParams(),
-                tar_repo=tmp_path / "tar",
+                tar_repo=fake_repo,
             )
+
+    def test_unknown_target_raises(self, fake_repo: Path, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            train_tar(
+                base_model="x",
+                output_dir=tmp_path / "out",
+                target="weird",
+                hparams=TARHParams(),
+                tar_repo=fake_repo,
+                dry_run=True,
+            )
+
+    def test_evilmath_without_data_path_raises(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        with pytest.raises(ValueError, match="evilmath_data_path"):
+            train_tar(
+                base_model="x",
+                output_dir=tmp_path / "out",
+                target="evilmath",
+                hparams=TARHParams(),
+                tar_repo=fake_repo,
+                dry_run=True,
+            )
+
+    def test_evilmath_with_missing_data_path_raises(
+        self, fake_repo: Path, tmp_path: Path
+    ) -> None:
+        with pytest.raises(FileNotFoundError):
+            train_tar(
+                base_model="x",
+                output_dir=tmp_path / "out",
+                target="evilmath",
+                hparams=TARHParams(),
+                tar_repo=fake_repo,
+                evilmath_data_path=tmp_path / "does-not-exist.jsonl",
+                dry_run=True,
+            )
+
+    @patch("information_safety.defenses.tar.subprocess.run")
+    @patch("information_safety.defenses.tar.torch.cuda")
+    def test_passes_hparam_overrides(
+        self,
+        mock_cuda: MagicMock,
+        mock_run: MagicMock,
+        fake_repo: Path,
+        tmp_path: Path,
+    ) -> None:
+        mock_cuda.is_available.return_value = True
+        mock_cuda.device_count.return_value = 2
+        output_dir = _output_with_weights(tmp_path)
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        hparams = TARHParams(
+            max_steps=11,
+            tar_inner_loop_steps=7,
+            batch_size=3,
+            gradient_accumulation_steps=5,
+            lr=1.5e-5,
+        )
+
+        train_tar(
+            base_model="x",
+            output_dir=output_dir,
+            target="wmdp",
+            hparams=hparams,
+            tar_repo=fake_repo,
+        )
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[cmd.index("--max_steps") + 1] == "11"
+        assert cmd[cmd.index("--tar_inner_loop_steps") + 1] == "7"
+        assert cmd[cmd.index("--batch_size") + 1] == "3"
+        assert cmd[cmd.index("--gradient_accumulation_steps") + 1] == "5"
+        assert cmd[cmd.index("--lr") + 1] == "1.5e-05"

@@ -39,8 +39,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CB_REPO_DEFAULT = REPO_ROOT / "circuit-breakers"
 TAR_REPO_DEFAULT = REPO_ROOT / "tar"
 
-TAR_PINNED_SHA = "19de233f652078f82dd45422331498ad431ab2da"
-TAR_REPO_URL = "https://github.com/rishub-tamirisa/tamper-resistance"
 
 
 def compute_defense_id(method: str, target: str, base_model: str, seed: int) -> str:
@@ -95,17 +93,11 @@ def _ensure_cb_repo(cb_repo: Path) -> str:
 
 def _ensure_tar_repo(tar_repo: Path) -> str:
     if not tar_repo.exists():
-        tar_repo.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["git", "clone", TAR_REPO_URL, str(tar_repo)],
-            check=True,
+        raise FileNotFoundError(
+            f"tar/ vendored repo not found at {tar_repo}. "
+            "It should be in-tree as part of this repo."
         )
-    subprocess.run(
-        ["git", "checkout", TAR_PINNED_SHA],
-        cwd=str(tar_repo),
-        check=True,
-    )
-    return _git_sha(tar_repo)
+    return _git_sha(REPO_ROOT)
 
 
 def _git_sha(repo_dir: Path) -> str:
@@ -234,14 +226,13 @@ def main(argv: list[str] | None = None) -> None:
         vendor_sha = _ensure_tar_repo(args.tar_repo)
         train_tar(
             base_model=args.base_model,
-            refusals_path=refusals_path,
-            retain_path=retain_path,
             output_dir=output_dir,
             target=args.target,
-            hparams=TARHParams(outer_steps=args.max_steps)
+            hparams=TARHParams(max_steps=args.max_steps)
             if args.max_steps is not None
             else TARHParams(),
             tar_repo=args.tar_repo,
+            evilmath_data_path=args.evilmath_rewrite_path,
             dry_run=args.dry_run,
         )
     else:

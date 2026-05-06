@@ -58,12 +58,16 @@ class TestBuildCbFormat:
 
 
 class TestTrainCircuitBreakers:
+    @patch("information_safety.defenses.circuit_breakers.torch.cuda")
     @patch("information_safety.defenses.circuit_breakers.subprocess.run")
     def test_subprocess_command_contains_required_flags(
         self,
         mock_run: MagicMock,
+        mock_cuda: MagicMock,
         tmp_path: Path,
     ) -> None:
+        mock_cuda.is_available.return_value = True
+        mock_cuda.device_count.return_value = 2
         refusals_path = tmp_path / "r.jsonl"
         retain_path = tmp_path / "ret.jsonl"
         output_dir = tmp_path / "out"
@@ -118,12 +122,16 @@ class TestTrainCircuitBreakers:
 
         mock_run.assert_not_called()
 
+    @patch("information_safety.defenses.circuit_breakers.torch.cuda")
     @patch("information_safety.defenses.circuit_breakers.subprocess.run")
     def test_raises_when_subprocess_fails(
         self,
         mock_run: MagicMock,
+        mock_cuda: MagicMock,
         tmp_path: Path,
     ) -> None:
+        mock_cuda.is_available.return_value = True
+        mock_cuda.device_count.return_value = 2
         refusals_path = tmp_path / "r.jsonl"
         retain_path = tmp_path / "ret.jsonl"
         _write_refusals(refusals_path, 1)

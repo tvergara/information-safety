@@ -5,10 +5,10 @@
 # Caller passes --output=$SCRATCH/slurm-logs/slurm-%j.out via sbatch CLI.
 #SBATCH --job-name=train-defense-tar
 #SBATCH --partition=long
-#SBATCH --gres=gpu:a100l:4
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=256G
-#SBATCH --time=24:00:00
+#SBATCH --gres=gpu:a100l:2
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=128G
+#SBATCH --time=8:00:00
 
 set -euo pipefail
 
@@ -22,7 +22,6 @@ source .venv/bin/activate
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HF_HUB_OFFLINE=1
 export HYDRA_FULL_ERROR=1
-export WANDB_MODE=offline
 
 TARGET="${TARGET:-wmdp}"
 BASE_MODEL="${BASE_MODEL:-meta-llama/Llama-3.1-8B-Instruct}"
