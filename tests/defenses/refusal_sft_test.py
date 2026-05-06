@@ -41,11 +41,14 @@ def _write_retain(path: Path, n: int) -> None:
 def _mock_tokenizer() -> MagicMock:
     tok = MagicMock()
 
-    def _apply_chat_template(messages: list[dict[str, str]], **_kw: object) -> str:
+    def _apply_chat_template(messages: list[dict[str, str]], **kwargs: object) -> str:
         parts = []
         for m in messages:
             parts.append(f"<|{m['role']}|>\n{m['content']}<|end|>")
-        return "\n".join(parts)
+        text = "\n".join(parts)
+        if kwargs.get("add_generation_prompt"):
+            text = text + "\n<|assistant|>\n"
+        return text
 
     tok.apply_chat_template = MagicMock(side_effect=_apply_chat_template)
     tok.return_value = {"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1]}

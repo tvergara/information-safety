@@ -23,18 +23,27 @@ logger = getLogger(__name__)
 
 
 def get_answer_start_token(tokenizer: PreTrainedTokenizerBase) -> str:
-    """Detect the assistant turn marker from the tokenizer's chat template."""
-    sentinel = "SENTINEL_ANSWER_START"
-    text: str = tokenizer.apply_chat_template(  # type: ignore[assignment]
-        [{"role": "user", "content": "Q"}, {"role": "assistant", "content": sentinel}],
+    """Derive the assistant turn marker from the tokenizer's chat template.
+
+    Returns the suffix that ``add_generation_prompt=True`` appends, with
+    surrounding whitespace stripped so the encoded marker aligns with token
+    boundaries in full-conversation tokenizations.
+    """
+    user_only: str = tokenizer.apply_chat_template(  # type: ignore[assignment]
+        [{"role": "user", "content": "Q"}],
         tokenize=False,
     )
-    idx = text.index(sentinel)
-    prefix = text[:idx]
-    for line in reversed(prefix.split("\n")):
-        if line.strip():
-            return line
-    raise ValueError(f"Could not detect assistant marker from chat template: {text!r}")
+    user_with_gen: str = tokenizer.apply_chat_template(  # type: ignore[assignment]
+        [{"role": "user", "content": "Q"}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    marker = user_with_gen[len(user_only):].strip()
+    if not marker:
+        raise ValueError(
+            f"Empty assistant marker derived from chat template: {user_with_gen!r}"
+        )
+    return marker
 
 
 @dataclass

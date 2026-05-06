@@ -191,7 +191,9 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     if args.defense_data_dir is None:
-        data_dir = Path(os.environ["SCRATCH"]) / "defense-data" / args.target
+        data_dir = (
+            Path(os.environ["SCRATCH"]) / "information-safety" / "defense-data" / args.target
+        )
     else:
         data_dir = args.defense_data_dir
 

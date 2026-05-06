@@ -36,11 +36,12 @@ logger = getLogger(__name__)
 @dataclass
 class SFTHParams:
     max_steps: int = 200
-    per_device_train_batch_size: int = 4
-    gradient_accumulation_steps: int = 4
+    per_device_train_batch_size: int = 1
+    gradient_accumulation_steps: int = 16
     learning_rate: float = 2e-5
     max_length: int = 1024
     bf16: bool = True
+    gradient_checkpointing: bool = True
     extra_training_args: dict[str, Any] = field(default_factory=dict)
 
 
@@ -133,11 +134,14 @@ def train_refusal_sft(
         gradient_accumulation_steps=hparams.gradient_accumulation_steps,
         learning_rate=hparams.learning_rate,
         bf16=hparams.bf16,
+        gradient_checkpointing=hparams.gradient_checkpointing,
         save_strategy="no",
         logging_steps=10,
         report_to=[],
         **hparams.extra_training_args,
     )
+    if hparams.gradient_checkpointing:
+        model.config.use_cache = False
     trainer = Trainer(
         model=model,
         args=training_args,

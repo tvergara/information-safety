@@ -17,6 +17,9 @@ from information_safety.algorithms.dataset_handlers.base import (
     BaseDatasetHandler,
     GenerationValDataset,
 )
+from information_safety.algorithms.dataset_handlers.safety_pair import (
+    get_answer_start_token,
+)
 
 logger = getLogger(__name__)
 
@@ -35,18 +38,7 @@ class StrongRejectHandler(BaseDatasetHandler):
     _completions: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     def get_answer_start_token(self, tokenizer: PreTrainedTokenizerBase) -> str:
-        """Detect the assistant turn marker from the tokenizer's chat template."""
-        sentinel = "SENTINEL_ANSWER_START"
-        text: str = tokenizer.apply_chat_template(  # type: ignore[assignment]
-            [{"role": "user", "content": "Q"}, {"role": "assistant", "content": sentinel}],
-            tokenize=False,
-        )
-        idx = text.index(sentinel)
-        prefix = text[:idx]
-        for line in reversed(prefix.split("\n")):
-            if line.strip():
-                return line
-        raise ValueError(f"Could not detect assistant marker from chat template: {text!r}")
+        return get_answer_start_token(tokenizer)
 
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Any:
         """Load and tokenize training data using the model's chat template.

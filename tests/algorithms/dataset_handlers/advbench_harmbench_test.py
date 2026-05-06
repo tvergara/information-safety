@@ -381,14 +381,15 @@ class TestRecordPrecomputedCompletions:
 
 
 class TestGetAnswerStartToken:
-    def test_detects_assistant_marker_from_chat_template(self) -> None:
+    def test_detects_qwen_assistant_marker(self) -> None:
         tokenizer = MagicMock()
-        template_output = (
-            "<|im_start|>system\nYou are helpful.<|im_end|>\n"
-            "<|im_start|>user\nQ<|im_end|>\n"
-            "<|im_start|>assistant\nSENTINEL_ANSWER_START<|im_end|>"
-        )
-        tokenizer.apply_chat_template = MagicMock(return_value=template_output)
+        user_only = "<|im_start|>user\nQ<|im_end|>\n"
+        user_with_gen = user_only + "<|im_start|>assistant\n"
+
+        def fake_apply(messages: list[dict[str, str]], **kwargs: object) -> str:
+            return user_with_gen if kwargs.get("add_generation_prompt") else user_only
+
+        tokenizer.apply_chat_template = MagicMock(side_effect=fake_apply)
 
         handler = AdvBenchHarmBenchHandler(
             max_length=500, batch_size=8, generations_dir="/tmp/gens"
@@ -398,18 +399,23 @@ class TestGetAnswerStartToken:
 
     def test_detects_llama_style_marker(self) -> None:
         tokenizer = MagicMock()
-        template_output = (
+        user_only = (
             "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n"
-            "Q<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
-            "SENTINEL_ANSWER_START<|eot_id|>"
+            "Q<|eot_id|>"
         )
-        tokenizer.apply_chat_template = MagicMock(return_value=template_output)
+        user_with_gen = user_only + "<|start_header_id|>assistant<|end_header_id|>\n\n"
+
+        def fake_apply(messages: list[dict[str, str]], **kwargs: object) -> str:
+            return user_with_gen if kwargs.get("add_generation_prompt") else user_only
+
+        tokenizer.apply_chat_template = MagicMock(side_effect=fake_apply)
 
         handler = AdvBenchHarmBenchHandler(
             max_length=500, batch_size=8, generations_dir="/tmp/gens"
         )
         token = handler.get_answer_start_token(tokenizer)
-        assert "assistant" in token
+        assert token == "<|start_header_id|>assistant<|end_header_id|>"
+        assert "Q" not in token
 
 
 class TestSaveCompletions:

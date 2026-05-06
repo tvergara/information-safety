@@ -13,8 +13,8 @@ set -euo pipefail
 source /etc/profile.d/modules.sh 2>/dev/null || true
 module load cuda/12.4.1 2>/dev/null || true
 
-REPO_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-cd "$REPO_ROOT"
+REPO_ROOT="${REPO_ROOT:-${HOME}/information-safety}"
+cd "${REPO_ROOT}"
 source .venv/bin/activate
 
 export HF_HUB_OFFLINE=1
