@@ -73,7 +73,7 @@ venv = ".venv"
 line-length = 99
 indent-width = 4
 lint.select = ["E4", "E7", "E9", "F", "I", "UP"]
-extend-exclude = ["third_party"]
+extend-exclude = ["third_party", "circuit-breakers", "tar"]
 
 [tool.uv]
 managed = true

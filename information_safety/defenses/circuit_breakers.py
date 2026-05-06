@@ -21,6 +21,7 @@ from logging import getLogger
 from pathlib import Path
 from typing import Any, cast
 
+import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel
 
@@ -117,11 +118,15 @@ def _build_subprocess_cmd(
     output_dir: Path,
     hparams: CBHParams,
 ) -> list[str]:
+    assert torch.cuda.is_available(), "CB training requires GPU"
+    num_processes = torch.cuda.device_count()
     cmd: list[str] = [
         "accelerate",
         "launch",
         "--config_file",
         str(cb_repo / "configs" / "accelerate_zero1.yaml"),
+        "--num_processes",
+        str(num_processes),
         str(cb_repo / "src" / "lorra_circuit_breaker.py"),
         "--model_name_or_path",
         base_model,
@@ -157,7 +162,6 @@ def _build_subprocess_cmd(
         "none",
         "--save_total_limit",
         "0",
-        "--overwrite_output_dir",
         "--logging_strategy",
         "steps",
         "--logging_steps",

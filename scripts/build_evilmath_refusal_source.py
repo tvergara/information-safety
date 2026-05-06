@@ -14,8 +14,9 @@ Usage:
 The rewriter is pinned by HF revision SHA via ``--rewriter-model`` and
 ``--rewriter-revision``. Temp=0 makes the rewrite deterministic (subject to
 backend determinism). The script reuses vLLM if available; otherwise it falls
-back to ``transformers.pipeline``. Each rewrite is sanity-checked: if the
-parser cannot recover the original numerical answer, the row is dropped.
+back to ``transformers.pipeline``. Non-empty rewrites are kept verbatim; the
+prompt explicitly asks the model to omit the numerical answer, so we do not
+re-validate it on the rewrite.
 """
 
 from __future__ import annotations
@@ -30,10 +31,6 @@ from pathlib import Path
 from typing import Any
 
 import datasets
-
-from information_safety.algorithms.dataset_handlers.evilmath import (
-    extract_numerical_answer,
-)
 
 logger = getLogger(__name__)
 
@@ -135,13 +132,10 @@ def main(argv: list[str] | None = None) -> None:
 
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
     written = 0
-    dropped = 0
     with args.output_path.open("w") as f:
         for rewrite, original_answer in zip(rewrites, expected_answers):
             cleaned = rewrite.strip()
-            parsed = extract_numerical_answer(cleaned)
-            if parsed != original_answer:
-                dropped += 1
+            if not cleaned:
                 continue
             f.write(json.dumps({
                 "evil_question": cleaned,
@@ -149,10 +143,7 @@ def main(argv: list[str] | None = None) -> None:
             }) + "\n")
             written += 1
 
-    logger.info(
-        f"Wrote {written} EvilMath rewrites to {args.output_path} "
-        f"(dropped {dropped} unparsable)"
-    )
+    logger.info(f"Wrote {written} EvilMath rewrites to {args.output_path}")
 
 
 if __name__ == "__main__":

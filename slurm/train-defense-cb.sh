@@ -22,7 +22,6 @@ source .venv/bin/activate
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HF_HUB_OFFLINE=1
 export HYDRA_FULL_ERROR=1
-export WANDB_MODE=offline
 
 TARGET="${TARGET:-wmdp}"
 BASE_MODEL="${BASE_MODEL:-meta-llama/Llama-3.1-8B-Instruct}"
