@@ -80,6 +80,7 @@ def finetune_no_trainer(
     optimizer = schedulefree.AdamWScheduleFree(
         model.parameters(), lr=args.lr, warmup_steps=args.warmup_steps
     )
+    optimizer.train()
     optimizer = accelerator.prepare(optimizer)
     accelerator.print(f"model, optimizers, dataloaders prepared")
     accelerator.print(f"output_dir: {output_dir}")
