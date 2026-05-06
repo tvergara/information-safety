@@ -113,6 +113,7 @@ def _wmdp_inner_examples(num_examples: int) -> list[dict[str, str]]:
     quarter = half // 2
 
     mmlu = datasets.load_dataset("TIGER-Lab/MMLU-Pro", split="test")
+    mmlu = mmlu.filter(lambda ex: len(ex["options"]) == 10)  # type: ignore[union-attr]
     mmlu = mmlu.select(range(min(half, len(mmlu))))  # type: ignore[union-attr,arg-type]
 
     examples: list[dict[str, str]] = []

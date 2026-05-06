@@ -80,6 +80,7 @@ class TestBuildInnerAttackerData:
         ]))
         mmlu_ds.__len__ = MagicMock(return_value=5)
         mmlu_ds.select = MagicMock(return_value=mmlu_ds)
+        mmlu_ds.filter = MagicMock(return_value=mmlu_ds)
         mmlu_ds.column_names = ["question", "options", "category", "cot_content", "answer"]
 
         mock_load.side_effect = [mmlu_ds, ds, ds]

@@ -64,6 +64,7 @@ def _build_wmdp_refusal_rows(seed: int) -> list[dict[str, Any]]:
     raw = datasets.load_dataset("TIGER-Lab/MMLU-Pro", split="test")
     filtered = raw.filter(  # type: ignore[union-attr]
         lambda ex: ex["category"] in (_MMLU_PRO_BIO_CATEGORY, _MMLU_PRO_CS_CATEGORY)
+        and len(ex["options"]) == 10
     )
 
     rows: list[dict[str, Any]] = []
