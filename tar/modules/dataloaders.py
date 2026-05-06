@@ -354,9 +354,9 @@ def get_tar_evilmath_dataloaders(tokenizer, accelerator, args, **kwargs):
     )
     with ctx:
         forget_train, forget_meta = _load_evilmath_forget_dataset(
-            tokenizer, data_path, cutoff_len=512
+            tokenizer, data_path, cutoff_len=256
         )
-        magpie_train, _ = get_magpie_datasets(tokenizer, cutoff_len=512)
+        magpie_train, _ = get_magpie_datasets(tokenizer, cutoff_len=256)
 
     data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
     retain_dataloader = torch.utils.data.DataLoader(
