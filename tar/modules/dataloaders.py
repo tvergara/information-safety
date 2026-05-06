@@ -1,3 +1,4 @@
+import contextlib
 import re
 
 import numpy as np
@@ -346,10 +347,16 @@ def get_tar_evilmath_dataloaders(tokenizer, accelerator, args, **kwargs):
     if data_path is None:
         raise ValueError("--evilmath_data_path is required for --subject evilmath")
 
-    forget_train, forget_meta = _load_evilmath_forget_dataset(
-        tokenizer, data_path, cutoff_len=512
+    ctx = (
+        accelerator.main_process_first()
+        if accelerator is not None
+        else contextlib.nullcontext()
     )
-    magpie_train, _ = get_magpie_datasets(tokenizer, cutoff_len=512)
+    with ctx:
+        forget_train, forget_meta = _load_evilmath_forget_dataset(
+            tokenizer, data_path, cutoff_len=512
+        )
+        magpie_train, _ = get_magpie_datasets(tokenizer, cutoff_len=512)
 
     data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
     retain_dataloader = torch.utils.data.DataLoader(

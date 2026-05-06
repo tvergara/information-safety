@@ -70,6 +70,7 @@ def _generate_rewrites(
         llm_kwargs: dict[str, Any] = {
             "model": rewriter_model,
             "tensor_parallel_size": torch.cuda.device_count(),
+            "disable_custom_all_reduce": True,
         }
         if rewriter_revision is not None:
             llm_kwargs["revision"] = rewriter_revision

@@ -5,10 +5,10 @@
 # Caller passes --output=$SCRATCH/slurm-logs/slurm-%j.out via sbatch CLI.
 #SBATCH --job-name=train-defense-tar
 #SBATCH --partition=long
-#SBATCH --gres=gpu:a100l:2
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=128G
-#SBATCH --time=8:00:00
+#SBATCH --gres=gpu:a100l:4
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=256G
+#SBATCH --time=12:00:00
 
 set -euo pipefail
 
@@ -26,6 +26,7 @@ export HYDRA_FULL_ERROR=1
 TARGET="${TARGET:-wmdp}"
 BASE_MODEL="${BASE_MODEL:-meta-llama/Llama-3.1-8B-Instruct}"
 SEED="${SEED:-0}"
+EVILMATH_REWRITE_PATH="${EVILMATH_REWRITE_PATH:-${SCRATCH}/information-safety/defense-data/evilmath/llm_rewrite.jsonl}"
 
 DEFENSE_ID=$(python scripts/train_defense.py \
     --print-defense-id \
@@ -44,4 +45,5 @@ python scripts/train_defense.py \
     --base-model "${BASE_MODEL}" \
     --output-dir "${OUTPUT_DIR}" \
     --seed "${SEED}" \
+    --evilmath-rewrite-path "${EVILMATH_REWRITE_PATH}" \
     "$@"
