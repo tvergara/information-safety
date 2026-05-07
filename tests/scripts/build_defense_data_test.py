@@ -76,17 +76,20 @@ class TestBuildWmdpRefusals:
         assert n == 10
 
     @patch("scripts.build_defense_data.datasets.load_dataset")
-    def test_drops_rows_with_fewer_than_10_options(
+    def test_keeps_rows_regardless_of_option_count(
         self, mock_load: MagicMock, tmp_path: Path
     ) -> None:
-        rows = [_mock_mmlu_pro_row(i, "biology") for i in range(3)]
-        rows.append({
-            "question": "q_short",
-            "options": ["a", "b", "c", "d"],
-            "category": "biology",
-            "cot_content": "thinking",
-            "answer": "A",
-        })
+        rows: list[dict[str, object]] = [
+            _mock_mmlu_pro_row(i, "biology") for i in range(3)
+        ]
+        for k, n_opts in enumerate((4, 7, 10)):
+            rows.append({
+                "question": f"q_var_{k}",
+                "options": [f"opt_{j}" for j in range(n_opts)],
+                "category": "computer science",
+                "cot_content": "thinking",
+                "answer": "A",
+            })
         ds = MagicMock()
         ds.filter = MagicMock(
             side_effect=lambda fn: _mock_dataset([r for r in rows if fn(r)])
@@ -95,7 +98,7 @@ class TestBuildWmdpRefusals:
 
         out_path = tmp_path / "refusals.jsonl"
         n = build_wmdp_refusals(out_path, seed=0)
-        assert n == 3
+        assert n == 6
 
     @patch("scripts.build_defense_data.datasets.load_dataset")
     def test_writes_required_keys(self, mock_load: MagicMock, tmp_path: Path) -> None:
