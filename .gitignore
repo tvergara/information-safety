@@ -175,8 +175,12 @@ data
 plots/*.pdf
 slurm-*.out
 
-# Externally cloned repos used as references; not part of this project.
-circuit-breakers/
+# Vendored CB upstream artifacts we don't ship (their data is overridden by
+# our adapter; their notebooks bake training outputs).
+circuit-breakers/data/
+circuit-breakers/harmfulness_probe/harmbench_results/
+circuit-breakers/**/*.ipynb
+circuit-breakers/data/*.bak
 
 # Local working notes / scratch directories.
 .claude/specs/

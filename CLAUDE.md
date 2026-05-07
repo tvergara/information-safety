@@ -327,11 +327,11 @@ No flags, no Duo prompt. The `keyboard-interactive` entry in the preferred-auth 
 - Allowed: file transfers (`scp`, `sftp`, `rsync`), file ops (`mv`, `cp`, `rm`), archiving (`gzip`, `tar`), `git`, Slurm (`squeue`, `sbatch`, `scancel`, `scontrol`, `sq`).
 - **Not allowed:** interactive shells, `bash`, `python`, arbitrary executables. For those, use `ssh tamia` / `ssh nibi` (the ControlMaster-backed aliases above).
 
-**Typical job-submission pattern.** Note the `\$` escape — the local shell would otherwise expand `$SCRATCH` here on Mila (where it points elsewhere); we want the remote shell to expand it on the cluster:
+**Typical job-submission pattern.** The robot's `allowed_commands.sh` wrapper does **not** expand variables — it executes the literal argv. Pass an absolute path (`/scratch/t/tvergara/...` for Tamia, `/scratch/<initial>/<user>/...` for Nibi); `$SCRATCH`, `~`, and `$HOME` will be passed through unexpanded and the script will crash with "No such file or directory":
 
 ```bash
 bash slurm/bootstrap-remote-cluster.sh tamia      # pulls + restores + locks configs
-ssh robot.tamia.ecpia.ca "sbatch ~/information-safety/slurm/run-job-pool.sh \$SCRATCH/information-safety/job-pool/run-1"
+ssh robot.tamia.ecpia.ca "sbatch /home/t/tvergara/information-safety/slurm/run-job-pool.sh /scratch/t/tvergara/information-safety/job-pool/run-1"
 ssh robot.tamia.ecpia.ca "squeue --me"
 ```
 

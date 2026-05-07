@@ -19,6 +19,11 @@ from scripts.build_job_queue import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _scratch_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SCRATCH", "/scratch/t/tvergara")
+
+
 def _baseline_config(model: str = "meta-llama/Llama-2-7b-chat-hf") -> dict[str, object]:
     return {
         "experiment_name": "BaselineStrategy",
@@ -250,6 +255,32 @@ def test_build_command_trust_remote_code_always_true(tmp_path: Path) -> None:
     ):
         cmd = build_command(_baseline_config(model=model), attacks_dir=tmp_path)
         assert "algorithm.model.trust_remote_code=true" in cmd
+
+
+def test_build_command_disables_checkpointing_for_pool_jobs(tmp_path: Path) -> None:
+    """Pool worker shares 2 TiB SCRATCH across 4 GPUs; even at 1 ckpt/job * 162 jobs * 17 GiB the
+    disk fills at job ~55.
+
+    Pool jobs are scored from generations written separately, so checkpoints are useless. Disable
+    them everywhere.
+    """
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    (attacks_dir / "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl").write_text("")
+    configs = [
+        _baseline_config(),
+        _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 1),
+        _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 64, 0),
+        _gcg_config("meta-llama/Llama-2-7b-chat-hf"),
+        _wmdp_config("meta-llama/Llama-2-7b-chat-hf"),
+    ]
+    roleplay = _baseline_config()
+    roleplay["experiment_name"] = "RoleplayStrategy"
+    configs.append(roleplay)
+    for cfg in configs:
+        cmd = build_command(cfg, attacks_dir=attacks_dir)
+        assert "trainer.enable_checkpointing=false" in cmd, cfg
+        assert "trainer/callbacks=no_checkpoints" in cmd, cfg
 
 
 def test_deterministic_id_stable_for_same_config() -> None:
@@ -507,6 +538,23 @@ def test_iter_missing_collapses_strongreject_data_strategy_epoch_rows() -> None:
     ]
     missing = list(iter_missing_configs(epoch_rows, []))
     assert len(missing) == 1
+
+
+def test_default_paths_track_scratch_env_var() -> None:
+    import scripts.build_job_queue as bjq
+
+    assert str(bjq.default_results_file()).startswith("/scratch/t/tvergara/")
+    assert str(bjq.default_attacks_dir()).startswith("/scratch/t/tvergara/")
+    assert bjq.default_train_data().startswith("/scratch/t/tvergara/")
+
+
+def test_build_command_train_data_path_uses_scratch_default() -> None:
+    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 0)
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    train_arg = next(
+        c for c in cmd if c.startswith("algorithm.dataset_handler.train_data_path=")
+    )
+    assert "/scratch/t/tvergara/" in train_arg
 
 
 def test_main_writes_pending_files_for_synthetic_results(

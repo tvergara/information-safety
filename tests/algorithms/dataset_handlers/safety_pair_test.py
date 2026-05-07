@@ -432,15 +432,45 @@ class TestSaveCompletions:
 
 
 class TestGetAnswerStartToken:
-    def test_detects_assistant_marker(self) -> None:
+    def test_llama3_marker_excludes_user_content(self) -> None:
         tokenizer = MagicMock()
-        template_output = (
+        user_only = (
             "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n"
-            "Q<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
-            "SENTINEL_ANSWER_START<|eot_id|>"
+            "Q<|eot_id|>"
         )
-        tokenizer.apply_chat_template = MagicMock(return_value=template_output)
+        user_with_gen = user_only + "<|start_header_id|>assistant<|end_header_id|>\n\n"
+
+        def fake_apply(messages: list[dict[str, str]], **kwargs: object) -> str:
+            return user_with_gen if kwargs.get("add_generation_prompt") else user_only
+
+        tokenizer.apply_chat_template = MagicMock(side_effect=fake_apply)
 
         handler = _make_handler()
         token = handler.get_answer_start_token(tokenizer)
-        assert "assistant" in token
+        assert token == "<|start_header_id|>assistant<|end_header_id|>"
+        assert "Q" not in token
+        assert "<|eot_id|>" not in token
+
+    def test_qwen_marker(self) -> None:
+        tokenizer = MagicMock()
+        user_only = "<|im_start|>user\nQ<|im_end|>\n"
+        user_with_gen = user_only + "<|im_start|>assistant\n"
+
+        def fake_apply(messages: list[dict[str, str]], **kwargs: object) -> str:
+            return user_with_gen if kwargs.get("add_generation_prompt") else user_only
+
+        tokenizer.apply_chat_template = MagicMock(side_effect=fake_apply)
+
+        handler = _make_handler()
+        token = handler.get_answer_start_token(tokenizer)
+        assert token == "<|im_start|>assistant"
+
+    def test_raises_when_template_has_no_assistant_suffix(self) -> None:
+        import pytest
+
+        tokenizer = MagicMock()
+        tokenizer.apply_chat_template = MagicMock(return_value="<|im_start|>user\nQ<|im_end|>")
+
+        handler = _make_handler()
+        with pytest.raises(ValueError, match="Empty assistant marker"):
+            handler.get_answer_start_token(tokenizer)

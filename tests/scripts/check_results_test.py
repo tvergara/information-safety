@@ -108,10 +108,6 @@ def _evilmath_baseline() -> list[dict[str, object]]:
     return [c for c in EVILMATH_CONFIGS if c["experiment_name"] == "BaselineStrategy"]
 
 
-def _evilmath_roleplay() -> list[dict[str, object]]:
-    return [c for c in EVILMATH_CONFIGS if c["experiment_name"] == "RoleplayStrategy"]
-
-
 def _evilmath_data_strategy() -> list[dict[str, object]]:
     return [c for c in EVILMATH_CONFIGS if c["experiment_name"] == "DataStrategy"]
 
@@ -120,8 +116,8 @@ def test_evilmath_baseline_count_matches_models() -> None:
     assert len(_evilmath_baseline()) == len(MODELS)
 
 
-def test_evilmath_roleplay_count_matches_models() -> None:
-    assert len(_evilmath_roleplay()) == len(MODELS)
+def test_evilmath_no_roleplay_configs() -> None:
+    assert all(c["experiment_name"] != "RoleplayStrategy" for c in EVILMATH_CONFIGS)
 
 
 def test_evilmath_data_strategy_total_epoch_rows() -> None:
