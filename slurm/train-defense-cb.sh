@@ -13,7 +13,7 @@
 set -euo pipefail
 
 source /etc/profile.d/modules.sh 2>/dev/null || true
-module load cuda/12.4.1 2>/dev/null || true
+module load cuda/12.4.1/cudnn/9.3 2>/dev/null || true
 
 REPO_ROOT="${REPO_ROOT:-${HOME}/information-safety}"
 cd "${REPO_ROOT}"
