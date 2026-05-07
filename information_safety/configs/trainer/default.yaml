@@ -20,3 +20,4 @@ default_root_dir: ${hydra:runtime.output_dir}
 
 precision: null
 detect_anomaly: false
+enable_checkpointing: true
