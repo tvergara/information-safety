@@ -21,6 +21,9 @@ dependencies = [
     "accelerate>=1.0.0",
     "peft>=0.13.0",
     "datasets>=2.21.0",
+    # Vendored defenses: circuit-breakers needs deepspeed, tar needs schedulefree.
+    "deepspeed>=0.14",
+    "schedulefree>=1.2",
     # Hydra / submitit plugins
     "hydra-colorlog>=1.2.0",
     "remote-slurm-executor",
