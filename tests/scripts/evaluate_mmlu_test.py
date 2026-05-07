@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scripts.evaluate_mmlu import (
+pytest.importorskip("vllm")
+
+from scripts.evaluate_mmlu import (  # noqa: E402
     CHOICES,
     build_prompts,
     compute_metrics,
