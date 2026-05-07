@@ -203,6 +203,10 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
         f"algorithm.model.pretrained_model_name_or_path={model_name}",
         "algorithm.model.trust_remote_code=true",
         "trainer.precision=bf16-mixed",
+        # Pool jobs are scored from saved generations, not from checkpoints.
+        # 162 jobs * ~17 GiB last.ckpt would overflow the 2 TiB SCRATCH share at job ~55.
+        "trainer.enable_checkpointing=false",
+        "trainer/callbacks=no_checkpoints",
         f"name={name}",
     ]
     return cmd

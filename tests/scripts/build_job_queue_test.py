@@ -252,6 +252,32 @@ def test_build_command_trust_remote_code_always_true(tmp_path: Path) -> None:
         assert "algorithm.model.trust_remote_code=true" in cmd
 
 
+def test_build_command_disables_checkpointing_for_pool_jobs(tmp_path: Path) -> None:
+    """Pool worker shares 2 TiB SCRATCH across 4 GPUs; even at 1 ckpt/job * 162 jobs * 17 GiB the
+    disk fills at job ~55.
+
+    Pool jobs are scored from generations written separately, so checkpoints are useless. Disable
+    them everywhere.
+    """
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    (attacks_dir / "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl").write_text("")
+    configs = [
+        _baseline_config(),
+        _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 1),
+        _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 64, 0),
+        _gcg_config("meta-llama/Llama-2-7b-chat-hf"),
+        _wmdp_config("meta-llama/Llama-2-7b-chat-hf"),
+    ]
+    roleplay = _baseline_config()
+    roleplay["experiment_name"] = "RoleplayStrategy"
+    configs.append(roleplay)
+    for cfg in configs:
+        cmd = build_command(cfg, attacks_dir=attacks_dir)
+        assert "trainer.enable_checkpointing=false" in cmd, cfg
+        assert "trainer/callbacks=no_checkpoints" in cmd, cfg
+
+
 def test_deterministic_id_stable_for_same_config() -> None:
     config = _baseline_config()
     assert deterministic_id(config) == deterministic_id(dict(config))
