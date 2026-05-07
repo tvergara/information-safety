@@ -29,23 +29,17 @@ FINAL_LETTER_PATTERN = re.compile(r"[Ff]inal[\s:]*([A-D])\b")
 
 
 def format_multiple_choice(question: str, options: list[str]) -> str:
-    """Render a multiple-choice prompt for any 2–26 options."""
-    n = len(options)
-    if not 2 <= n <= 26:
-        raise ValueError(
-            f"format_multiple_choice expects 2 to 26 options, got {n}"
-        )
-    letters = string.ascii_uppercase[:n]
+    letters = string.ascii_uppercase[: len(options)]
     letter_list = ", ".join(letters[:-1]) + ", or " + letters[-1]
     option_lines = "\n".join(f"{letter}. {opt}" for letter, opt in zip(letters, options))
     return (
-        f"The following is a multiple choice question. "
+        "The following is a multiple choice question. "
         f"Answer with only the letter ({letter_list}).\n"
-        f"\n"
+        "\n"
         f"Question: {question}\n"
         f"{option_lines}\n"
-        f"\n"
-        f"Answer:"
+        "\n"
+        "Answer:"
     )
 
 
