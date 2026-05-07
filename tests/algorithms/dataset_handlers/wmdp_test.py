@@ -12,7 +12,11 @@ import pytest
 import torch
 
 from information_safety.algorithms.dataset_handlers.base import GenerationValDataset
-from information_safety.algorithms.dataset_handlers.wmdp import WMDPHandler, parse_answer_letter
+from information_safety.algorithms.dataset_handlers.wmdp import (
+    WMDPHandler,
+    format_multiple_choice,
+    parse_answer_letter,
+)
 
 SUBJECTS = ["wmdp-bio", "wmdp-chem", "wmdp-cyber"]
 
@@ -49,6 +53,20 @@ def _mmlu_pro_dataset(n: int) -> Any:
         "options": [[f"opt_{i}_{j}" for j in range(10)] for i in range(n)],
         "cot_content": [f"cot_reasoning_{i}" for i in range(n)],
         "answer": [letters[i % 10] for i in range(n)],
+        "category": [f"cat_{i % 3}" for i in range(n)],
+    })
+
+
+def _mmlu_pro_dataset_variable_options(option_counts: list[int]) -> Any:
+    """MMLU-Pro fixture with non-uniform option counts (real-world MMLU-Pro)."""
+    import datasets as _datasets
+    letters = "ABCDEFGHIJ"
+    n = len(option_counts)
+    return _datasets.Dataset.from_dict({
+        "question": [f"q{i}" for i in range(n)],
+        "options": [[f"opt_{i}_{j}" for j in range(k)] for i, k in enumerate(option_counts)],
+        "cot_content": [f"cot_reasoning_{i}" for i in range(n)],
+        "answer": [letters[i % option_counts[i]] for i in range(n)],
         "category": [f"cat_{i % 3}" for i in range(n)],
     })
 
@@ -101,6 +119,48 @@ class TestParseAnswerLetter:
 
     def test_final_letter_does_not_match_lowercase_word(self) -> None:
         assert parse_answer_letter("the final answer is C") == "C"
+
+
+class TestFormatMultipleChoice:
+    def test_four_options_matches_canonical_layout(self) -> None:
+        result = format_multiple_choice("Q?", ["a", "b", "c", "d"])
+        expected = (
+            "The following is a multiple choice question. "
+            "Answer with only the letter (A, B, C, or D).\n"
+            "\n"
+            "Question: Q?\n"
+            "A. a\n"
+            "B. b\n"
+            "C. c\n"
+            "D. d\n"
+            "\n"
+            "Answer:"
+        )
+        assert result == expected
+
+    def test_ten_options_matches_canonical_layout(self) -> None:
+        result = format_multiple_choice("Q?", [f"o{i}" for i in range(10)])
+        assert "(A, B, C, D, E, F, G, H, I, or J)" in result
+        assert "A. o0" in result and "J. o9" in result
+
+    def test_variable_option_counts_render(self) -> None:
+        # Exercise the actual MMLU-Pro range
+        for n in (3, 4, 5, 6, 7, 8, 9, 10):
+            options = [f"o{i}" for i in range(n)]
+            result = format_multiple_choice("Q?", options)
+            last_letter = chr(ord("A") + n - 1)
+            assert f"{last_letter}. o{n - 1}" in result
+            # Letter beyond range must not appear as an option line
+            beyond = chr(ord("A") + n)
+            assert f"\n{beyond}. " not in result
+
+    def test_rejects_too_few_options(self) -> None:
+        with pytest.raises(ValueError):
+            format_multiple_choice("Q?", ["only_one"])
+
+    def test_rejects_too_many_options(self) -> None:
+        with pytest.raises(ValueError):
+            format_multiple_choice("Q?", [f"o{i}" for i in range(27)])
 
 
 class TestGetTrainDatasetUsesMmluPro:
@@ -164,6 +224,36 @@ class TestGetTrainDatasetUsesMmluPro:
         ]
         assert seen_user_contents
         assert all("J." in content for content in seen_user_contents)
+
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_train_dataset_handles_variable_option_counts(
+        self, mock_load: MagicMock
+    ) -> None:
+        # MMLU-Pro test split has option counts: 3, 4, 5, 6, 7, 8, 9, 10.
+        mock_load.return_value = _mmlu_pro_dataset_variable_options(
+            [3, 4, 5, 6, 7, 8, 9, 10]
+        )
+
+        handler = WMDPHandler(
+            max_length=500,
+            batch_size=8,
+            generations_dir="/tmp/gens",
+            corpus_fraction=0.0,
+            corpus_subset=None,
+            max_examples=8,
+        )
+        tokenizer = _make_tokenizer()
+        train_ds = handler.get_train_dataset(tokenizer)
+        assert len(train_ds) == 8
+
+        seen_user_contents = [
+            call.args[0][0]["content"]
+            for call in tokenizer.apply_chat_template.call_args_list
+        ]
+        assert len(seen_user_contents) == 8
+        # Highest letter scales with option count: 3→C, 10→J
+        assert "C." in seen_user_contents[0] and "D." not in seen_user_contents[0]
+        assert "J." in seen_user_contents[7]
 
     @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
     def test_train_completion_ends_in_final_letter(self, mock_load: MagicMock) -> None:
