@@ -214,7 +214,6 @@ def main(argv: list[str] | None = None) -> None:
         train_circuit_breakers(
             base_model=args.base_model,
             refusals_path=refusals_path,
-            retain_path=retain_path,
             output_dir=output_dir,
             hparams=CBHParams(max_steps=args.max_steps)
             if args.max_steps is not None

@@ -47,15 +47,14 @@ class CBHParams:
     extra_args: list[str] = field(default_factory=list)
 
 
-def _build_cb_format(refusals_path: Path, retain_path: Path, out_path: Path) -> int:
-    """Translate our schema into the CB native format and write a JSON list.
+def _build_cb_format(refusals_path: Path, out_path: Path) -> int:
+    """Translate our refusals JSONL into the CB native format and write a JSON list.
 
-    CB's ``cb_train_dataset.py`` expects rows with at least ``prompt``,
-    ``output`` (the harmful continuation we want to circuit-break) and
-    ``llama3_output`` (the safe refusal). We don't have raw harmful continuations
-    here, so we use the original prompt as ``output`` and the refusal as
-    ``llama3_output``. Retain rows are turned into harmless prompt/response pairs
-    so CB's "retain" loss can use them as well.
+    CB's loader iterates EVERY row of ``data/circuit_breakers_train.json`` and treats it
+    as a target whose representations should be pushed away from base. Retain rows must
+    NOT be written here — CB loads its retain set from ultrachat_200k + xstest internally.
+    Writing retain rows collapses MMLU because the model learns to circuit-break on
+    benign content (we hit acc=0.17 vs the published ~0.63).
     """
     rows: list[dict[str, Any]] = []
     with refusals_path.open() as f:
@@ -68,20 +67,6 @@ def _build_cb_format(refusals_path: Path, retain_path: Path, out_path: Path) -> 
                 "prompt": entry["prompt"],
                 "output": entry["prompt"],
                 "llama3_output": entry["refusal"],
-                "source": entry["source"],
-                "id": entry["id"],
-            })
-
-    with retain_path.open() as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            entry = json.loads(line)
-            rows.append({
-                "prompt": entry["prompt"],
-                "output": entry["response"],
-                "llama3_output": entry["response"],
                 "source": entry["source"],
                 "id": entry["id"],
             })
@@ -197,14 +182,13 @@ def _has_full_model_weights(directory: Path) -> bool:
 def train_circuit_breakers(
     base_model: str,
     refusals_path: Path,
-    retain_path: Path,
     output_dir: Path,
     hparams: CBHParams,
     cb_repo: Path,
     dry_run: bool = False,
 ) -> None:
     cb_data_path = Path(refusals_path).parent / "cb_format.json"
-    n_rows = _build_cb_format(refusals_path, retain_path, cb_data_path)
+    n_rows = _build_cb_format(refusals_path, cb_data_path)
     logger.info(f"Wrote {n_rows} CB-formatted rows to {cb_data_path}")
 
     output_dir = Path(output_dir)

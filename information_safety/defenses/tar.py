@@ -20,6 +20,7 @@ from logging import getLogger
 from pathlib import Path
 
 import torch
+from transformers import AutoTokenizer
 
 logger = getLogger(__name__)
 
@@ -196,3 +197,6 @@ def train_tar(
             f"TAR output_dir {output_dir} missing merged model weights "
             "(pytorch_model.bin, model.safetensors, or sharded equivalent)"
         )
+
+    tokenizer = AutoTokenizer.from_pretrained(base_model)
+    tokenizer.save_pretrained(str(output_dir))

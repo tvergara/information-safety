@@ -27,31 +27,23 @@ def _write_refusals(path: Path, n: int) -> None:
             }) + "\n")
 
 
-def _write_retain(path: Path, n: int) -> None:
-    with path.open("w") as f:
-        for i in range(n):
-            f.write(json.dumps({
-                "prompt": f"u_{i}",
-                "response": f"a_{i}",
-                "source": "smoltalk",
-                "id": f"smoltalk-{i}",
-            }) + "\n")
-
-
 class TestBuildCbFormat:
-    def test_writes_required_cb_keys(self, tmp_path: Path) -> None:
+    def test_writes_only_refusal_rows(self, tmp_path: Path) -> None:
+        """CB's loader iterates EVERY row of circuit_breakers_train.json and treats it as a target
+        whose representations should be pushed away from base.
+
+        Retain rows must NOT be written here — CB loads its retain set internally from ultrachat +
+        xstest. Writing retain rows collapses MMLU (we hit acc=0.17 vs the published ~0.63).
+        """
         refusals_path = tmp_path / "r.jsonl"
-        retain_path = tmp_path / "ret.jsonl"
         out_path = tmp_path / "cb.json"
         _write_refusals(refusals_path, 2)
-        _write_retain(retain_path, 4)
 
-        n = _build_cb_format(refusals_path, retain_path, out_path)
-        assert n == 6
+        n = _build_cb_format(refusals_path, out_path)
+        assert n == 2
 
         data = json.loads(out_path.read_text())
-        assert isinstance(data, list)
-        assert len(data) == 6
+        assert len(data) == 2
         for row in data:
             for key in ("prompt", "output", "llama3_output"):
                 assert key in row
@@ -69,12 +61,10 @@ class TestTrainCircuitBreakers:
         mock_cuda.is_available.return_value = True
         mock_cuda.device_count.return_value = 2
         refusals_path = tmp_path / "r.jsonl"
-        retain_path = tmp_path / "ret.jsonl"
         output_dir = tmp_path / "out"
         cb_repo = tmp_path / "circuit-breakers"
         cb_repo.mkdir()
         _write_refusals(refusals_path, 2)
-        _write_retain(retain_path, 4)
         output_dir.mkdir()
         (output_dir / "config.json").write_text("{}")
         (output_dir / "model.safetensors").write_text("")
@@ -84,7 +74,6 @@ class TestTrainCircuitBreakers:
         train_circuit_breakers(
             base_model="meta-llama/Llama-3.1-8B-Instruct",
             refusals_path=refusals_path,
-            retain_path=retain_path,
             output_dir=output_dir,
             hparams=CBHParams(),
             cb_repo=cb_repo,
@@ -106,14 +95,11 @@ class TestTrainCircuitBreakers:
         tmp_path: Path,
     ) -> None:
         refusals_path = tmp_path / "r.jsonl"
-        retain_path = tmp_path / "ret.jsonl"
         _write_refusals(refusals_path, 1)
-        _write_retain(retain_path, 1)
 
         train_circuit_breakers(
             base_model="x",
             refusals_path=refusals_path,
-            retain_path=retain_path,
             output_dir=tmp_path / "out",
             hparams=CBHParams(),
             cb_repo=tmp_path / "circuit-breakers",
@@ -133,9 +119,7 @@ class TestTrainCircuitBreakers:
         mock_cuda.is_available.return_value = True
         mock_cuda.device_count.return_value = 2
         refusals_path = tmp_path / "r.jsonl"
-        retain_path = tmp_path / "ret.jsonl"
         _write_refusals(refusals_path, 1)
-        _write_retain(retain_path, 1)
 
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1)
 
@@ -143,7 +127,6 @@ class TestTrainCircuitBreakers:
             train_circuit_breakers(
                 base_model="x",
                 refusals_path=refusals_path,
-                retain_path=retain_path,
                 output_dir=tmp_path / "out",
                 hparams=CBHParams(),
                 cb_repo=tmp_path / "circuit-breakers",

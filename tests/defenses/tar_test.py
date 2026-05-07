@@ -37,12 +37,14 @@ def _output_with_weights(tmp_path: Path) -> Path:
 
 
 class TestTrainTarSubprocessCommand:
+    @patch("information_safety.defenses.tar.AutoTokenizer")
     @patch("information_safety.defenses.tar.subprocess.run")
     @patch("information_safety.defenses.tar.torch.cuda")
     def test_wmdp_uses_subject_bio(
         self,
         mock_cuda: MagicMock,
         mock_run: MagicMock,
+        mock_tokenizer_cls: MagicMock,
         fake_repo: Path,
         tmp_path: Path,
     ) -> None:
@@ -71,12 +73,14 @@ class TestTrainTarSubprocessCommand:
         assert cmd[cmd.index("--output_dir") + 1] == str(output_dir)
         assert "--evilmath_data_path" not in cmd
 
+    @patch("information_safety.defenses.tar.AutoTokenizer")
     @patch("information_safety.defenses.tar.subprocess.run")
     @patch("information_safety.defenses.tar.torch.cuda")
     def test_evilmath_uses_subject_evilmath_with_data_path(
         self,
         mock_cuda: MagicMock,
         mock_run: MagicMock,
+        mock_tokenizer_cls: MagicMock,
         fake_repo: Path,
         fake_evilmath_data: Path,
         tmp_path: Path,
@@ -180,12 +184,51 @@ class TestTrainTarSubprocessCommand:
                 dry_run=True,
             )
 
+    @patch("information_safety.defenses.tar.AutoTokenizer")
+    @patch("information_safety.defenses.tar.subprocess.run")
+    @patch("information_safety.defenses.tar.torch.cuda")
+    def test_saves_tokenizer_to_output_dir(
+        self,
+        mock_cuda: MagicMock,
+        mock_run: MagicMock,
+        mock_tokenizer_cls: MagicMock,
+        fake_repo: Path,
+        tmp_path: Path,
+    ) -> None:
+        """TAR's vendored tar.py only saves the model, not the tokenizer.
+
+        Without tokenizer.json / tokenizer_config.json next to the weights, vLLM crashes with
+        'Couldn't instantiate the backend tokenizer'. The adapter must save the tokenizer after the
+        subprocess returns.
+        """
+        mock_cuda.is_available.return_value = True
+        mock_cuda.device_count.return_value = 2
+        output_dir = _output_with_weights(tmp_path)
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        mock_tokenizer = MagicMock()
+        mock_tokenizer_cls.from_pretrained.return_value = mock_tokenizer
+
+        train_tar(
+            base_model="meta-llama/Llama-3.1-8B-Instruct",
+            output_dir=output_dir,
+            target="wmdp",
+            hparams=TARHParams(),
+            tar_repo=fake_repo,
+        )
+
+        mock_tokenizer_cls.from_pretrained.assert_called_once_with(
+            "meta-llama/Llama-3.1-8B-Instruct"
+        )
+        mock_tokenizer.save_pretrained.assert_called_once_with(str(output_dir))
+
+    @patch("information_safety.defenses.tar.AutoTokenizer")
     @patch("information_safety.defenses.tar.subprocess.run")
     @patch("information_safety.defenses.tar.torch.cuda")
     def test_passes_hparam_overrides(
         self,
         mock_cuda: MagicMock,
         mock_run: MagicMock,
+        mock_tokenizer_cls: MagicMock,
         fake_repo: Path,
         tmp_path: Path,
     ) -> None:
