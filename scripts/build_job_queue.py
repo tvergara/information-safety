@@ -22,13 +22,10 @@ from scripts.check_results import (
     WMDP_CONFIGS,
 )
 
-DEFAULT_RESULTS_FILE = Path(
-    "/network/scratch/b/brownet/information-safety/results/final-results.jsonl"
-)
-DEFAULT_ATTACKS_DIR = Path("/network/scratch/b/brownet/information-safety/attacks")
-DEFAULT_TRAIN_DATA = (
-    "/network/scratch/b/brownet/information-safety/data/advbench-completions-smollm3.jsonl"
-)
+_SCRATCH = os.environ["SCRATCH"]
+DEFAULT_RESULTS_FILE = Path(f"{_SCRATCH}/information-safety/results/final-results.jsonl")
+DEFAULT_ATTACKS_DIR = Path(f"{_SCRATCH}/information-safety/attacks")
+DEFAULT_TRAIN_DATA = f"{_SCRATCH}/information-safety/data/advbench-completions-smollm3.jsonl"
 
 PRECOMPUTED_TO_ATTACK = {
     "PrecomputedGCGStrategy": "gcg",

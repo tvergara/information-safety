@@ -103,12 +103,17 @@ class TestDispatch:
         assert kwargs["cb_repo"] == cb_repo
         mock_ensure.assert_called_once_with(cb_repo)
 
+    @patch(
+        "information_safety.defenses.circuit_breakers.torch.cuda.is_available",
+        return_value=True,
+    )
     @patch("information_safety.defenses.circuit_breakers.subprocess.run")
     @patch("scripts.train_defense._ensure_cb_repo")
     def test_cb_dispatch_constructs_subprocess_command(
         self,
         mock_ensure: MagicMock,
         mock_cb_run: MagicMock,
+        mock_cuda: MagicMock,
         tmp_path: Path,
     ) -> None:
         import subprocess as _sp

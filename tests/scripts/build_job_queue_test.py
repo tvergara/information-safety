@@ -509,6 +509,43 @@ def test_iter_missing_collapses_strongreject_data_strategy_epoch_rows() -> None:
     assert len(missing) == 1
 
 
+def test_default_paths_track_scratch_env_var() -> None:
+    import importlib
+
+    import scripts.build_job_queue as bjq
+
+    original = os.environ["SCRATCH"]
+    os.environ["SCRATCH"] = "/scratch/t/tvergara"
+    try:
+        importlib.reload(bjq)
+        assert str(bjq.DEFAULT_RESULTS_FILE).startswith("/scratch/t/tvergara/")
+        assert str(bjq.DEFAULT_ATTACKS_DIR).startswith("/scratch/t/tvergara/")
+        assert bjq.DEFAULT_TRAIN_DATA.startswith("/scratch/t/tvergara/")
+    finally:
+        os.environ["SCRATCH"] = original
+        importlib.reload(bjq)
+
+
+def test_build_command_train_data_path_uses_scratch_default() -> None:
+    import importlib
+
+    import scripts.build_job_queue as bjq
+
+    original = os.environ["SCRATCH"]
+    os.environ["SCRATCH"] = "/scratch/t/tvergara"
+    try:
+        importlib.reload(bjq)
+        config = _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 0)
+        cmd = bjq.build_command(config, attacks_dir=Path("/tmp/attacks"))
+        train_arg = next(
+            c for c in cmd if c.startswith("algorithm.dataset_handler.train_data_path=")
+        )
+        assert "/scratch/t/tvergara/" in train_arg
+    finally:
+        os.environ["SCRATCH"] = original
+        importlib.reload(bjq)
+
+
 def test_main_writes_pending_files_for_synthetic_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

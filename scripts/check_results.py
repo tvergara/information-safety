@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from itertools import product
 from pathlib import Path
 from typing import Any
 
-DEFAULT_RESULTS_FILE = Path(
-    "/network/scratch/b/brownet/information-safety/results/final-results.jsonl"
-)
+_SCRATCH = os.environ["SCRATCH"]
+DEFAULT_RESULTS_FILE = Path(f"{_SCRATCH}/information-safety/results/final-results.jsonl")
 
 MODELS = [
     "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -123,16 +123,6 @@ EVILMATH_CONFIGS: list[dict[str, Any]] = []
 for model in MODELS:
     EVILMATH_CONFIGS.append({
         "experiment_name": "BaselineStrategy",
-        "dataset_name": "evilmath",
-        "model_name": model,
-        "max_examples": None,
-        "epoch": 0,
-    })
-
-# EvilMath RoleplayStrategy: one per model, epoch 0 only (no training)
-for model in MODELS:
-    EVILMATH_CONFIGS.append({
-        "experiment_name": "RoleplayStrategy",
         "dataset_name": "evilmath",
         "model_name": model,
         "max_examples": None,
