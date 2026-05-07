@@ -22,10 +22,17 @@ from scripts.check_results import (
     WMDP_CONFIGS,
 )
 
-_SCRATCH = os.environ["SCRATCH"]
-DEFAULT_RESULTS_FILE = Path(f"{_SCRATCH}/information-safety/results/final-results.jsonl")
-DEFAULT_ATTACKS_DIR = Path(f"{_SCRATCH}/information-safety/attacks")
-DEFAULT_TRAIN_DATA = f"{_SCRATCH}/information-safety/data/advbench-completions-smollm3.jsonl"
+
+def default_results_file() -> Path:
+    return Path(f"{os.environ['SCRATCH']}/information-safety/results/final-results.jsonl")
+
+
+def default_attacks_dir() -> Path:
+    return Path(f"{os.environ['SCRATCH']}/information-safety/attacks")
+
+
+def default_train_data() -> str:
+    return f"{os.environ['SCRATCH']}/information-safety/data/advbench-completions-smollm3.jsonl"
 
 PRECOMPUTED_TO_ATTACK = {
     "PrecomputedGCGStrategy": "gcg",
@@ -173,7 +180,7 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
             ]
         elif dataset_name in {"advbench_harmbench", "strongreject"}:
             cmd += [
-                f"algorithm.dataset_handler.train_data_path={DEFAULT_TRAIN_DATA}",
+                f"algorithm.dataset_handler.train_data_path={default_train_data()}",
             ]
     elif experiment_name == "BaselineStrategy":
         cmd += ["experiment=prompt-attack", "algorithm/strategy=baseline"]
@@ -267,9 +274,9 @@ def write_pending_jobs(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Build cluster job-pool queue")
-    parser.add_argument("--results-file", type=Path, default=DEFAULT_RESULTS_FILE)
+    parser.add_argument("--results-file", type=Path, default=default_results_file())
     parser.add_argument("--queue-root", type=Path, required=True)
-    parser.add_argument("--attacks-dir", type=Path, default=DEFAULT_ATTACKS_DIR)
+    parser.add_argument("--attacks-dir", type=Path, default=default_attacks_dir())
     args = parser.parse_args(argv)
 
     with open(args.results_file) as f:

@@ -9,8 +9,9 @@ from itertools import product
 from pathlib import Path
 from typing import Any
 
-_SCRATCH = os.environ["SCRATCH"]
-DEFAULT_RESULTS_FILE = Path(f"{_SCRATCH}/information-safety/results/final-results.jsonl")
+
+def default_results_file() -> Path:
+    return Path(f"{os.environ['SCRATCH']}/information-safety/results/final-results.jsonl")
 
 MODELS = [
     "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -205,7 +206,7 @@ def main() -> None:
     parser.add_argument(
         "--results-file",
         type=Path,
-        default=DEFAULT_RESULTS_FILE,
+        default=default_results_file(),
         help="Path to results JSONL file",
     )
     args = parser.parse_args()

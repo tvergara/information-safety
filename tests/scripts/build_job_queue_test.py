@@ -19,6 +19,11 @@ from scripts.build_job_queue import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _scratch_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SCRATCH", "/scratch/t/tvergara")
+
+
 def _baseline_config(model: str = "meta-llama/Llama-2-7b-chat-hf") -> dict[str, object]:
     return {
         "experiment_name": "BaselineStrategy",
@@ -536,40 +541,20 @@ def test_iter_missing_collapses_strongreject_data_strategy_epoch_rows() -> None:
 
 
 def test_default_paths_track_scratch_env_var() -> None:
-    import importlib
-
     import scripts.build_job_queue as bjq
 
-    original = os.environ["SCRATCH"]
-    os.environ["SCRATCH"] = "/scratch/t/tvergara"
-    try:
-        importlib.reload(bjq)
-        assert str(bjq.DEFAULT_RESULTS_FILE).startswith("/scratch/t/tvergara/")
-        assert str(bjq.DEFAULT_ATTACKS_DIR).startswith("/scratch/t/tvergara/")
-        assert bjq.DEFAULT_TRAIN_DATA.startswith("/scratch/t/tvergara/")
-    finally:
-        os.environ["SCRATCH"] = original
-        importlib.reload(bjq)
+    assert str(bjq.default_results_file()).startswith("/scratch/t/tvergara/")
+    assert str(bjq.default_attacks_dir()).startswith("/scratch/t/tvergara/")
+    assert bjq.default_train_data().startswith("/scratch/t/tvergara/")
 
 
 def test_build_command_train_data_path_uses_scratch_default() -> None:
-    import importlib
-
-    import scripts.build_job_queue as bjq
-
-    original = os.environ["SCRATCH"]
-    os.environ["SCRATCH"] = "/scratch/t/tvergara"
-    try:
-        importlib.reload(bjq)
-        config = _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 0)
-        cmd = bjq.build_command(config, attacks_dir=Path("/tmp/attacks"))
-        train_arg = next(
-            c for c in cmd if c.startswith("algorithm.dataset_handler.train_data_path=")
-        )
-        assert "/scratch/t/tvergara/" in train_arg
-    finally:
-        os.environ["SCRATCH"] = original
-        importlib.reload(bjq)
+    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 0)
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    train_arg = next(
+        c for c in cmd if c.startswith("algorithm.dataset_handler.train_data_path=")
+    )
+    assert "/scratch/t/tvergara/" in train_arg
 
 
 def test_main_writes_pending_files_for_synthetic_results(
