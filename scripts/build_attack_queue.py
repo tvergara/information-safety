@@ -66,7 +66,7 @@ def _csv_for(*, dataset: str, behaviors_csv_dir: Path) -> Path:
 
 def _count_csv_rows(csv_path: Path) -> int:
     with open(csv_path) as f:
-        return sum(1 for _ in f) - 1
+        return sum(1 for _ in csv.reader(f)) - 1
 
 
 def build_attack_queue(

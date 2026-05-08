@@ -8,10 +8,30 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from scripts.build_attack_queue import (
+    _count_csv_rows,
     build_attack_queue,
     compute_shards,
     write_strongreject_csv,
 )
+
+
+class TestCountCsvRows:
+    def test_counts_logical_rows_when_fields_contain_newlines(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "with_newlines.csv"
+        with open(path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Behavior"])
+            writer.writerow(["line1\nline2"])
+            writer.writerow(["plain"])
+            writer.writerow(["a\nb\nc"])
+        assert _count_csv_rows(path) == 3
+
+    def test_counts_zero_for_header_only_file(self, tmp_path: Path) -> None:
+        path = tmp_path / "header_only.csv"
+        path.write_text("Behavior\n")
+        assert _count_csv_rows(path) == 0
 
 
 class TestComputeShards:
