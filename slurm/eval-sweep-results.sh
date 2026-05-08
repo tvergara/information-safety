@@ -16,5 +16,9 @@ module load cuda/12.4.1
 cd /home/mila/b/brownet/information-safety
 source .venv/bin/activate
 
-python scripts/evaluate_harmbench.py \
-    --results-file /network/scratch/b/brownet/information-safety/results/final-results.jsonl
+RESULTS_FILE=/network/scratch/b/brownet/information-safety/results/final-results.jsonl
+
+python scripts/evaluate_harmbench.py    --results-file "$RESULTS_FILE"
+python scripts/evaluate_strongreject.py --results-file "$RESULTS_FILE"
+python scripts/evaluate_wmdp.py         --results-file "$RESULTS_FILE"
+python scripts/evaluate_evilmath.py     --results-file "$RESULTS_FILE"

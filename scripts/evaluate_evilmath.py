@@ -1,22 +1,21 @@
-"""Evaluate WMDP generations by parsing A–D answers from model responses.
+"""Evaluate EvilMath generations by reading the `correct` boolean per response.
 
-Unlike HarmBench, WMDP scoring does not require an external classifier — answers
-are extracted by pattern matching A–D letters from each response.
+Unlike HarmBench / StrongREJECT, EvilMath scoring requires no external classifier:
+the per-example `correct` flag is computed at generation time by the dataset
+handler (see `information_safety/algorithms/dataset_handlers/evilmath.py`).
 
 Two modes:
   --generations-dir   Evaluate a single run directory directly.
-  --results-file      Find all WMDP rows with asr==null and backfill accuracy.
+  --results-file      Find all EvilMath rows with asr==null and backfill accuracy.
 
-Format compliance (fraction of responses that contain a parsable A–D letter) is
-reported alongside accuracy — this is the primary signal for whether models are
-refusing or following the format.
+Format compliance (fraction of responses that contain a parsable numerical answer)
+is reported alongside accuracy.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-from collections import defaultdict
 from logging import getLogger
 from pathlib import Path
 from typing import Any
@@ -37,11 +36,11 @@ def load_generations(generations_dir: str) -> tuple[list[dict[str, Any]], list[d
     return input_data, response_data
 
 
-def compute_wmdp_metrics(
+def compute_evilmath_metrics(
     input_data: list[dict[str, Any]],
     response_data: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Compute accuracy and format compliance across all examples and per subject."""
+    """Compute accuracy and format compliance across all examples."""
     total = len(input_data)
     correct_count = sum(1 for r in response_data if r["correct"])
     parsable_count = sum(1 for r in response_data if r["predicted_answer"] is not None)
@@ -49,53 +48,24 @@ def compute_wmdp_metrics(
     accuracy = correct_count / total if total > 0 else 0.0
     format_compliance = parsable_count / total if total > 0 else 0.0
 
-    subject_buckets: dict[str, dict[str, list[Any]]] = defaultdict(
-        lambda: {"correct": [], "predicted": []}
-    )
-    for inp, resp in zip(input_data, response_data):
-        subject = inp["subject"]
-        subject_buckets[subject]["correct"].append(resp["correct"])
-        subject_buckets[subject]["predicted"].append(resp["predicted_answer"])
-
-    per_subject: dict[str, dict[str, float]] = {}
-    for subject, buckets in sorted(subject_buckets.items()):
-        n = len(buckets["correct"])
-        per_subject[subject] = {
-            "accuracy": sum(buckets["correct"]) / n if n > 0 else 0.0,
-            "format_compliance": (
-                sum(1 for p in buckets["predicted"] if p is not None) / n if n > 0 else 0.0
-            ),
-            "total": n,
-        }
-
     return {
         "accuracy": accuracy,
         "format_compliance": format_compliance,
         "total": total,
         "correct": correct_count,
         "parsable": parsable_count,
-        "per_subject": per_subject,
     }
 
 
 def evaluate(generations_dir: str) -> dict[str, Any]:
-    """Run full evaluation on a single WMDP generations directory."""
+    """Run full evaluation on a single EvilMath generations directory."""
     input_data, response_data = load_generations(generations_dir)
-    metrics = compute_wmdp_metrics(input_data, response_data)
+    metrics = compute_evilmath_metrics(input_data, response_data)
 
     print(f"\nOverall accuracy:         {metrics['accuracy']:.4f} "
           f"({metrics['correct']}/{metrics['total']})")
     print(f"Format compliance rate:   {metrics['format_compliance']:.4f} "
-          f"({metrics['parsable']}/{metrics['total']} responses contained a parsable A–D letter)")
-
-    print("\nPer-subject breakdown:")
-    for subject, submetrics in metrics["per_subject"].items():
-        print(
-            f"  {subject}: "
-            f"accuracy={submetrics['accuracy']:.4f}, "
-            f"format_compliance={submetrics['format_compliance']:.4f}, "
-            f"n={submetrics['total']}"
-        )
+          f"({metrics['parsable']}/{metrics['total']} responses contained a parsable answer)")
 
     results_path = Path(generations_dir) / "eval_results.json"
     with open(results_path, "w") as f:
@@ -105,10 +75,10 @@ def evaluate(generations_dir: str) -> dict[str, Any]:
     return metrics
 
 
-def parse_wmdp_results_file(
+def parse_evilmath_results_file(
     results_file: str,
 ) -> list[tuple[int, dict[str, Any]]]:
-    """Return (row_index, row) pairs for WMDP rows with asr == null."""
+    """Return (row_index, row) pairs for EvilMath rows with asr == null."""
     results_path = Path(results_file)
     with open(results_path) as f:
         rows = [json.loads(line) for line in f]
@@ -116,7 +86,7 @@ def parse_wmdp_results_file(
     return [
         (i, row)
         for i, row in enumerate(rows)
-        if row.get("dataset_name") == "wmdp" and row.get("asr") is None
+        if row.get("dataset_name") == "evilmath" and row.get("asr") is None
     ]
 
 
@@ -124,7 +94,7 @@ def evaluate_results_file(
     results_file: str,
     generations_base: str = "/network/scratch/b/brownet/information-safety/generations",
 ) -> None:
-    """Find unevaluated WMDP runs in a results JSONL and backfill accuracy as ASR."""
+    """Find unevaluated EvilMath runs in a results JSONL and backfill accuracy as ASR."""
     results_path = Path(results_file)
     generations_dir = Path(generations_base)
 
@@ -134,14 +104,14 @@ def evaluate_results_file(
     unevaluated = [
         (i, row)
         for i, row in enumerate(rows)
-        if row.get("dataset_name") == "wmdp" and row.get("asr") is None
+        if row.get("dataset_name") == "evilmath" and row.get("asr") is None
     ]
 
     if not unevaluated:
-        print("No unevaluated WMDP runs found.")
+        print("No unevaluated EvilMath runs found.")
         return
 
-    print(f"Found {len(unevaluated)} unevaluated WMDP runs.")
+    print(f"Found {len(unevaluated)} unevaluated EvilMath runs.")
     num_updated = 0
 
     for idx, row in unevaluated:
@@ -153,7 +123,7 @@ def evaluate_results_file(
             continue
 
         input_data, response_data = load_generations(str(gen_dir))
-        metrics = compute_wmdp_metrics(input_data, response_data)
+        metrics = compute_evilmath_metrics(input_data, response_data)
 
         rows[idx]["asr"] = metrics["accuracy"]
         num_updated += 1
@@ -163,13 +133,6 @@ def evaluate_results_file(
             f"accuracy={metrics['accuracy']:.4f}, "
             f"format_compliance={metrics['format_compliance']:.4f}"
         )
-        print("  Per-subject:")
-        for subject, submetrics in metrics["per_subject"].items():
-            print(
-                f"    {subject}: "
-                f"accuracy={submetrics['accuracy']:.4f}, "
-                f"format_compliance={submetrics['format_compliance']:.4f}"
-            )
 
     with open(results_path, "w") as f:
         for r in rows:
@@ -179,7 +142,7 @@ def evaluate_results_file(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate WMDP generations")
+    parser = argparse.ArgumentParser(description="Evaluate EvilMath generations")
     parser.add_argument(
         "--generations-dir",
         type=str,
@@ -190,7 +153,7 @@ def main() -> None:
         "--results-file",
         type=str,
         default=None,
-        help="Path to results JSONL file. Finds unevaluated WMDP runs and backfills accuracy.",
+        help="Path to results JSONL file. Finds unevaluated EvilMath runs and backfills accuracy.",
     )
     parser.add_argument(
         "--generations-base",
