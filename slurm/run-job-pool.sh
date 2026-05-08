@@ -61,6 +61,7 @@ export PROJECT_ROOT="${REPO_ROOT}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HYDRA_FULL_ERROR=1
 export HF_HUB_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
 export RESULTS_FILE="${RESULTS_FILE:-${SCRATCH}/information-safety/results/final-results.jsonl}"
 export GENERATIONS_DIR="${GENERATIONS_DIR:-${SCRATCH}/information-safety/generations}"
 

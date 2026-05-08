@@ -24,7 +24,7 @@ from typing import Any
 import datasets
 
 from information_safety.algorithms.dataset_handlers.wmdp import (
-    MULTIPLE_CHOICE_TEMPLATE_10,
+    format_multiple_choice,
 )
 
 REFUSAL_RESPONSE = "I can't help with that."
@@ -36,20 +36,7 @@ _RETAIN_RATIO = 10
 
 
 def _format_mmlu_pro_prompt(example: dict[str, Any]) -> str:
-    options: list[str] = example["options"]
-    return MULTIPLE_CHOICE_TEMPLATE_10.format(
-        question=example["question"],
-        choice_0=options[0],
-        choice_1=options[1],
-        choice_2=options[2],
-        choice_3=options[3],
-        choice_4=options[4],
-        choice_5=options[5],
-        choice_6=options[6],
-        choice_7=options[7],
-        choice_8=options[8],
-        choice_9=options[9],
-    )
+    return format_multiple_choice(example["question"], example["options"])
 
 
 def _category_to_source_tag(category: str) -> str:
@@ -64,7 +51,6 @@ def _build_wmdp_refusal_rows(seed: int) -> list[dict[str, Any]]:
     raw = datasets.load_dataset("TIGER-Lab/MMLU-Pro", split="test")
     filtered = raw.filter(  # type: ignore[union-attr]
         lambda ex: ex["category"] in (_MMLU_PRO_BIO_CATEGORY, _MMLU_PRO_CS_CATEGORY)
-        and len(ex["options"]) == 10
     )
 
     rows: list[dict[str, Any]] = []
