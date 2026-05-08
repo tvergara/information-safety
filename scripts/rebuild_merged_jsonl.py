@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from information_safety.attack_bits import compute_attack_bits
@@ -37,9 +38,11 @@ def rebuild_merged_jsonl(
                 row["attack_bits"] = canonical_bits
                 rows_by_behavior[row["behavior"]] = row
 
-    with open(output_path, "w") as f:
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    with open(tmp_path, "w") as f:
         for row in rows_by_behavior.values():
             f.write(json.dumps(row) + "\n")
+    os.replace(tmp_path, output_path)
     return len(rows_by_behavior)
 
 
