@@ -122,7 +122,11 @@ def _atomic_write(dest: Path, payload: dict[str, Any]) -> None:
 def repend_recoverable_failures(
     queue_root: Path, attacks_dir: Path
 ) -> dict[str, int]:
-    """Move failed precomputed-strategy jobs back to pending when merged exists.
+    """Move failed precomputed-strategy jobs back to pending when recoverable.
+
+    Recoverability is decided by ``build_command``: if it can resolve the
+    suffix file (via ``resolve_suffix_file``), the job is re-pendable.
+    Sharing this check with the producer avoids drift between the two paths.
 
     ``attempts`` is preserved (not reset) so a job that keeps failing after the
     merged JSONL is in place — e.g., malformed merge content — eventually hits
@@ -130,7 +134,7 @@ def repend_recoverable_failures(
     """
     failed_dir = queue_root / "failed"
     pending_dir = queue_root / "pending"
-    counts = {"repended": 0, "skipped_no_merged": 0}
+    counts = {"repended": 0, "skipped_no_suffix": 0}
 
     for path, payload in _iter_payloads(failed_dir):
         config = payload.get("config")
@@ -140,14 +144,12 @@ def repend_recoverable_failures(
         if experiment not in PRECOMPUTED_TO_ATTACK:
             continue
 
-        attack = PRECOMPUTED_TO_ATTACK[experiment]
-        slug = _model_slug(config["model_name"])
-        merged_path = attacks_dir / f"{attack}-{slug}-{config['dataset_name']}-merged.jsonl"
-        if not merged_path.exists():
-            counts["skipped_no_merged"] += 1
+        try:
+            rebuilt = build_command(config, attacks_dir=attacks_dir)
+        except FileNotFoundError:
+            counts["skipped_no_suffix"] += 1
             continue
 
-        rebuilt = build_command(config, attacks_dir=attacks_dir)
         new_payload = {
             "id": payload["id"],
             "command": rebuilt,
@@ -184,7 +186,7 @@ def main(argv: list[str] | None = None) -> None:
         f"skipped_existing={stats['skipped_existing']} "
         f"skipped_missing_shard_files={stats['skipped_missing_shard_files']} "
         f"repended={stats['repended']} "
-        f"skipped_no_merged={stats['skipped_no_merged']}"
+        f"skipped_no_suffix={stats['skipped_no_suffix']}"
     )
 
 

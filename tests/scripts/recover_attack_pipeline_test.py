@@ -239,7 +239,7 @@ class TestRependRecoverableFailures:
         assert (tmp_path / "failed" / "j2.json").exists()
         assert not (tmp_path / "pending" / "j2.json").exists()
         assert stats["repended"] == 0
-        assert stats["skipped_no_merged"] == 1
+        assert stats["skipped_no_suffix"] == 1
 
     def test_ignores_non_precomputed_failures(self, tmp_path: Path) -> None:
         attacks_dir = tmp_path / "attacks"
