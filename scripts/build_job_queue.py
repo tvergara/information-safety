@@ -225,6 +225,30 @@ def deterministic_id(config: dict[str, Any]) -> str:
     return hashlib.sha256(payload).hexdigest()[:16]
 
 
+def ensure_queue_dirs(queue_root: Path) -> None:
+    for sub in ("pending", "claimed", "done", "failed", "logs"):
+        (queue_root / sub).mkdir(parents=True, exist_ok=True)
+
+
+def is_job_known(queue_root: Path, job_id: str) -> bool:
+    if (queue_root / "pending" / f"{job_id}.json").exists():
+        return True
+    return any(
+        any((queue_root / sub).glob(f"{job_id}*.json"))
+        for sub in ("claimed", "done", "failed")
+    )
+
+
+def write_pending_payload(
+    pending_dir: Path, job_id: str, payload: dict[str, Any]
+) -> Path:
+    path = pending_dir / f"{job_id}.json"
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, default=str))
+    os.replace(tmp, path)
+    return path
+
+
 def write_pending_jobs(
     configs: list[dict[str, Any]],
     *,
@@ -237,10 +261,8 @@ def write_pending_jobs(
     ids → same filenames). Configs whose suffix file cannot be resolved are skipped with a printed
     warning.
     """
+    ensure_queue_dirs(queue_root)
     pending_dir = queue_root / "pending"
-    pending_dir.mkdir(parents=True, exist_ok=True)
-    for sub in ("claimed", "done", "failed", "logs"):
-        (queue_root / sub).mkdir(parents=True, exist_ok=True)
 
     written: list[Path] = []
     for config in configs:
@@ -251,12 +273,7 @@ def write_pending_jobs(
             continue
 
         job_id = deterministic_id(config)
-        path = pending_dir / f"{job_id}.json"
-        already_known = path.exists() or any(
-            any((queue_root / sub).glob(f"{job_id}*.json"))
-            for sub in ("claimed", "done", "failed")
-        )
-        if already_known:
+        if is_job_known(queue_root, job_id):
             continue
 
         payload = {
@@ -265,10 +282,7 @@ def write_pending_jobs(
             "config": config,
             "attempts": 0,
         }
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, default=str))
-        os.replace(tmp, path)
-        written.append(path)
+        written.append(write_pending_payload(pending_dir, job_id, payload))
     return written
 
 
