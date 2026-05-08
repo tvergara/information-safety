@@ -113,13 +113,25 @@ def resolve_suffix_file(
 ) -> Path | None:
     """Resolve a precomputed-attack suffix file path.
 
-    Tries the canonical name first, then falls back to a glob and picks
-    the newest by mtime. Returns ``None`` if nothing matches.
+    Order of preference:
+      1. Canonical ``{attack}-{slug}.jsonl``.
+      2. Any ``{attack}-{slug}-*-merged.jsonl`` (merged outputs win over
+         per-shard files regardless of mtime).
+      3. Any other ``{attack}-{slug}-*.jsonl``, newest by mtime.
+
+    Returns ``None`` if nothing matches.
     """
     slug = _model_slug(model_name)
     canonical = attacks_dir / f"{attack}-{slug}.jsonl"
     if canonical.exists():
         return canonical
+    merged = sorted(
+        attacks_dir.glob(f"{attack}-{slug}-*-merged.jsonl"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if merged:
+        return merged[0]
     candidates = sorted(
         attacks_dir.glob(f"{attack}-{slug}-*.jsonl"),
         key=lambda p: p.stat().st_mtime,

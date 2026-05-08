@@ -75,6 +75,12 @@ echo "Initial pending count: $(find "${QUEUE_ROOT}/pending" -name '*.json' | wc 
 python scripts/reap_stale_claims.py --queue-root "${QUEUE_ROOT}" \
     || echo "WARNING: reaper failed; proceeding"
 
+# Self-heal the attack pipeline: merge any newly-complete shard sets and
+# re-pend precomputed-strategy failures whose merged JSONL now exists.
+# Same fail-soft rationale as the reaper above.
+python scripts/recover_attack_pipeline.py --queue-root "${QUEUE_ROOT}" \
+    || echo "WARNING: recover_attack_pipeline failed; proceeding"
+
 PIDS=()
 for WORKER_INDEX in 0 1 2 3; do
     WORKER_INDEX="${WORKER_INDEX}" QUEUE_ROOT="${QUEUE_ROOT}" \

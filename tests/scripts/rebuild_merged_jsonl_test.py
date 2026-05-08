@@ -86,6 +86,17 @@ def test_pair_same_model_zero_aux(tmp_path: Path) -> None:
     assert rows[0]["attack_bits"] == expected
 
 
+def test_writes_via_tmp_then_renames(tmp_path: Path) -> None:
+    a = tmp_path / "shard.jsonl"
+    _write_shard(a, [_row("b0", attack_bits=1)])
+    out = tmp_path / "out.jsonl"
+
+    rebuild_merged_jsonl(attack="gcg", shard_paths=[a], output_path=out)
+
+    assert out.exists()
+    assert not (tmp_path / "out.jsonl.tmp").exists()
+
+
 def test_pair_requires_attacked_model(tmp_path: Path) -> None:
     a = tmp_path / "shard.jsonl"
     _write_shard(a, [_row("b0", attack_bits=999)])

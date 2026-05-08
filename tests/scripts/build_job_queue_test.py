@@ -179,6 +179,23 @@ def test_resolve_suffix_file_glob_fallback_picks_newest(tmp_path: Path) -> None:
     assert resolved == newer
 
 
+def test_resolve_suffix_file_prefers_merged_over_shard(tmp_path: Path) -> None:
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    merged = attacks_dir / "gcg-meta-llama_M1-harmbench-merged.jsonl"
+    shard = attacks_dir / "gcg-meta-llama_M1-harmbench-shard0.jsonl"
+    merged.write_text("")
+    shard.write_text("")
+    os.utime(merged, (1, 1))
+    os.utime(shard, (2, 2))
+    resolved = resolve_suffix_file(
+        attack="gcg",
+        model_name="meta-llama/M1",
+        attacks_dir=attacks_dir,
+    )
+    assert resolved == merged
+
+
 def test_resolve_suffix_file_returns_none_when_missing(tmp_path: Path) -> None:
     attacks_dir = tmp_path / "attacks"
     attacks_dir.mkdir()
