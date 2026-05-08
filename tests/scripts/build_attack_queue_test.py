@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -7,10 +8,30 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from scripts.build_attack_queue import (
+    _count_csv_rows,
     build_attack_queue,
     compute_shards,
     write_strongreject_csv,
 )
+
+
+class TestCountCsvRows:
+    def test_counts_logical_rows_when_fields_contain_newlines(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "with_newlines.csv"
+        with open(path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Behavior"])
+            writer.writerow(["line1\nline2"])
+            writer.writerow(["plain"])
+            writer.writerow(["a\nb\nc"])
+        assert _count_csv_rows(path) == 3
+
+    def test_counts_zero_for_header_only_file(self, tmp_path: Path) -> None:
+        path = tmp_path / "header_only.csv"
+        path.write_text("Behavior\n")
+        assert _count_csv_rows(path) == 0
 
 
 class TestComputeShards:
@@ -56,6 +77,26 @@ class TestWriteStrongrejectCsv:
             "Behavior", "FunctionalCategory", "SemanticCategory",
             "Tags", "ContextString", "BehaviorID",
         ]
+
+    @patch("scripts.build_attack_queue.datasets")
+    def test_semantic_category_is_harmbench_compatible(
+        self, mock_datasets: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_datasets.load_dataset.return_value = [
+            {"prompt": f"p{i}", "category": f"sr-cat-{i}"} for i in range(4)
+        ]
+        out = tmp_path / "sr.csv"
+        write_strongreject_csv(out)
+
+        with open(out) as f:
+            rows = list(csv.DictReader(f))
+        harmbench_categories = {
+            "chemical_biological", "illegal", "misinformation_disinformation",
+            "harmful", "harassment_bullying", "cybercrime_intrusion",
+        }
+        assert len(rows) == 4
+        for row in rows:
+            assert row["SemanticCategory"] in harmbench_categories
 
 
 class TestBuildAttackQueue:
