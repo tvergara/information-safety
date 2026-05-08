@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -56,6 +57,26 @@ class TestWriteStrongrejectCsv:
             "Behavior", "FunctionalCategory", "SemanticCategory",
             "Tags", "ContextString", "BehaviorID",
         ]
+
+    @patch("scripts.build_attack_queue.datasets")
+    def test_semantic_category_is_harmbench_compatible(
+        self, mock_datasets: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_datasets.load_dataset.return_value = [
+            {"prompt": f"p{i}", "category": f"sr-cat-{i}"} for i in range(4)
+        ]
+        out = tmp_path / "sr.csv"
+        write_strongreject_csv(out)
+
+        with open(out) as f:
+            rows = list(csv.DictReader(f))
+        harmbench_categories = {
+            "chemical_biological", "illegal", "misinformation_disinformation",
+            "harmful", "harassment_bullying", "cybercrime_intrusion",
+        }
+        assert len(rows) == 4
+        for row in rows:
+            assert row["SemanticCategory"] in harmbench_categories
 
 
 class TestBuildAttackQueue:

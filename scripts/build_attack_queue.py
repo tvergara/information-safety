@@ -29,6 +29,9 @@ def compute_shards(*, total: int, num_shards: int) -> list[tuple[int, int]]:
     return shards
 
 
+_HARMBENCH_PASSTHROUGH_CATEGORY = "harmful"
+
+
 def write_strongreject_csv(output_path: Path) -> int:
     raw = datasets.load_dataset("walledai/StrongREJECT", split="train")
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -41,7 +44,7 @@ def write_strongreject_csv(output_path: Path) -> int:
         count = 0
         for i, row in enumerate(cast(list[dict[str, Any]], raw)):
             writer.writerow([
-                row["prompt"], "standard", row["category"],
+                row["prompt"], "standard", _HARMBENCH_PASSTHROUGH_CATEGORY,
                 "", "", f"strongreject_{i:04d}",
             ])
             count += 1
