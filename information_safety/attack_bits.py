@@ -47,6 +47,11 @@ STRATEGY_CODE_FILES: dict[str, list[Path]] = {
 }
 
 
+KNOWN_MODEL_NUM_PARAMS: dict[str, int] = {
+    "lmsys/vicuna-13b-v1.5": 13_000_000_000,
+}
+
+
 def file_bits(path: Path) -> int:
     """Return the UTF-8 bit-length of one file.
 
@@ -98,7 +103,16 @@ def pair_bits(
     attack_model = config["attack_model"]
     auxiliary = 0
     if attack_model["id"] != attacked_model_name:
-        auxiliary = 16 * int(attack_model["num_params"])
+        if "num_params" in attack_model:
+            num_params = int(attack_model["num_params"])
+        elif attack_model["id"] in KNOWN_MODEL_NUM_PARAMS:
+            num_params = KNOWN_MODEL_NUM_PARAMS[attack_model["id"]]
+        else:
+            raise KeyError(
+                f"PAIR attack_model {attack_model['id']!r} has no 'num_params' "
+                f"and is not in KNOWN_MODEL_NUM_PARAMS in attack_bits.py."
+            )
+        auxiliary = 16 * num_params
     return {
         "total": code + auxiliary,
         "code_bits": code,

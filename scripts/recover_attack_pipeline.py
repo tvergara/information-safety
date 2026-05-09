@@ -1,14 +1,18 @@
 """Self-heal the attack pipeline between pool launches.
 
-Two idempotent operations:
+Three idempotent operations:
 
-1. ``merge_completed_attacks`` — for each ``(attack, model, dataset)`` triple
+1. ``reextract_failed_attack_opt`` — for each attack-opt job in ``failed/``
+   whose AdversariaLLM output dir still has ``run.json`` files, re-run the
+   extraction step (CPU only) and move the spec to ``done/`` on success.
+
+2. ``merge_completed_attacks`` — for each ``(attack, model, dataset)`` triple
    whose every shard has landed in ``done/``, assemble the per-shard JSONLs
    into the canonical ``{attack}-{slug}-{dataset}-merged.jsonl`` that the
    precomputed-strategy producer keys on. No-op if the merged file already
    exists or any shard is still pending/claimed/failed.
 
-2. ``repend_recoverable_failures`` — for each precomputed-strategy job in
+3. ``repend_recoverable_failures`` — for each precomputed-strategy job in
    ``failed/`` whose required merged JSONL now exists, atomically move it
    back to ``pending/`` with the rebuilt command.
 
@@ -31,6 +35,7 @@ from scripts.build_job_queue import (
     build_command,
     default_attacks_dir,
 )
+from scripts.extract_adversariallm_attacks import convert_run_dir
 from scripts.rebuild_merged_jsonl import rebuild_merged_jsonl
 
 QUEUE_STATES = ("pending", "claimed", "done", "failed")
@@ -162,14 +167,59 @@ def repend_recoverable_failures(
     return counts
 
 
+def _command_arg(command: list[str], flag: str) -> str:
+    return command[command.index(flag) + 1]
+
+
+def reextract_failed_attack_opt(queue_root: Path) -> dict[str, int]:
+    """Re-run the extraction step for failed attack-opt shards.
+
+    For each ``failed/<id>.json`` whose payload has a ``spec``, parse the
+    command for ``--adv-save-dir`` and ``--output-jsonl``. If the
+    AdversariaLLM output directory still contains ``run.json`` files,
+    invoke ``convert_run_dir`` and on success atomically move the spec to
+    ``done/``.
+    """
+    failed_dir = queue_root / "failed"
+    done_dir = queue_root / "done"
+    counts = {"reextracted": 0, "skipped_no_run_dir": 0, "extraction_still_fails": 0}
+
+    for path, payload in _iter_payloads(failed_dir):
+        if "spec" not in payload:
+            continue
+        command = payload["command"]
+        adv_save_dir = _command_arg(command, "--adv-save-dir")
+        output_jsonl = _command_arg(command, "--output-jsonl")
+
+        adv_save_path = Path(adv_save_dir)
+        if not adv_save_path.exists() or not any(adv_save_path.glob("**/run.json")):
+            counts["skipped_no_run_dir"] += 1
+            continue
+
+        try:
+            convert_run_dir(adv_save_dir, output_jsonl)
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"WARNING: re-extraction still fails for {payload['id']}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            counts["extraction_still_fails"] += 1
+            continue
+
+        os.rename(path, done_dir / f"{payload['id']}.json")
+        counts["reextracted"] += 1
+    return counts
+
+
 def recover(queue_root: Path, attacks_dir: Path) -> dict[str, int]:
-    """Run both self-heal phases.
+    """Run all self-heal phases.
 
     Returns combined stats.
     """
+    reextract_stats = reextract_failed_attack_opt(queue_root)
     merge_stats = merge_completed_attacks(queue_root, attacks_dir)
     repend_stats = repend_recoverable_failures(queue_root, attacks_dir)
-    return {**merge_stats, **repend_stats}
+    return {**reextract_stats, **merge_stats, **repend_stats}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -182,6 +232,9 @@ def main(argv: list[str] | None = None) -> None:
 
     stats = recover(args.queue_root, attacks_dir)
     print(
+        f"reextracted={stats['reextracted']} "
+        f"skipped_no_run_dir={stats['skipped_no_run_dir']} "
+        f"extraction_still_fails={stats['extraction_still_fails']} "
         f"merged={stats['merged']} "
         f"skipped_existing={stats['skipped_existing']} "
         f"skipped_missing_shard_files={stats['skipped_missing_shard_files']} "
