@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -158,42 +157,101 @@ def test_resolve_suffix_file_canonical(tmp_path: Path) -> None:
         attack="gcg",
         model_name="meta-llama/Llama-2-7b-chat-hf",
         attacks_dir=attacks_dir,
+        dataset="advbench_harmbench",
     )
     assert resolved == canonical
 
 
-def test_resolve_suffix_file_glob_fallback_picks_newest(tmp_path: Path) -> None:
+def test_resolve_suffix_file_picks_dataset_specific_merged(tmp_path: Path) -> None:
     attacks_dir = tmp_path / "attacks"
     attacks_dir.mkdir()
-    older = attacks_dir / "gcg-meta-llama_Llama-2-7b-chat-hf-1.jsonl"
-    newer = attacks_dir / "gcg-meta-llama_Llama-2-7b-chat-hf-2.jsonl"
-    older.write_text("")
-    newer.write_text("")
-    os.utime(older, (1, 1))
-    os.utime(newer, (2, 2))
-    resolved = resolve_suffix_file(
-        attack="gcg",
-        model_name="meta-llama/Llama-2-7b-chat-hf",
-        attacks_dir=attacks_dir,
-    )
-    assert resolved == newer
-
-
-def test_resolve_suffix_file_prefers_merged_over_shard(tmp_path: Path) -> None:
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
-    merged = attacks_dir / "gcg-meta-llama_M1-harmbench-merged.jsonl"
-    shard = attacks_dir / "gcg-meta-llama_M1-harmbench-shard0.jsonl"
+    merged = attacks_dir / "gcg-meta-llama_M1-strongreject-merged.jsonl"
     merged.write_text("")
-    shard.write_text("")
-    os.utime(merged, (1, 1))
-    os.utime(shard, (2, 2))
     resolved = resolve_suffix_file(
         attack="gcg",
         model_name="meta-llama/M1",
         attacks_dir=attacks_dir,
+        dataset="strongreject",
     )
     assert resolved == merged
+
+
+def test_resolve_suffix_file_maps_advbench_harmbench_to_harmbench(
+    tmp_path: Path,
+) -> None:
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    merged = attacks_dir / "gcg-meta-llama_M1-harmbench-merged.jsonl"
+    merged.write_text("")
+    resolved = resolve_suffix_file(
+        attack="gcg",
+        model_name="meta-llama/M1",
+        attacks_dir=attacks_dir,
+        dataset="advbench_harmbench",
+    )
+    assert resolved == merged
+
+
+def test_resolve_suffix_file_does_not_misroute_strongreject_to_harmbench(
+    tmp_path: Path,
+) -> None:
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    (attacks_dir / "gcg-meta-llama_M1-harmbench-merged.jsonl").write_text("")
+    resolved = resolve_suffix_file(
+        attack="gcg",
+        model_name="meta-llama/M1",
+        attacks_dir=attacks_dir,
+        dataset="strongreject",
+    )
+    assert resolved is None
+
+
+def test_resolve_suffix_file_legacy_fallback_for_harmbench(tmp_path: Path) -> None:
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    legacy = attacks_dir / "gcg-meta-llama_M1-merged.jsonl"
+    legacy.write_text("")
+    resolved = resolve_suffix_file(
+        attack="gcg",
+        model_name="meta-llama/M1",
+        attacks_dir=attacks_dir,
+        dataset="advbench_harmbench",
+    )
+    assert resolved == legacy
+
+
+def test_resolve_suffix_file_legacy_not_used_for_strongreject(
+    tmp_path: Path,
+) -> None:
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    (attacks_dir / "gcg-meta-llama_M1-merged.jsonl").write_text("")
+    resolved = resolve_suffix_file(
+        attack="gcg",
+        model_name="meta-llama/M1",
+        attacks_dir=attacks_dir,
+        dataset="strongreject",
+    )
+    assert resolved is None
+
+
+def test_resolve_suffix_file_dataset_specific_wins_over_legacy(
+    tmp_path: Path,
+) -> None:
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    legacy = attacks_dir / "gcg-meta-llama_M1-merged.jsonl"
+    new = attacks_dir / "gcg-meta-llama_M1-harmbench-merged.jsonl"
+    legacy.write_text("")
+    new.write_text("")
+    resolved = resolve_suffix_file(
+        attack="gcg",
+        model_name="meta-llama/M1",
+        attacks_dir=attacks_dir,
+        dataset="advbench_harmbench",
+    )
+    assert resolved == new
 
 
 def test_resolve_suffix_file_returns_none_when_missing(tmp_path: Path) -> None:
@@ -203,6 +261,7 @@ def test_resolve_suffix_file_returns_none_when_missing(tmp_path: Path) -> None:
         attack="gcg",
         model_name="meta-llama/Llama-2-7b-chat-hf",
         attacks_dir=attacks_dir,
+        dataset="advbench_harmbench",
     )
     assert resolved is None
 

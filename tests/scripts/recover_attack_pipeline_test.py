@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.recover_attack_pipeline import (
     attack_jobs_by_triple,
     merge_completed_attacks,
     recover,
+    reextract_failed_attack_opt,
     repend_recoverable_failures,
 )
 
@@ -21,11 +24,23 @@ def _write_payload(directory: Path, name: str, payload: dict) -> Path:
 
 
 def _attack_payload(
-    *, job_id: str, attack: str, model: str, dataset: str, shard: int
+    *,
+    job_id: str,
+    attack: str,
+    model: str,
+    dataset: str,
+    shard: int,
+    adv_save_dir: str | None = None,
+    output_jsonl: str | None = None,
 ) -> dict:
+    command = ["bash", "run_one_attack.sh", "--attack", attack]
+    if adv_save_dir is not None:
+        command += ["--adv-save-dir", adv_save_dir]
+    if output_jsonl is not None:
+        command += ["--output-jsonl", output_jsonl]
     return {
         "id": job_id,
-        "command": ["bash", "run_one_attack.sh", "--attack", attack],
+        "command": command,
         "spec": {
             "attack": attack,
             "model": model,
@@ -239,7 +254,7 @@ class TestRependRecoverableFailures:
         assert (tmp_path / "failed" / "j2.json").exists()
         assert not (tmp_path / "pending" / "j2.json").exists()
         assert stats["repended"] == 0
-        assert stats["skipped_no_merged"] == 1
+        assert stats["skipped_no_suffix"] == 1
 
     def test_ignores_non_precomputed_failures(self, tmp_path: Path) -> None:
         attacks_dir = tmp_path / "attacks"
@@ -288,6 +303,103 @@ class TestRependRecoverableFailures:
         stats = repend_recoverable_failures(tmp_path, attacks_dir)
         assert (tmp_path / "pending" / "j5.json").exists()
         assert stats["repended"] == 1
+
+
+class TestReextractFailedAttackOpt:
+    def _setup_failed_with_run_json(
+        self, tmp_path: Path, *, job_id: str, with_run_json: bool
+    ) -> tuple[Path, Path]:
+        adv_save_dir = tmp_path / "adv-outputs" / job_id
+        output_jsonl = tmp_path / "attacks" / f"{job_id}.jsonl"
+        if with_run_json:
+            (adv_save_dir / "0").mkdir(parents=True, exist_ok=True)
+            (adv_save_dir / "0" / "run.json").write_text("{}")
+        else:
+            adv_save_dir.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "done").mkdir(parents=True, exist_ok=True)
+        _write_payload(
+            tmp_path / "failed", f"{job_id}.json",
+            _attack_payload(
+                job_id=job_id, attack="pair", model="m1",
+                dataset="harmbench", shard=0,
+                adv_save_dir=str(adv_save_dir),
+                output_jsonl=str(output_jsonl),
+            ),
+        )
+        return adv_save_dir, output_jsonl
+
+    def test_moves_to_done_when_extraction_succeeds(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, output_jsonl = self._setup_failed_with_run_json(
+            tmp_path, job_id="j1", with_run_json=True
+        )
+
+        def fake_extract(run_dir: str, output: str) -> None:
+            Path(output).parent.mkdir(parents=True, exist_ok=True)
+            Path(output).write_text("{}\n")
+
+        monkeypatch.setattr(
+            "scripts.recover_attack_pipeline.convert_run_dir", fake_extract
+        )
+        stats = reextract_failed_attack_opt(tmp_path)
+        assert (tmp_path / "done" / "j1.json").exists()
+        assert not (tmp_path / "failed" / "j1.json").exists()
+        assert output_jsonl.exists()
+        assert stats["reextracted"] == 1
+
+    def test_skips_when_adv_save_dir_missing(self, tmp_path: Path) -> None:
+        _write_payload(
+            tmp_path / "failed", "j2.json",
+            _attack_payload(
+                job_id="j2", attack="pair", model="m1",
+                dataset="harmbench", shard=0,
+                adv_save_dir=str(tmp_path / "does-not-exist"),
+                output_jsonl=str(tmp_path / "out.jsonl"),
+            ),
+        )
+        stats = reextract_failed_attack_opt(tmp_path)
+        assert (tmp_path / "failed" / "j2.json").exists()
+        assert stats["skipped_no_run_dir"] == 1
+        assert stats["reextracted"] == 0
+
+    def test_skips_when_no_run_json_in_dir(self, tmp_path: Path) -> None:
+        self._setup_failed_with_run_json(tmp_path, job_id="j3", with_run_json=False)
+        stats = reextract_failed_attack_opt(tmp_path)
+        assert (tmp_path / "failed" / "j3.json").exists()
+        assert stats["skipped_no_run_dir"] == 1
+
+    def test_leaves_in_failed_when_extraction_still_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._setup_failed_with_run_json(tmp_path, job_id="j4", with_run_json=True)
+
+        def broken_extract(_r: str, _o: str) -> None:
+            raise KeyError("num_params")
+
+        monkeypatch.setattr(
+            "scripts.recover_attack_pipeline.convert_run_dir", broken_extract
+        )
+        stats = reextract_failed_attack_opt(tmp_path)
+        assert (tmp_path / "failed" / "j4.json").exists()
+        assert not (tmp_path / "done" / "j4.json").exists()
+        assert stats["extraction_still_fails"] == 1
+
+    def test_ignores_strategy_failures(self, tmp_path: Path) -> None:
+        _write_payload(
+            tmp_path / "failed", "j5.json",
+            _precomputed_payload(
+                job_id="j5", experiment="PrecomputedGCGStrategy",
+                model="m1", dataset="harmbench",
+            ),
+        )
+        stats = reextract_failed_attack_opt(tmp_path)
+        assert (tmp_path / "failed" / "j5.json").exists()
+        assert stats["reextracted"] == 0
+
+    def test_handles_missing_failed_dir(self, tmp_path: Path) -> None:
+        stats = reextract_failed_attack_opt(tmp_path)
+        assert stats["reextracted"] == 0
 
 
 class TestRecover:

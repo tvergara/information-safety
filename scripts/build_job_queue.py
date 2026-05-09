@@ -46,6 +46,11 @@ PRECOMPUTED_TO_STRATEGY_OVERRIDE = {
     "PrecomputedPAIRStrategy": "precomputed_pair",
 }
 
+EVAL_TO_ATTACK_OPT_DATASET = {
+    "advbench_harmbench": "harmbench",
+    "strongreject": "strongreject",
+}
+
 
 def _model_slug(model_name: str) -> str:
     return model_name.replace("/", "_")
@@ -109,15 +114,19 @@ def iter_missing_configs(
 
 
 def resolve_suffix_file(
-    *, attack: str, model_name: str, attacks_dir: Path
+    *, attack: str, model_name: str, attacks_dir: Path, dataset: str
 ) -> Path | None:
     """Resolve a precomputed-attack suffix file path.
 
     Order of preference:
-      1. Canonical ``{attack}-{slug}.jsonl``.
-      2. Any ``{attack}-{slug}-*-merged.jsonl`` (merged outputs win over
-         per-shard files regardless of mtime).
-      3. Any other ``{attack}-{slug}-*.jsonl``, newest by mtime.
+      1. Canonical ``{attack}-{slug}.jsonl`` (dataset-agnostic legacy form).
+      2. Dataset-specific ``{attack}-{slug}-{attack_opt_dataset}-merged.jsonl``,
+         where ``attack_opt_dataset`` is mapped from the eval ``dataset``
+         via ``EVAL_TO_ATTACK_OPT_DATASET`` (identity if unmapped).
+      3. Pre-dataset-suffix legacy ``{attack}-{slug}-merged.jsonl``, but only
+         when ``attack_opt_dataset == "harmbench"`` — those legacy files were
+         optimized against harmbench behaviors. Strongreject must never fall
+         back to this path (it triggers silent 313-missing-behavior failures).
 
     Returns ``None`` if nothing matches.
     """
@@ -125,20 +134,14 @@ def resolve_suffix_file(
     canonical = attacks_dir / f"{attack}-{slug}.jsonl"
     if canonical.exists():
         return canonical
-    merged = sorted(
-        attacks_dir.glob(f"{attack}-{slug}-*-merged.jsonl"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    if merged:
-        return merged[0]
-    candidates = sorted(
-        attacks_dir.glob(f"{attack}-{slug}-*.jsonl"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    if candidates:
-        return candidates[0]
+    attack_opt_dataset = EVAL_TO_ATTACK_OPT_DATASET.get(dataset, dataset)
+    merged = attacks_dir / f"{attack}-{slug}-{attack_opt_dataset}-merged.jsonl"
+    if merged.exists():
+        return merged
+    if attack_opt_dataset == "harmbench":
+        legacy = attacks_dir / f"{attack}-{slug}-merged.jsonl"
+        if legacy.exists():
+            return legacy
     return None
 
 
@@ -202,7 +205,10 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
         attack = PRECOMPUTED_TO_ATTACK[experiment_name]
         strategy_override = PRECOMPUTED_TO_STRATEGY_OVERRIDE[experiment_name]
         suffix = resolve_suffix_file(
-            attack=attack, model_name=model_name, attacks_dir=attacks_dir
+            attack=attack,
+            model_name=model_name,
+            attacks_dir=attacks_dir,
+            dataset=dataset_name,
         )
         if suffix is None:
             raise FileNotFoundError(

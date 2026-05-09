@@ -170,6 +170,40 @@ class TestPairBits:
         assert out["auxiliary_model_bits"] == expected_aux
         assert out["total"] == expected_code + expected_aux
 
+    def test_resolves_num_params_from_lookup_when_missing(self) -> None:
+        from information_safety.attack_bits import KNOWN_MODEL_NUM_PARAMS
+
+        attacker_id = "lmsys/vicuna-13b-v1.5"
+        assert attacker_id in KNOWN_MODEL_NUM_PARAMS, (
+            "vicuna-13b-v1.5 is the default PAIR attacker; "
+            "extraction will crash without a lookup entry"
+        )
+        config: dict[str, Any] = {"attack_model": {"id": attacker_id}}
+        out = pair_bits(config, attacked_model_name="meta-llama/Llama-3-8B")
+
+        expected_aux = 16 * KNOWN_MODEL_NUM_PARAMS[attacker_id]
+        assert out["auxiliary_model_bits"] == expected_aux
+
+    def test_explicit_num_params_takes_precedence_over_lookup(self) -> None:
+        from information_safety.attack_bits import KNOWN_MODEL_NUM_PARAMS
+
+        attacker_id = "lmsys/vicuna-13b-v1.5"
+        explicit = KNOWN_MODEL_NUM_PARAMS[attacker_id] + 1
+        config: dict[str, Any] = {
+            "attack_model": {"id": attacker_id, "num_params": explicit},
+        }
+        out = pair_bits(config, attacked_model_name="meta-llama/Llama-3-8B")
+
+        assert out["auxiliary_model_bits"] == 16 * explicit
+
+    def test_raises_clear_error_for_unknown_model_without_num_params(self) -> None:
+        config: dict[str, Any] = {
+            "attack_model": {"id": "some-org/unknown-model-xyz"},
+        }
+        with pytest.raises(KeyError, match="KNOWN_MODEL_NUM_PARAMS"):
+            pair_bits(config, attacked_model_name="meta-llama/Llama-3-8B")
+
+
 class TestComputeAttackBits:
     def test_dispatches_gcg(self) -> None:
         assert compute_attack_bits("gcg", {}) == gcg_bits()["total"]
