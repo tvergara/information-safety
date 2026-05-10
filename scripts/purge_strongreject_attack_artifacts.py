@@ -18,7 +18,9 @@ def purge(
     specs_removed = 0
     for sub in _QUEUE_SUBDIRS:
         for spec_path in (queue_root / sub).glob("*.json"):
-            spec = json.loads(spec_path.read_text())["spec"]
+            spec = json.loads(spec_path.read_text()).get("spec")
+            if spec is None:
+                continue
             if (
                 spec["dataset"] == _TARGET_DATASET
                 and spec["attack"] in _TARGET_ATTACKS

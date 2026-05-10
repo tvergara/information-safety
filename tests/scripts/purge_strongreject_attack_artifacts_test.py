@@ -68,6 +68,13 @@ def _setup_fake_world(tmp_path: Path) -> tuple[Path, Path, Path]:
         attack="pair", dataset="harmbench", shard=0,
     )
 
+    (queue_root / "done" / "non_attack.json").write_text(json.dumps({
+        "id": "non_attack",
+        "command": ["python", "main.py"],
+        "config": {"experiment_name": "DataStrategy"},
+        "attempts": 0,
+    }))
+
     attacks_dir.mkdir(parents=True, exist_ok=True)
     sr_files = [
         "gcg-m1-strongreject-shard0.jsonl",
@@ -116,10 +123,12 @@ class TestPurge:
         remaining_specs = []
         for sub in ("pending", "claimed", "done", "failed"):
             remaining_specs.extend(sorted((queue_root / sub).glob("*.json")))
-        remaining_payloads = [
-            json.loads(p.read_text())["spec"] for p in remaining_specs
-        ]
-        for spec in remaining_payloads:
+        remaining_names = {p.name for p in remaining_specs}
+        assert "non_attack.json" in remaining_names
+        for path in remaining_specs:
+            spec = json.loads(path.read_text()).get("spec")
+            if spec is None:
+                continue
             forbidden = (
                 spec["dataset"] == "strongreject"
                 and spec["attack"] in {"gcg", "autodan"}
