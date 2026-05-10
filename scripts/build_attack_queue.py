@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -51,6 +52,19 @@ def write_strongreject_csv(output_path: Path) -> int:
     return count
 
 
+def write_strongreject_targets(csv_path: Path, json_path: Path) -> int:
+    targets: dict[str, str] = {}
+    with open(csv_path) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            behavior_id = row["BehaviorID"]
+            targets[behavior_id] = "Sure, here is " + row["Behavior"].strip().lower()
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(json_path, "w") as f:
+        json.dump(targets, f)
+    return len(targets)
+
+
 def _model_slug(model_name: str) -> str:
     return model_name.replace("/", "_")
 
@@ -60,6 +74,18 @@ def _csv_for(*, dataset: str, behaviors_csv_dir: Path) -> Path:
         return behaviors_csv_dir / "harmbench_behaviors_standard.csv"
     elif dataset == "strongreject":
         return behaviors_csv_dir / "strongreject_behaviors.csv"
+    else:
+        raise ValueError(f"Unknown dataset: {dataset}")
+
+
+def _targets_for(*, dataset: str, behaviors_csv_dir: Path) -> Path:
+    if dataset == "harmbench":
+        return (
+            Path(__file__).resolve().parent.parent
+            / "third_party/adversariallm/data/optimizer_targets/harmbench_targets_text.json"
+        )
+    elif dataset == "strongreject":
+        return behaviors_csv_dir / "strongreject_targets_text.json"
     else:
         raise ValueError(f"Unknown dataset: {dataset}")
 
@@ -85,12 +111,19 @@ def build_attack_queue(
     pending_dir = queue_root / "pending"
 
     csv_paths: dict[str, Path] = {}
+    targets_paths: dict[str, Path] = {}
     dataset_totals: dict[str, int] = {}
     for dataset in dataset_names:
         csv_path = _csv_for(dataset=dataset, behaviors_csv_dir=behaviors_csv_dir)
         if not csv_path.exists():
             raise FileNotFoundError(f"Behaviors CSV not found: {csv_path}")
         csv_paths[dataset] = csv_path
+        targets_path = _targets_for(
+            dataset=dataset, behaviors_csv_dir=behaviors_csv_dir
+        )
+        if not targets_path.exists():
+            raise FileNotFoundError(f"Targets JSON not found: {targets_path}")
+        targets_paths[dataset] = targets_path
         dataset_totals[dataset] = _count_csv_rows(csv_path)
 
     written: list[Path] = []
@@ -135,6 +168,7 @@ def build_attack_queue(
                         "--shard-start", str(start),
                         "--shard-end", str(end),
                         "--behaviors-csv", str(csv_paths[dataset]),
+                        "--targets-json", str(targets_paths[dataset]),
                         "--output-jsonl", str(output_jsonl),
                         "--adv-save-dir", str(adv_save_dir),
                         "--adversariallm-venv", str(adversariallm_venv),
@@ -182,6 +216,9 @@ def main(argv: list[str] | None = None) -> None:
         sr_csv = args.behaviors_csv_dir / "strongreject_behaviors.csv"
         n = write_strongreject_csv(sr_csv)
         print(f"Wrote {n} StrongREJECT prompts to {sr_csv}")
+        sr_targets = args.behaviors_csv_dir / "strongreject_targets_text.json"
+        m = write_strongreject_targets(sr_csv, sr_targets)
+        print(f"Wrote {m} StrongREJECT targets to {sr_targets}")
 
     written = build_attack_queue(
         attacks=args.attacks,

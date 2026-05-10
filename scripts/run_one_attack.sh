@@ -10,6 +10,7 @@ while [ $# -gt 0 ]; do
         --shard-start) SHARD_START="$2"; shift 2 ;;
         --shard-end) SHARD_END="$2"; shift 2 ;;
         --behaviors-csv) BEHAVIORS_CSV="$2"; shift 2 ;;
+        --targets-json) TARGETS_JSON="$2"; shift 2 ;;
         --output-jsonl) OUTPUT_JSONL="$2"; shift 2 ;;
         --adv-save-dir) ADV_SAVE_DIR="$2"; shift 2 ;;
         --adversariallm-venv) ADVERSARIALLM_VENV="$2"; shift 2 ;;
@@ -35,6 +36,7 @@ MAIN_VENV="${REPO_ROOT}/.venv"
         model="${MODEL}" \
         dataset=adv_behaviors \
         "datasets.adv_behaviors.messages_path=${BEHAVIORS_CSV}" \
+        "datasets.adv_behaviors.targets_path=${TARGETS_JSON}" \
         "datasets.adv_behaviors.idx=${DATASET_IDX}" \
         "datasets.adv_behaviors.shuffle=false" \
         classifiers=null \
