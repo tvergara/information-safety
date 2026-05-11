@@ -323,6 +323,38 @@ class TestValidateBatch:
         handler.validate_batch(model, tokenizer, batch)
         assert len(handler._completions) == 1
 
+    def test_validate_batch_records_per_example_eval_flops(self) -> None:
+        handler = EvilMathHandler(generations_dir="/tmp/gens")
+        model = MagicMock()
+        model.generate = MagicMock(
+            return_value=torch.tensor([
+                [1, 2, 3, 4, 5, 7, 8, 0],
+                [1, 2, 3, 4, 5, 9, 0, 0],
+            ], dtype=torch.long)
+        )
+        model.num_parameters = MagicMock(return_value=1_000_000)
+        tokenizer = _make_tokenizer()
+        tokenizer.batch_decode = MagicMock(return_value=["#### 42", "#### 7"])
+
+        batch = {
+            "input_ids": torch.zeros(2, 5, dtype=torch.long),
+            "attention_mask": torch.tensor([
+                [1, 1, 1, 1, 1],
+                [0, 1, 1, 1, 1],
+            ], dtype=torch.long),
+            "labels": [_make_label(42), _make_label(7)],
+        }
+
+        handler.validate_batch(model, tokenizer, batch)
+
+        model.num_parameters.assert_called_once_with(exclude_embeddings=True)
+        n_input_expected = [5, 4]
+        n_output_expected = [2, 1]
+        for i, completion in enumerate(handler._completions):
+            expected = 2 * 1_000_000 * (n_input_expected[i] + n_output_expected[i])
+            assert completion["eval_flops"] == expected
+            assert isinstance(completion["eval_flops"], int)
+
 
 class TestSaveCompletions:
     def test_writes_input_data_and_responses_jsonl(self, tmp_path: Path) -> None:
@@ -335,6 +367,7 @@ class TestSaveCompletions:
                 "response": "#### 42",
                 "predicted_answer": 42,
                 "correct": True,
+                "eval_flops": 0,
             }
         ]
 
@@ -354,6 +387,7 @@ class TestSaveCompletions:
                 "response": "#### 42",
                 "predicted_answer": 42,
                 "correct": True,
+                "eval_flops": 0,
             }
         ]
 
@@ -375,6 +409,7 @@ class TestSaveCompletions:
                 "response": "#### 42",
                 "predicted_answer": 42,
                 "correct": True,
+                "eval_flops": 0,
             }
         ]
 
@@ -384,7 +419,43 @@ class TestSaveCompletions:
         with open(run_dir / "responses.jsonl") as f:
             rows = [json.loads(line) for line in f]
         assert len(rows) == 1
-        assert set(rows[0].keys()) == {"question", "response", "predicted_answer", "correct"}
+        assert set(rows[0].keys()) == {
+            "question", "response", "predicted_answer", "correct", "dependent_flops"
+        }
+
+    def test_save_completions_writes_dependent_flops(self, tmp_path: Path) -> None:
+        handler = EvilMathHandler(generations_dir=str(tmp_path))
+        handler._completions = [
+            {
+                "question": "q1",
+                "correct_answer": 42,
+                "original_question": "oq1",
+                "response": "#### 42",
+                "predicted_answer": 42,
+                "correct": True,
+                "eval_flops": 1234,
+            },
+            {
+                "question": "q2",
+                "correct_answer": 7,
+                "original_question": "oq2",
+                "response": "#### 8",
+                "predicted_answer": 8,
+                "correct": False,
+                "eval_flops": 5678,
+            },
+        ]
+
+        handler.save_completions("test-run-flops")
+
+        run_dir = tmp_path / "test-run-flops"
+        with open(run_dir / "responses.jsonl") as f:
+            rows = [json.loads(line) for line in f]
+
+        assert len(rows) == 2
+        assert rows[0]["dependent_flops"] == 1234
+        assert rows[1]["dependent_flops"] == 5678
+        assert isinstance(rows[0]["dependent_flops"], int)
 
     def test_resets_completions_after_save(self, tmp_path: Path) -> None:
         handler = EvilMathHandler(generations_dir=str(tmp_path))
@@ -396,6 +467,7 @@ class TestSaveCompletions:
                 "response": "#### 42",
                 "predicted_answer": 42,
                 "correct": True,
+                "eval_flops": 0,
             }
         ]
         handler.save_completions("test-run-reset")

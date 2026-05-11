@@ -621,6 +621,46 @@ class TestValidateBatch:
         handler.validate_batch(model, tokenizer, batch)
         assert len(handler._completions) == 1
 
+    def test_validate_batch_records_per_example_eval_flops(self) -> None:
+        handler = WMDPHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens"
+        )
+        model = MagicMock()
+        model.generate = MagicMock(
+            return_value=torch.tensor([
+                [1, 2, 3, 4, 5, 7, 8, 0],
+                [1, 2, 3, 4, 5, 9, 0, 0],
+                [1, 2, 3, 4, 5, 6, 7, 8],
+            ], dtype=torch.long)
+        )
+        model.num_parameters = MagicMock(return_value=1_000_000)
+        tokenizer = _make_tokenizer()
+        tokenizer.batch_decode = MagicMock(return_value=["A", "B", "C"])
+
+        batch = {
+            "input_ids": torch.zeros(3, 5, dtype=torch.long),
+            "attention_mask": torch.tensor([
+                [1, 1, 1, 1, 1],
+                [1, 1, 1, 1, 0],
+                [0, 1, 1, 1, 1],
+            ], dtype=torch.long),
+            "labels": [
+                _make_label("A", "wmdp-bio"),
+                _make_label("B", "wmdp-chem"),
+                _make_label("C", "wmdp-cyber"),
+            ],
+        }
+
+        handler.validate_batch(model, tokenizer, batch)
+
+        model.num_parameters.assert_called_once_with(exclude_embeddings=True)
+        n_input_expected = [5, 4, 4]
+        n_output_expected = [2, 1, 3]
+        for i, completion in enumerate(handler._completions):
+            expected = 2 * 1_000_000 * (n_input_expected[i] + n_output_expected[i])
+            assert completion["eval_flops"] == expected
+            assert isinstance(completion["eval_flops"], int)
+
 
 class TestSaveCompletions:
     def test_writes_input_data_and_responses_jsonl(self, tmp_path: Path) -> None:
@@ -636,6 +676,7 @@ class TestSaveCompletions:
                 "response": "A",
                 "predicted_answer": "A",
                 "correct": True,
+                "eval_flops": 0,
             }
         ]
 
@@ -658,6 +699,7 @@ class TestSaveCompletions:
                 "response": "A",
                 "predicted_answer": "A",
                 "correct": True,
+                "eval_flops": 0,
             }
         ]
 
@@ -683,6 +725,7 @@ class TestSaveCompletions:
                 "response": "A",
                 "predicted_answer": "A",
                 "correct": True,
+                "eval_flops": 0,
             }
         ]
 
@@ -693,7 +736,47 @@ class TestSaveCompletions:
             rows = [json.loads(line) for line in f]
 
         assert len(rows) == 1
-        assert set(rows[0].keys()) == {"question", "response", "predicted_answer", "correct"}
+        assert set(rows[0].keys()) == {
+            "question", "response", "predicted_answer", "correct", "dependent_flops"
+        }
+
+    def test_save_completions_writes_dependent_flops(self, tmp_path: Path) -> None:
+        handler = WMDPHandler(
+            max_length=500, batch_size=8, generations_dir=str(tmp_path)
+        )
+        handler._completions = [
+            {
+                "question": "q1",
+                "choices": ["c0", "c1", "c2", "c3"],
+                "correct_answer": "A",
+                "subject": "wmdp-bio",
+                "response": "A",
+                "predicted_answer": "A",
+                "correct": True,
+                "eval_flops": 1234,
+            },
+            {
+                "question": "q2",
+                "choices": ["c0", "c1", "c2", "c3"],
+                "correct_answer": "B",
+                "subject": "wmdp-chem",
+                "response": "C",
+                "predicted_answer": "C",
+                "correct": False,
+                "eval_flops": 5678,
+            },
+        ]
+
+        handler.save_completions("test-run-flops")
+
+        run_dir = tmp_path / "test-run-flops"
+        with open(run_dir / "responses.jsonl") as f:
+            rows = [json.loads(line) for line in f]
+
+        assert len(rows) == 2
+        assert rows[0]["dependent_flops"] == 1234
+        assert rows[1]["dependent_flops"] == 5678
+        assert isinstance(rows[0]["dependent_flops"], int)
 
     def test_null_predicted_answer_for_refusal(self, tmp_path: Path) -> None:
         handler = WMDPHandler(
@@ -708,6 +791,7 @@ class TestSaveCompletions:
                 "response": "I cannot answer",
                 "predicted_answer": None,
                 "correct": False,
+                "eval_flops": 0,
             }
         ]
 
@@ -732,6 +816,7 @@ class TestSaveCompletions:
                 "response": "A",
                 "predicted_answer": "A",
                 "correct": True,
+                "eval_flops": 0,
             }
         ]
 

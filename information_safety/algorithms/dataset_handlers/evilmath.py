@@ -123,27 +123,33 @@ class EvilMathHandler(BaseDatasetHandler):
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         metadata_strs: list[str] = batch["labels"]
+        pad_token_id = tokenizer.pad_token_id
 
         with torch.no_grad():
             generated_ids = model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=self.max_new_tokens,
-                pad_token_id=tokenizer.pad_token_id,
+                pad_token_id=pad_token_id,
             )
 
         input_len = input_ids.shape[1]
         new_token_ids = generated_ids[:, input_len:]
         generated_texts = tokenizer.batch_decode(new_token_ids, skip_special_tokens=True)
 
+        num_params = model.num_parameters(exclude_embeddings=True)
+
         correct = 0
-        for gen_text, meta_str in zip(generated_texts, metadata_strs):
+        for i, (gen_text, meta_str) in enumerate(zip(generated_texts, metadata_strs)):
             meta = json.loads(meta_str)
             correct_answer = meta["correct_answer"]
             predicted = extract_numerical_answer(gen_text)
             is_correct = predicted is not None and predicted == correct_answer
             if is_correct:
                 correct += 1
+            n_input = attention_mask[i].sum().item()
+            n_output = (new_token_ids[i] != pad_token_id).sum().item()
+            eval_flops = 2 * num_params * (n_input + n_output)
             self._completions.append({
                 "question": meta["question"],
                 "correct_answer": correct_answer,
@@ -151,6 +157,7 @@ class EvilMathHandler(BaseDatasetHandler):
                 "response": gen_text,
                 "predicted_answer": predicted,
                 "correct": is_correct,
+                "eval_flops": eval_flops,
             })
 
         return correct, len(generated_texts)
@@ -176,6 +183,7 @@ class EvilMathHandler(BaseDatasetHandler):
                     "response": entry["response"],
                     "predicted_answer": entry["predicted_answer"],
                     "correct": entry["correct"],
+                    "dependent_flops": entry["eval_flops"],
                 }
                 f.write(json.dumps(row) + "\n")
 

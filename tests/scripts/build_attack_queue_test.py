@@ -12,6 +12,7 @@ from scripts.build_attack_queue import (
     build_attack_queue,
     compute_shards,
     write_strongreject_csv,
+    write_strongreject_targets,
 )
 
 
@@ -106,6 +107,7 @@ class TestBuildAttackQueue:
         body = "header\n" + "".join(f"r{i}\n" for i in range(rows))
         (csv_dir / "harmbench_behaviors_standard.csv").write_text(body)
         (csv_dir / "strongreject_behaviors.csv").write_text(body)
+        (csv_dir / "strongreject_targets_text.json").write_text("{}")
         return csv_dir
 
     def test_writes_one_job_per_combination(self, tmp_path: Path) -> None:
@@ -145,7 +147,7 @@ class TestBuildAttackQueue:
         assert len(run()) == 2
         assert len(run()) == 0
 
-    def test_strongreject_paths_use_dataset_in_filename(self, tmp_path: Path) -> None:
+    def test_strongreject_command_uses_dataset_paths(self, tmp_path: Path) -> None:
         queue_root = tmp_path / "queue"
         csv_dir = self._setup_csvs(tmp_path)
         build_attack_queue(
@@ -161,11 +163,34 @@ class TestBuildAttackQueue:
         )
         files = list((queue_root / "pending").glob("*.json"))
         assert len(files) == 1
-        payload = json.loads(files[0].read_text())
-        cmd = payload["command"]
+        cmd = json.loads(files[0].read_text())["command"]
         output_arg = cmd[cmd.index("--output-jsonl") + 1]
         assert "strongreject" in output_arg
         assert "M1" in output_arg
+        targets_arg = cmd[cmd.index("--targets-json") + 1]
+        assert targets_arg == str(csv_dir / "strongreject_targets_text.json")
+
+    def test_harmbench_command_uses_packaged_targets(self, tmp_path: Path) -> None:
+        queue_root = tmp_path / "queue"
+        csv_dir = self._setup_csvs(tmp_path)
+        build_attack_queue(
+            attacks=["gcg"],
+            models=["m1"],
+            dataset_names=["harmbench"],
+            num_shards=1,
+            queue_root=queue_root,
+            behaviors_csv_dir=csv_dir,
+            attacks_dir=tmp_path / "attacks",
+            adversariallm_venv=tmp_path / "adv-venv",
+            repo_root=tmp_path / "repo",
+        )
+        files = list((queue_root / "pending").glob("*.json"))
+        assert len(files) == 1
+        cmd = json.loads(files[0].read_text())["command"]
+        targets_arg = cmd[cmd.index("--targets-json") + 1]
+        assert targets_arg.endswith("harmbench_targets_text.json")
+        assert "third_party" in targets_arg
+        assert Path(targets_arg).exists()
 
     def test_skips_if_merged_jsonl_exists(self, tmp_path: Path) -> None:
         queue_root = tmp_path / "queue"
@@ -187,9 +212,8 @@ class TestBuildAttackQueue:
         assert len(written) == 0
 
 
-class TestMissingCsvFile:
+class TestMissingInputFiles:
     def test_raises_if_harmbench_csv_missing(self, tmp_path: Path) -> None:
-        queue_root = tmp_path / "queue"
         csv_dir = tmp_path / "csv"
         csv_dir.mkdir()
         with pytest.raises(FileNotFoundError, match="harmbench"):
@@ -198,9 +222,82 @@ class TestMissingCsvFile:
                 models=["m1"],
                 dataset_names=["harmbench"],
                 num_shards=1,
-                queue_root=queue_root,
+                queue_root=tmp_path / "queue",
                 behaviors_csv_dir=csv_dir,
                 attacks_dir=tmp_path / "attacks",
                 adversariallm_venv=tmp_path / "adv-venv",
                 repo_root=tmp_path / "repo",
             )
+
+    def test_raises_if_strongreject_targets_json_missing(
+        self, tmp_path: Path
+    ) -> None:
+        csv_dir = tmp_path / "csv"
+        csv_dir.mkdir()
+        body = "header\n" + "".join(f"r{i}\n" for i in range(4))
+        (csv_dir / "strongreject_behaviors.csv").write_text(body)
+        with pytest.raises(FileNotFoundError, match="strongreject"):
+            build_attack_queue(
+                attacks=["gcg"],
+                models=["m1"],
+                dataset_names=["strongreject"],
+                num_shards=1,
+                queue_root=tmp_path / "queue",
+                behaviors_csv_dir=csv_dir,
+                attacks_dir=tmp_path / "attacks",
+                adversariallm_venv=tmp_path / "adv-venv",
+                repo_root=tmp_path / "repo",
+            )
+
+
+class TestWriteStrongrejectTargets:
+    def test_keys_match_csv_and_values_have_prefix(
+        self, tmp_path: Path
+    ) -> None:
+        csv_path = tmp_path / "sr.csv"
+        json_path = tmp_path / "sr_targets.json"
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Behavior", "FunctionalCategory", "SemanticCategory",
+                "Tags", "ContextString", "BehaviorID",
+            ])
+            for i in range(7):
+                writer.writerow([
+                    f"opaque-behavior-{i}", "standard", "harmful",
+                    "", "", f"strongreject_{i:04d}",
+                ])
+
+        n = write_strongreject_targets(csv_path, json_path)
+
+        assert n == 7
+        with open(json_path) as f:
+            targets = json.load(f)
+        assert isinstance(targets, dict)
+        assert len(targets) == 7
+        expected_ids = {f"strongreject_{i:04d}" for i in range(7)}
+        assert set(targets.keys()) == expected_ids
+        for value in targets.values():
+            assert isinstance(value, str)
+            assert value.startswith("Sure, here is ")
+            assert value == value.strip()
+
+    def test_lowercases_and_strips_behavior(self, tmp_path: Path) -> None:
+        csv_path = tmp_path / "sr.csv"
+        json_path = tmp_path / "sr_targets.json"
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Behavior", "FunctionalCategory", "SemanticCategory",
+                "Tags", "ContextString", "BehaviorID",
+            ])
+            writer.writerow([
+                "  MIXED-CaSe-PROMPT  ", "standard", "harmful",
+                "", "", "strongreject_0000",
+            ])
+
+        write_strongreject_targets(csv_path, json_path)
+
+        with open(json_path) as f:
+            targets = json.load(f)
+        assert targets["strongreject_0000"] == "Sure, here is mixed-case-prompt"
