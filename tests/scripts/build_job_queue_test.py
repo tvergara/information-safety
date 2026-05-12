@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts.build_job_queue import (
     build_command,
@@ -357,6 +358,17 @@ def test_build_command_disables_checkpointing_for_pool_jobs(tmp_path: Path) -> N
         cmd = build_command(cfg, attacks_dir=attacks_dir)
         assert "trainer.enable_checkpointing=false" in cmd, cfg
         assert "trainer/callbacks=no_checkpoints" in cmd, cfg
+
+
+def test_pool_callbacks_config_disables_early_stopping_and_checkpointing() -> None:
+    path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "information_safety/configs/trainer/callbacks/no_checkpoints.yaml"
+    )
+    config = yaml.safe_load(path.read_text())
+    assert "default" in config["defaults"]
+    assert config["model_checkpoint"] is None
+    assert config["early_stopping"] is None
 
 
 def test_deterministic_id_stable_for_same_config() -> None:
