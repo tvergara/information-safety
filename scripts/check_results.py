@@ -20,6 +20,23 @@ MODELS = [
     "openai/gpt-oss-20b",
 ]
 
+WMDP_DEFENSES = [
+    "sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0",
+    "cb-wmdp-Llama-3.1-8B-Instruct-bfbf3e38793c",
+    "tar-wmdp-Llama-3.1-8B-Instruct-73d8c8e83c07",
+]
+EVILMATH_DEFENSES = [
+    "sft-evilmath-Llama-3.1-8B-Instruct-d650794f965d",
+    "cb-evilmath-Llama-3.1-8B-Instruct-d7ba262bbc28",
+    "tar-evilmath-Llama-3.1-8B-Instruct-09003ee4e852",
+]
+
+PRECOMPUTED_ATTACKS = [
+    "PrecomputedGCGStrategy",
+    "PrecomputedAutoDANStrategy",
+    "PrecomputedPAIRStrategy",
+]
+
 HARMBENCH_CONFIGS: list[dict[str, Any]] = []
 
 # Baseline: one per model, epoch 0 only (no training)
@@ -62,12 +79,7 @@ for model in MODELS:
         "epoch": 0,
     })
 
-# Precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR): one per model,
-# epoch 0 only (no training — the attack prompts come from an upstream run).
-for model, attack in product(
-    MODELS,
-    ["PrecomputedGCGStrategy", "PrecomputedAutoDANStrategy", "PrecomputedPAIRStrategy"],
-):
+for model, attack in product(MODELS, PRECOMPUTED_ATTACKS):
     HARMBENCH_CONFIGS.append({
         "experiment_name": attack,
         "dataset_name": "advbench_harmbench",
@@ -82,6 +94,26 @@ WMDP_CONFIGS: list[dict[str, Any]] = []
 for model in MODELS:
     WMDP_CONFIGS.append({
         "experiment_name": "BaselineStrategy",
+        "dataset_name": "wmdp",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+# WMDP RoleplayStrategy: one per base model, epoch 0 only (no training)
+for model in MODELS:
+    WMDP_CONFIGS.append({
+        "experiment_name": "RoleplayStrategy",
+        "dataset_name": "wmdp",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+# WMDP precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR) for base models
+for model, attack in product(MODELS, PRECOMPUTED_ATTACKS):
+    WMDP_CONFIGS.append({
+        "experiment_name": attack,
         "dataset_name": "wmdp",
         "model_name": model,
         "max_examples": None,
@@ -118,12 +150,85 @@ for model, (max_ex, max_epochs), subset in product(
             "corpus_subset": subset,
         })
 
+# WMDP defense evaluations: full attack matrix per defense_id (substring-matched
+# against row["model_name"]). Each defense gets Baseline + Roleplay + the three
+# DataStrategy corpus variants + the three precomputed adversarial-prompt attacks.
+for defense in WMDP_DEFENSES:
+    WMDP_CONFIGS.append({
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "wmdp",
+        "model_name": defense,
+        "max_examples": None,
+        "epoch": 0,
+    })
+    WMDP_CONFIGS.append({
+        "experiment_name": "RoleplayStrategy",
+        "dataset_name": "wmdp",
+        "model_name": defense,
+        "max_examples": None,
+        "epoch": 0,
+    })
+    for attack in PRECOMPUTED_ATTACKS:
+        WMDP_CONFIGS.append({
+            "experiment_name": attack,
+            "dataset_name": "wmdp",
+            "model_name": defense,
+            "max_examples": None,
+            "epoch": 0,
+        })
+for defense, (max_ex, max_epochs) in product(WMDP_DEFENSES, DATA_SWEEP_POINTS):
+    for epoch in range(max_epochs):
+        WMDP_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "wmdp",
+            "model_name": defense,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+            "corpus_fraction": 0.0,
+            "corpus_subset": None,
+        })
+for defense, (max_ex, max_epochs), subset in product(
+    WMDP_DEFENSES, DATA_SWEEP_POINTS, ["bio", "cyber"]
+):
+    for epoch in range(max_epochs):
+        WMDP_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "wmdp",
+            "model_name": defense,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+            "corpus_fraction": 0.5,
+            "corpus_subset": subset,
+        })
+
 EVILMATH_CONFIGS: list[dict[str, Any]] = []
 
 # EvilMath baseline: one per model, epoch 0 only (no training)
 for model in MODELS:
     EVILMATH_CONFIGS.append({
         "experiment_name": "BaselineStrategy",
+        "dataset_name": "evilmath",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+# EvilMath RoleplayStrategy: one per base model, epoch 0 only (no training)
+for model in MODELS:
+    EVILMATH_CONFIGS.append({
+        "experiment_name": "RoleplayStrategy",
+        "dataset_name": "evilmath",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    })
+
+# EvilMath precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR) for base models
+for model, attack in product(MODELS, PRECOMPUTED_ATTACKS):
+    EVILMATH_CONFIGS.append({
+        "experiment_name": attack,
         "dataset_name": "evilmath",
         "model_name": model,
         "max_examples": None,
@@ -137,6 +242,41 @@ for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
             "experiment_name": "DataStrategy",
             "dataset_name": "evilmath",
             "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+        })
+
+# EvilMath defense evaluations: full attack matrix per defense_id.
+for defense in EVILMATH_DEFENSES:
+    EVILMATH_CONFIGS.append({
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "evilmath",
+        "model_name": defense,
+        "max_examples": None,
+        "epoch": 0,
+    })
+    EVILMATH_CONFIGS.append({
+        "experiment_name": "RoleplayStrategy",
+        "dataset_name": "evilmath",
+        "model_name": defense,
+        "max_examples": None,
+        "epoch": 0,
+    })
+    for attack in PRECOMPUTED_ATTACKS:
+        EVILMATH_CONFIGS.append({
+            "experiment_name": attack,
+            "dataset_name": "evilmath",
+            "model_name": defense,
+            "max_examples": None,
+            "epoch": 0,
+        })
+for defense, (max_ex, max_epochs) in product(EVILMATH_DEFENSES, DATA_SWEEP_POINTS):
+    for epoch in range(max_epochs):
+        EVILMATH_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "evilmath",
+            "model_name": defense,
             "max_examples": max_ex,
             "max_epochs": max_epochs,
             "epoch": epoch,
@@ -177,10 +317,7 @@ for model in MODELS:
     })
 
 # StrongREJECT precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR)
-for model, attack in product(
-    MODELS,
-    ["PrecomputedGCGStrategy", "PrecomputedAutoDANStrategy", "PrecomputedPAIRStrategy"],
-):
+for model, attack in product(MODELS, PRECOMPUTED_ATTACKS):
     STRONGREJECT_CONFIGS.append({
         "experiment_name": attack,
         "dataset_name": "strongreject",
@@ -198,7 +335,14 @@ def _short_model(name: str) -> str:
 
 
 def _matches(row: dict[str, Any], config: dict[str, Any]) -> bool:
-    return all(row.get(k) == v for k, v in config.items())
+    for k, v in config.items():
+        if k == "model_name":
+            row_model = row.get(k)
+            if not isinstance(row_model, str) or v not in row_model:
+                return False
+        elif row.get(k) != v:
+            return False
+    return True
 
 
 def main() -> None:

@@ -633,6 +633,104 @@ def test_build_command_train_data_path_uses_scratch_default() -> None:
     assert "/scratch/t/tvergara/" in train_arg
 
 
+def test_build_command_defense_id_rewrites_model_path() -> None:
+    defense = "sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0"
+    config = {
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "wmdp",
+        "model_name": defense,
+        "max_examples": None,
+        "epoch": 0,
+    }
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    expected = (
+        f"algorithm.model.pretrained_model_name_or_path="
+        f"/scratch/t/tvergara/information-safety/defenses/{defense}"
+    )
+    assert expected in cmd
+
+
+def test_build_command_base_model_path_unchanged() -> None:
+    model = "meta-llama/Meta-Llama-3-8B-Instruct"
+    config = {
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "wmdp",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    }
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    assert f"algorithm.model.pretrained_model_name_or_path={model}" in cmd
+
+
+def test_build_command_defense_id_precomputed_uses_defense_slug(
+    tmp_path: Path,
+) -> None:
+    defense = "sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0"
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    merged = attacks_dir / f"gcg-{defense}-wmdp-merged.jsonl"
+    merged.write_text("")
+    config = {
+        "experiment_name": "PrecomputedGCGStrategy",
+        "dataset_name": "wmdp",
+        "model_name": defense,
+        "max_examples": None,
+        "epoch": 0,
+    }
+    cmd = build_command(config, attacks_dir=attacks_dir)
+    assert f"algorithm.strategy.suffix_file={merged}" in cmd
+
+
+def test_build_command_evilmath_defense_precomputed_uses_evilmath_merged(
+    tmp_path: Path,
+) -> None:
+    defense = "sft-evilmath-Llama-3.1-8B-Instruct-d650794f965d"
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    merged = attacks_dir / f"autodan-{defense}-evilmath-merged.jsonl"
+    merged.write_text("")
+    config = {
+        "experiment_name": "PrecomputedAutoDANStrategy",
+        "dataset_name": "evilmath",
+        "model_name": defense,
+        "max_examples": None,
+        "epoch": 0,
+    }
+    cmd = build_command(config, attacks_dir=attacks_dir)
+    assert f"algorithm.strategy.suffix_file={merged}" in cmd
+
+
+def test_resolve_suffix_file_wmdp_dataset_identity(tmp_path: Path) -> None:
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    merged = attacks_dir / "gcg-sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0-wmdp-merged.jsonl"
+    merged.write_text("")
+    resolved = resolve_suffix_file(
+        attack="gcg",
+        model_name="sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0",
+        attacks_dir=attacks_dir,
+        dataset="wmdp",
+    )
+    assert resolved == merged
+
+
+def test_resolve_suffix_file_evilmath_dataset_identity(tmp_path: Path) -> None:
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    merged = (
+        attacks_dir / "pair-sft-evilmath-Llama-3.1-8B-Instruct-d650794f965d-evilmath-merged.jsonl"
+    )
+    merged.write_text("")
+    resolved = resolve_suffix_file(
+        attack="pair",
+        model_name="sft-evilmath-Llama-3.1-8B-Instruct-d650794f965d",
+        attacks_dir=attacks_dir,
+        dataset="evilmath",
+    )
+    assert resolved == merged
+
+
 def test_main_writes_pending_files_for_synthetic_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
