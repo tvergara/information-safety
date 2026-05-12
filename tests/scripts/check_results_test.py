@@ -46,13 +46,13 @@ def test_wmdp_each_base_has_roleplay() -> None:
         assert len(roleplay) == 1
 
 
-def test_wmdp_each_base_has_precomputed_attacks() -> None:
+def test_wmdp_base_models_have_no_precomputed_attacks() -> None:
     for model in MODELS:
-        found = {
-            c["experiment_name"] for c in WMDP_CONFIGS
+        found = [
+            c for c in WMDP_CONFIGS
             if c["experiment_name"] in PRECOMPUTED_ATTACKS and c["model_name"] == model
-        }
-        assert found == set(PRECOMPUTED_ATTACKS)
+        ]
+        assert found == []
 
 
 def test_wmdp_data_strategy_total_epoch_rows() -> None:
@@ -158,13 +158,13 @@ def test_evilmath_each_base_has_roleplay() -> None:
         assert len(roleplay) == 1
 
 
-def test_evilmath_each_base_has_precomputed_attacks() -> None:
+def test_evilmath_base_models_have_no_precomputed_attacks() -> None:
     for model in MODELS:
-        found = {
-            c["experiment_name"] for c in EVILMATH_CONFIGS
+        found = [
+            c for c in EVILMATH_CONFIGS
             if c["experiment_name"] in PRECOMPUTED_ATTACKS and c["model_name"] == model
-        }
-        assert found == set(PRECOMPUTED_ATTACKS)
+        ]
+        assert found == []
 
 
 def test_evilmath_data_strategy_total_epoch_rows() -> None:

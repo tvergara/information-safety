@@ -110,16 +110,6 @@ for model in MODELS:
         "epoch": 0,
     })
 
-# WMDP precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR) for base models
-for model, attack in product(MODELS, PRECOMPUTED_ATTACKS):
-    WMDP_CONFIGS.append({
-        "experiment_name": attack,
-        "dataset_name": "wmdp",
-        "model_name": model,
-        "max_examples": None,
-        "epoch": 0,
-    })
-
 # WMDP DataStrategy: MMLU-Pro only (corpus_fraction=0.0)
 for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
     for epoch in range(max_epochs):
@@ -219,16 +209,6 @@ for model in MODELS:
 for model in MODELS:
     EVILMATH_CONFIGS.append({
         "experiment_name": "RoleplayStrategy",
-        "dataset_name": "evilmath",
-        "model_name": model,
-        "max_examples": None,
-        "epoch": 0,
-    })
-
-# EvilMath precomputed adversarial-prompt attacks (GCG, AutoDAN, PAIR) for base models
-for model, attack in product(MODELS, PRECOMPUTED_ATTACKS):
-    EVILMATH_CONFIGS.append({
-        "experiment_name": attack,
         "dataset_name": "evilmath",
         "model_name": model,
         "max_examples": None,
