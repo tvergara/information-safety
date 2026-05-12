@@ -17,10 +17,23 @@ from typing import Any
 
 from scripts.check_results import (
     EVILMATH_CONFIGS,
+    EVILMATH_DEFENSES,
     HARMBENCH_CONFIGS,
     STRONGREJECT_CONFIGS,
     WMDP_CONFIGS,
+    WMDP_DEFENSES,
+    _matches,
 )
+
+DEFENSE_DIR = Path("/scratch/t/tvergara/information-safety/defenses")
+DEFENSE_IDS = set(WMDP_DEFENSES) | set(EVILMATH_DEFENSES)
+
+
+def _resolve_model_path(model_name: str) -> str:
+    """Translate a defense_id to its absolute Tamia path; pass through otherwise."""
+    if model_name in DEFENSE_IDS:
+        return str(DEFENSE_DIR / model_name)
+    return model_name
 
 
 def default_results_file() -> Path:
@@ -64,10 +77,6 @@ def _last_epoch_for(config: dict[str, Any]) -> int:
     if config["experiment_name"] == "DataStrategy":
         return config["max_epochs"] - 1
     return 0
-
-
-def _matches(row: dict[str, Any], config: dict[str, Any]) -> bool:
-    return all(row.get(k) == v for k, v in config.items())
 
 
 def is_present(config: dict[str, Any], rows: list[dict[str, Any]]) -> bool:
@@ -225,7 +234,7 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
 
     cmd += [
         f"algorithm/dataset_handler={dataset_handler}",
-        f"algorithm.model.pretrained_model_name_or_path={model_name}",
+        f"algorithm.model.pretrained_model_name_or_path={_resolve_model_path(model_name)}",
         "algorithm.model.trust_remote_code=true",
         "trainer.precision=bf16-mixed",
         # Pool jobs are scored from saved generations, not from checkpoints.

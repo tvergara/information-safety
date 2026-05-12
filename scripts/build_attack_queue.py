@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,6 +15,13 @@ from scripts.build_job_queue import (
     is_job_known,
     write_pending_payload,
 )
+
+
+@dataclass(frozen=True)
+class DatasetPaths:
+    behaviors_csv: Path
+    targets_json: Path
+    total: int
 
 
 def compute_shards(*, total: int, num_shards: int) -> list[tuple[int, int]]:
@@ -69,25 +77,37 @@ def _model_slug(model_name: str) -> str:
     return model_name.replace("/", "_")
 
 
+_CSV_BASENAMES = {
+    "harmbench": "harmbench_behaviors_standard.csv",
+    "strongreject": "strongreject_behaviors.csv",
+    "wmdp": "wmdp_behaviors.csv",
+    "evilmath": "evilmath_behaviors.csv",
+}
+
+_TARGETS_BASENAMES = {
+    "strongreject": "strongreject_targets_text.json",
+    "wmdp": "wmdp_targets_text.json",
+    "evilmath": "evilmath_targets_text.json",
+}
+
+_HARMBENCH_TARGETS_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "third_party/adversariallm/data/optimizer_targets/harmbench_targets_text.json"
+)
+
+
 def _csv_for(*, dataset: str, behaviors_csv_dir: Path) -> Path:
-    if dataset == "harmbench":
-        return behaviors_csv_dir / "harmbench_behaviors_standard.csv"
-    elif dataset == "strongreject":
-        return behaviors_csv_dir / "strongreject_behaviors.csv"
-    else:
+    if dataset not in _CSV_BASENAMES:
         raise ValueError(f"Unknown dataset: {dataset}")
+    return behaviors_csv_dir / _CSV_BASENAMES[dataset]
 
 
 def _targets_for(*, dataset: str, behaviors_csv_dir: Path) -> Path:
     if dataset == "harmbench":
-        return (
-            Path(__file__).resolve().parent.parent
-            / "third_party/adversariallm/data/optimizer_targets/harmbench_targets_text.json"
-        )
-    elif dataset == "strongreject":
-        return behaviors_csv_dir / "strongreject_targets_text.json"
-    else:
+        return _HARMBENCH_TARGETS_PATH
+    if dataset not in _TARGETS_BASENAMES:
         raise ValueError(f"Unknown dataset: {dataset}")
+    return behaviors_csv_dir / _TARGETS_BASENAMES[dataset]
 
 
 def _count_csv_rows(csv_path: Path) -> int:
@@ -110,21 +130,21 @@ def build_attack_queue(
     ensure_queue_dirs(queue_root)
     pending_dir = queue_root / "pending"
 
-    csv_paths: dict[str, Path] = {}
-    targets_paths: dict[str, Path] = {}
-    dataset_totals: dict[str, int] = {}
+    dataset_paths: dict[str, DatasetPaths] = {}
     for dataset in dataset_names:
         csv_path = _csv_for(dataset=dataset, behaviors_csv_dir=behaviors_csv_dir)
         if not csv_path.exists():
             raise FileNotFoundError(f"Behaviors CSV not found: {csv_path}")
-        csv_paths[dataset] = csv_path
         targets_path = _targets_for(
             dataset=dataset, behaviors_csv_dir=behaviors_csv_dir
         )
         if not targets_path.exists():
             raise FileNotFoundError(f"Targets JSON not found: {targets_path}")
-        targets_paths[dataset] = targets_path
-        dataset_totals[dataset] = _count_csv_rows(csv_path)
+        dataset_paths[dataset] = DatasetPaths(
+            behaviors_csv=csv_path,
+            targets_json=targets_path,
+            total=_count_csv_rows(csv_path),
+        )
 
     written: list[Path] = []
     for attack in attacks:
@@ -134,8 +154,9 @@ def build_attack_queue(
                 merged = attacks_dir / f"{attack}-{slug}-{dataset}-merged.jsonl"
                 if merged.exists():
                     continue
+                paths = dataset_paths[dataset]
                 shards = compute_shards(
-                    total=dataset_totals[dataset], num_shards=num_shards
+                    total=paths.total, num_shards=num_shards
                 )
                 for shard_idx, (start, end) in enumerate(shards):
                     spec = {
@@ -167,8 +188,8 @@ def build_attack_queue(
                         "--model", model,
                         "--shard-start", str(start),
                         "--shard-end", str(end),
-                        "--behaviors-csv", str(csv_paths[dataset]),
-                        "--targets-json", str(targets_paths[dataset]),
+                        "--behaviors-csv", str(paths.behaviors_csv),
+                        "--targets-json", str(paths.targets_json),
                         "--output-jsonl", str(output_jsonl),
                         "--adv-save-dir", str(adv_save_dir),
                         "--adversariallm-venv", str(adversariallm_venv),

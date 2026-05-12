@@ -250,6 +250,122 @@ class TestMissingInputFiles:
             )
 
 
+class TestWmdpEvilmathDatasets:
+    def _setup_csvs(self, tmp_path: Path, *, rows: int = 16) -> Path:
+        csv_dir = tmp_path / "csv"
+        csv_dir.mkdir()
+        body = "header\n" + "".join(f"r{i}\n" for i in range(rows))
+        (csv_dir / "wmdp_behaviors.csv").write_text(body)
+        (csv_dir / "wmdp_targets_text.json").write_text("{}")
+        (csv_dir / "evilmath_behaviors.csv").write_text(body)
+        (csv_dir / "evilmath_targets_text.json").write_text("{}")
+        return csv_dir
+
+    def test_wmdp_command_uses_wmdp_paths(self, tmp_path: Path) -> None:
+        queue_root = tmp_path / "queue"
+        csv_dir = self._setup_csvs(tmp_path)
+        build_attack_queue(
+            attacks=["gcg"],
+            models=["sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0"],
+            dataset_names=["wmdp"],
+            num_shards=1,
+            queue_root=queue_root,
+            behaviors_csv_dir=csv_dir,
+            attacks_dir=tmp_path / "attacks",
+            adversariallm_venv=tmp_path / "adv-venv",
+            repo_root=tmp_path / "repo",
+        )
+        files = list((queue_root / "pending").glob("*.json"))
+        assert len(files) == 1
+        cmd = json.loads(files[0].read_text())["command"]
+        targets_arg = cmd[cmd.index("--targets-json") + 1]
+        assert targets_arg == str(csv_dir / "wmdp_targets_text.json")
+        behaviors_arg = cmd[cmd.index("--behaviors-csv") + 1]
+        assert behaviors_arg == str(csv_dir / "wmdp_behaviors.csv")
+
+    def test_evilmath_command_uses_evilmath_paths(self, tmp_path: Path) -> None:
+        queue_root = tmp_path / "queue"
+        csv_dir = self._setup_csvs(tmp_path)
+        build_attack_queue(
+            attacks=["gcg"],
+            models=["sft-evilmath-Llama-3.1-8B-Instruct-d650794f965d"],
+            dataset_names=["evilmath"],
+            num_shards=1,
+            queue_root=queue_root,
+            behaviors_csv_dir=csv_dir,
+            attacks_dir=tmp_path / "attacks",
+            adversariallm_venv=tmp_path / "adv-venv",
+            repo_root=tmp_path / "repo",
+        )
+        files = list((queue_root / "pending").glob("*.json"))
+        assert len(files) == 1
+        cmd = json.loads(files[0].read_text())["command"]
+        targets_arg = cmd[cmd.index("--targets-json") + 1]
+        assert targets_arg == str(csv_dir / "evilmath_targets_text.json")
+        behaviors_arg = cmd[cmd.index("--behaviors-csv") + 1]
+        assert behaviors_arg == str(csv_dir / "evilmath_behaviors.csv")
+
+    def test_defense_id_model_passes_through_to_run_attack(
+        self, tmp_path: Path
+    ) -> None:
+        """defense_id has no `/`, so the slug equals the defense_id."""
+        queue_root = tmp_path / "queue"
+        csv_dir = self._setup_csvs(tmp_path)
+        defense = "sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0"
+        build_attack_queue(
+            attacks=["gcg"],
+            models=[defense],
+            dataset_names=["wmdp"],
+            num_shards=1,
+            queue_root=queue_root,
+            behaviors_csv_dir=csv_dir,
+            attacks_dir=tmp_path / "attacks",
+            adversariallm_venv=tmp_path / "adv-venv",
+            repo_root=tmp_path / "repo",
+        )
+        files = list((queue_root / "pending").glob("*.json"))
+        cmd = json.loads(files[0].read_text())["command"]
+        model_arg = cmd[cmd.index("--model") + 1]
+        assert model_arg == defense
+        output_arg = cmd[cmd.index("--output-jsonl") + 1]
+        assert defense in output_arg
+        assert "wmdp" in output_arg
+
+    def test_raises_if_wmdp_csv_missing(self, tmp_path: Path) -> None:
+        csv_dir = tmp_path / "csv"
+        csv_dir.mkdir()
+        with pytest.raises(FileNotFoundError, match="wmdp"):
+            build_attack_queue(
+                attacks=["gcg"],
+                models=["m1"],
+                dataset_names=["wmdp"],
+                num_shards=1,
+                queue_root=tmp_path / "queue",
+                behaviors_csv_dir=csv_dir,
+                attacks_dir=tmp_path / "attacks",
+                adversariallm_venv=tmp_path / "adv-venv",
+                repo_root=tmp_path / "repo",
+            )
+
+    def test_raises_if_evilmath_targets_missing(self, tmp_path: Path) -> None:
+        csv_dir = tmp_path / "csv"
+        csv_dir.mkdir()
+        body = "header\n" + "".join(f"r{i}\n" for i in range(4))
+        (csv_dir / "evilmath_behaviors.csv").write_text(body)
+        with pytest.raises(FileNotFoundError, match="evilmath"):
+            build_attack_queue(
+                attacks=["gcg"],
+                models=["m1"],
+                dataset_names=["evilmath"],
+                num_shards=1,
+                queue_root=tmp_path / "queue",
+                behaviors_csv_dir=csv_dir,
+                attacks_dir=tmp_path / "attacks",
+                adversariallm_venv=tmp_path / "adv-venv",
+                repo_root=tmp_path / "repo",
+            )
+
+
 class TestWriteStrongrejectTargets:
     def test_keys_match_csv_and_values_have_prefix(
         self, tmp_path: Path
