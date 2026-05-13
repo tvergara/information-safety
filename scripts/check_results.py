@@ -140,9 +140,10 @@ for model, (max_ex, max_epochs), subset in product(
             "corpus_subset": subset,
         })
 
-# WMDP defense evaluations: full attack matrix per defense_id (substring-matched
-# against row["model_name"]). Each defense gets Baseline + Roleplay + the three
-# DataStrategy corpus variants + the three precomputed adversarial-prompt attacks.
+# WMDP defense evaluations: each defense gets Baseline + Roleplay + the three
+# DataStrategy corpus variants. WMDP is ~12x larger than the other datasets, so
+# precomputed adversarial-prompt attacks (GCG/AutoDAN/PAIR) are intentionally
+# omitted — the per-example optimization cost is prohibitive.
 for defense in WMDP_DEFENSES:
     WMDP_CONFIGS.append({
         "experiment_name": "BaselineStrategy",
@@ -158,14 +159,6 @@ for defense in WMDP_DEFENSES:
         "max_examples": None,
         "epoch": 0,
     })
-    for attack in PRECOMPUTED_ATTACKS:
-        WMDP_CONFIGS.append({
-            "experiment_name": attack,
-            "dataset_name": "wmdp",
-            "model_name": defense,
-            "max_examples": None,
-            "epoch": 0,
-        })
 for defense, (max_ex, max_epochs) in product(WMDP_DEFENSES, DATA_SWEEP_POINTS):
     for epoch in range(max_epochs):
         WMDP_CONFIGS.append({

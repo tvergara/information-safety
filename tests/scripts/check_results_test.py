@@ -233,13 +233,13 @@ def test_wmdp_each_defense_has_roleplay() -> None:
         assert len(roleplay) == 1
 
 
-def test_wmdp_each_defense_has_precomputed_attacks() -> None:
+def test_wmdp_defenses_have_no_precomputed_attacks() -> None:
     for defense in WMDP_DEFENSES:
-        found = {
-            c["experiment_name"] for c in _wmdp_defense_configs(defense)
+        found = [
+            c for c in _wmdp_defense_configs(defense)
             if c["experiment_name"] in PRECOMPUTED_ATTACKS
-        }
-        assert found == set(PRECOMPUTED_ATTACKS)
+        ]
+        assert found == []
 
 
 def test_wmdp_each_defense_has_all_corpus_variants() -> None:
