@@ -366,6 +366,29 @@ class TestWmdpEvilmathDatasets:
             )
 
 
+class TestCliDefaults:
+    def test_num_shards_default_is_16(self) -> None:
+        from scripts.build_attack_queue import main as _main
+
+        captured: dict[str, object] = {}
+
+        def fake_build(**kwargs: object) -> list[Path]:
+            captured["num_shards"] = kwargs["num_shards"]
+            return []
+
+        with patch(
+            "scripts.build_attack_queue.build_attack_queue", side_effect=fake_build
+        ):
+            _main([
+                "--queue-root", "/q",
+                "--behaviors-csv-dir", "/b",
+                "--attacks-dir", "/a",
+                "--adversariallm-venv", "/v",
+                "--repo-root", "/r",
+            ])
+        assert captured["num_shards"] == 16
+
+
 class TestWriteStrongrejectTargets:
     def test_keys_match_csv_and_values_have_prefix(
         self, tmp_path: Path

@@ -225,7 +225,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--datasets", nargs="+", default=["harmbench", "strongreject"]
     )
-    parser.add_argument("--num-shards", type=int, default=8)
+    parser.add_argument("--num-shards", type=int, default=16)
     parser.add_argument("--behaviors-csv-dir", type=Path, required=True)
     parser.add_argument("--attacks-dir", type=Path, required=True)
     parser.add_argument("--adversariallm-venv", type=Path, required=True)
