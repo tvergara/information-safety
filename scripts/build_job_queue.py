@@ -25,14 +25,16 @@ from scripts.check_results import (
     _matches,
 )
 
-DEFENSE_DIR = Path("/scratch/t/tvergara/information-safety/defenses")
 DEFENSE_IDS = set(WMDP_DEFENSES) | set(EVILMATH_DEFENSES)
 
 
+def _defense_dir() -> Path:
+    return Path(f"{os.environ['SCRATCH']}/information-safety/defenses")
+
+
 def _resolve_model_path(model_name: str) -> str:
-    """Translate a defense_id to its absolute Tamia path; pass through otherwise."""
     if model_name in DEFENSE_IDS:
-        return str(DEFENSE_DIR / model_name)
+        return str(_defense_dir() / model_name)
     return model_name
 
 
