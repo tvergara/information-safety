@@ -102,7 +102,7 @@ def merge_results(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cluster", required=True, choices=["tamia", "nibi"])
+    parser.add_argument("--cluster", required=True, choices=["tamia", "nibi", "trc"])
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     parser.add_argument("--generations-dir", type=Path, default=DEFAULT_GENERATIONS_DIR)
     parser.add_argument("--dry-run", action="store_true")

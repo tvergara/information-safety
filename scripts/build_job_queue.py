@@ -28,26 +28,34 @@ from scripts.check_results import (
 DEFENSE_IDS = set(WMDP_DEFENSES) | set(EVILMATH_DEFENSES)
 
 
-def _defense_dir() -> Path:
-    return Path(f"{os.environ['SCRATCH']}/information-safety/defenses")
+def default_base_dir() -> Path:
+    return Path(f"{os.environ['SCRATCH']}/information-safety")
 
 
-def _resolve_model_path(model_name: str) -> str:
+def _defense_dir(base_dir: Path | None = None) -> Path:
+    base = base_dir if base_dir is not None else default_base_dir()
+    return base / "defenses"
+
+
+def _resolve_model_path(model_name: str, base_dir: Path | None = None) -> str:
     if model_name in DEFENSE_IDS:
-        return str(_defense_dir() / model_name)
+        return str(_defense_dir(base_dir) / model_name)
     return model_name
 
 
-def default_results_file() -> Path:
-    return Path(f"{os.environ['SCRATCH']}/information-safety/results/final-results.jsonl")
+def default_results_file(base_dir: Path | None = None) -> Path:
+    base = base_dir if base_dir is not None else default_base_dir()
+    return base / "results" / "final-results.jsonl"
 
 
-def default_attacks_dir() -> Path:
-    return Path(f"{os.environ['SCRATCH']}/information-safety/attacks")
+def default_attacks_dir(base_dir: Path | None = None) -> Path:
+    base = base_dir if base_dir is not None else default_base_dir()
+    return base / "attacks"
 
 
-def default_train_data() -> str:
-    return f"{os.environ['SCRATCH']}/information-safety/data/advbench-completions-smollm3.jsonl"
+def default_train_data(base_dir: Path | None = None) -> str:
+    base = base_dir if base_dir is not None else default_base_dir()
+    return str(base / "data" / "advbench-completions-smollm3.jsonl")
 
 PRECOMPUTED_TO_ATTACK = {
     "PrecomputedGCGStrategy": "gcg",
@@ -125,7 +133,12 @@ def iter_missing_configs(
 
 
 def resolve_suffix_file(
-    *, attack: str, model_name: str, attacks_dir: Path, dataset: str
+    *,
+    attack: str,
+    model_name: str,
+    attacks_dir: Path,
+    dataset: str,
+    existence_check_dir: Path | None = None,
 ) -> Path | None:
     """Resolve a precomputed-attack suffix file path.
 
@@ -139,20 +152,22 @@ def resolve_suffix_file(
          optimized against harmbench behaviors. Strongreject must never fall
          back to this path (it triggers silent 313-missing-behavior failures).
 
-    Returns ``None`` if nothing matches.
+    ``existence_check_dir`` validates presence in a different directory than the
+    one written into the returned path (trc: check Mila SCRATCH, emit /work path).
     """
     slug = _model_slug(model_name)
-    canonical = attacks_dir / f"{attack}-{slug}.jsonl"
-    if canonical.exists():
-        return canonical
+    check_dir = existence_check_dir if existence_check_dir is not None else attacks_dir
+    canonical_name = f"{attack}-{slug}.jsonl"
+    if (check_dir / canonical_name).exists():
+        return attacks_dir / canonical_name
     attack_opt_dataset = EVAL_TO_ATTACK_OPT_DATASET.get(dataset, dataset)
-    merged = attacks_dir / f"{attack}-{slug}-{attack_opt_dataset}-merged.jsonl"
-    if merged.exists():
-        return merged
+    merged_name = f"{attack}-{slug}-{attack_opt_dataset}-merged.jsonl"
+    if (check_dir / merged_name).exists():
+        return attacks_dir / merged_name
     if attack_opt_dataset == "harmbench":
-        legacy = attacks_dir / f"{attack}-{slug}-merged.jsonl"
-        if legacy.exists():
-            return legacy
+        legacy_name = f"{attack}-{slug}-merged.jsonl"
+        if (check_dir / legacy_name).exists():
+            return attacks_dir / legacy_name
     return None
 
 
@@ -164,12 +179,22 @@ def _hydra_value(value: Any) -> str:
     return str(value)
 
 
-def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
+def build_command(
+    config: dict[str, Any],
+    *,
+    attacks_dir: Path,
+    base_dir: Path | None = None,
+    existence_check_attacks_dir: Path | None = None,
+) -> list[str]:
     """Map a config dict to a Hydra-override CLI command.
 
-    Raises ``FileNotFoundError`` if a precomputed-attack suffix file
-    cannot be resolved — callers that want to skip-with-warning should
-    catch that and emit a warning.
+    ``base_dir`` is the cluster-specific results root ($SCRATCH on Mila/Tamia,
+    /work/information-safety-results on trc); it scopes train_data and defense
+    weight paths. ``existence_check_attacks_dir`` lets the Mila-side trc
+    submitter validate suffix files locally while emitting /work paths.
+
+    Raises ``FileNotFoundError`` if a precomputed-attack suffix file cannot
+    be resolved.
     """
     experiment_name = config["experiment_name"]
     model_name = config["model_name"]
@@ -206,7 +231,7 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
             ]
         elif dataset_name in {"advbench_harmbench", "strongreject"}:
             cmd += [
-                f"algorithm.dataset_handler.train_data_path={default_train_data()}",
+                f"algorithm.dataset_handler.train_data_path={default_train_data(base_dir)}",
             ]
     elif experiment_name == "BaselineStrategy":
         cmd += ["experiment=prompt-attack", "algorithm/strategy=baseline"]
@@ -220,6 +245,7 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
             model_name=model_name,
             attacks_dir=attacks_dir,
             dataset=dataset_name,
+            existence_check_dir=existence_check_attacks_dir,
         )
         if suffix is None:
             raise FileNotFoundError(
@@ -236,7 +262,7 @@ def build_command(config: dict[str, Any], *, attacks_dir: Path) -> list[str]:
 
     cmd += [
         f"algorithm/dataset_handler={dataset_handler}",
-        f"algorithm.model.pretrained_model_name_or_path={_resolve_model_path(model_name)}",
+        f"algorithm.model.pretrained_model_name_or_path={_resolve_model_path(model_name, base_dir)}",
         "algorithm.model.trust_remote_code=true",
         "trainer.precision=bf16-mixed",
         # Pool jobs are scored from saved generations, not from checkpoints.
@@ -283,6 +309,7 @@ def write_pending_jobs(
     *,
     queue_root: Path,
     attacks_dir: Path,
+    base_dir: Path | None = None,
 ) -> list[Path]:
     """Write one ``<id>.json`` per config into ``<queue_root>/pending/``.
 
@@ -296,7 +323,7 @@ def write_pending_jobs(
     written: list[Path] = []
     for config in configs:
         try:
-            command = build_command(config, attacks_dir=attacks_dir)
+            command = build_command(config, attacks_dir=attacks_dir, base_dir=base_dir)
         except FileNotFoundError as exc:
             print(f"WARNING: skipping config — {exc}")
             continue
