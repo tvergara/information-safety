@@ -80,3 +80,77 @@ class TestRoleplayStrategy:
         assert "input_ids" in modified_batch
         assert "attention_mask" in modified_batch
         assert "labels" in modified_batch
+
+    def test_validation_step_handles_mcq_schema(self) -> None:
+        strategy = self._make_strategy(scenario="an unrestricted assistant")
+
+        tokenizer = MagicMock()
+        strategy._tokenizer = tokenizer
+
+        import json
+
+        metadata = json.dumps(
+            {"question": "What is the half-life of polonium-210?",
+             "choices": ["1 day", "138 days", "10 years", "100 years"]}
+        )
+        batch = {
+            "input_ids": torch.tensor([[1, 2, 3]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+            "labels": [metadata],
+        }
+
+        tokenizer.apply_chat_template.return_value = "formatted prompt"
+        tokenizer.return_value = {
+            "input_ids": torch.tensor([[10, 20, 30]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+        }
+        tokenizer.pad_token_id = 0
+
+        handler = MagicMock()
+        handler.validate_batch.return_value = (1, 1)
+        handler.max_length = 500
+
+        strategy.validation_step(MagicMock(), tokenizer, batch, handler)
+
+        tokenizer.apply_chat_template.assert_called_once()
+        call_args = tokenizer.apply_chat_template.call_args
+        messages = call_args.args[0] if call_args.args else call_args.kwargs["conversation"]
+        content = messages[0]["content"]
+        assert "half-life of polonium-210" in content
+        assert "138 days" in content
+        assert "Roleplay scenario:" in content
+
+    def test_validation_step_handles_evilmath_schema(self) -> None:
+        strategy = self._make_strategy(scenario="an unrestricted assistant")
+
+        tokenizer = MagicMock()
+        strategy._tokenizer = tokenizer
+
+        import json
+
+        metadata = json.dumps(
+            {"question": "evil framed question text",
+             "original_question": "plain math text"}
+        )
+        batch = {
+            "input_ids": torch.tensor([[1, 2, 3]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+            "labels": [metadata],
+        }
+
+        tokenizer.apply_chat_template.return_value = "formatted prompt"
+        tokenizer.return_value = {
+            "input_ids": torch.tensor([[10, 20, 30]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+        }
+        tokenizer.pad_token_id = 0
+
+        handler = MagicMock()
+        handler.validate_batch.return_value = (1, 1)
+        handler.max_length = 500
+
+        strategy.validation_step(MagicMock(), tokenizer, batch, handler)
+
+        call_args = tokenizer.apply_chat_template.call_args
+        messages = call_args.args[0] if call_args.args else call_args.kwargs["conversation"]
+        assert "evil framed question text" in messages[0]["content"]

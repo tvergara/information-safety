@@ -28,6 +28,7 @@ from scripts.check_results import (
 TRC_BASE_DIR = "/work/information-safety-results"
 TRC_REPO_DIR = "/work/information-safety"
 TRC_HF_HOME = "/work/.hf-cache"
+TRC_DEFENSE_HF_NAMESPACE = "tvergara"
 TRC_EAI_IMAGE = (
     "registry.toolkit-sp.yul201.service-now.com/snow.research.mmteb/mteb-lite:v1"
 )
@@ -92,6 +93,7 @@ def build_eai_submit_argv(*, config: dict[str, Any]) -> list[str]:
         attacks_dir=Path(f"{TRC_BASE_DIR}/attacks"),
         base_dir=Path(TRC_BASE_DIR),
         existence_check_attacks_dir=default_attacks_dir(),
+        defense_hf_namespace=TRC_DEFENSE_HF_NAMESPACE,
     )
     hydra_str = " ".join(_shell_quote(tok) for tok in hydra_cmd)
     container_cmd = " && ".join([

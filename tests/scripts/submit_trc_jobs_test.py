@@ -176,7 +176,15 @@ def test_paths_use_work_not_scratch_for_defense() -> None:
     joined = " ".join(argv)
     assert "/scratch/" not in joined
     assert TRC_BASE_DIR in joined
-    assert f"{TRC_BASE_DIR}/defenses/" in joined
+
+
+def test_defense_model_resolves_to_hf_id() -> None:
+    defense_config = _wmdp_defense_config()
+    argv = build_eai_submit_argv(config=defense_config)
+    joined = " ".join(argv)
+    defense_name = defense_config["model_name"]
+    assert f"algorithm.model.pretrained_model_name_or_path=tvergara/{defense_name}" in joined
+    assert f"{TRC_BASE_DIR}/defenses/" not in joined
 
 
 def test_paths_use_work_not_scratch_for_train_data() -> None:

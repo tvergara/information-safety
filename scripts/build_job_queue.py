@@ -37,8 +37,14 @@ def _defense_dir(base_dir: Path | None = None) -> Path:
     return base / "defenses"
 
 
-def _resolve_model_path(model_name: str, base_dir: Path | None = None) -> str:
+def _resolve_model_path(
+    model_name: str,
+    base_dir: Path | None = None,
+    defense_hf_namespace: str | None = None,
+) -> str:
     if model_name in DEFENSE_IDS:
+        if defense_hf_namespace is not None:
+            return f"{defense_hf_namespace}/{model_name}"
         return str(_defense_dir(base_dir) / model_name)
     return model_name
 
@@ -185,6 +191,7 @@ def build_command(
     attacks_dir: Path,
     base_dir: Path | None = None,
     existence_check_attacks_dir: Path | None = None,
+    defense_hf_namespace: str | None = None,
 ) -> list[str]:
     """Map a config dict to a Hydra-override CLI command.
 
@@ -192,6 +199,12 @@ def build_command(
     /work/information-safety-results on trc); it scopes train_data and defense
     weight paths. ``existence_check_attacks_dir`` lets the Mila-side trc
     submitter validate suffix files locally while emitting /work paths.
+
+    ``defense_hf_namespace`` routes defense weights through the HuggingFace Hub
+    instead of a local path — when set, defense ``model_name``s in
+    ``DEFENSE_IDS`` are emitted as ``f"{namespace}/{model_name}"``. Used by the
+    trc submitter so defense weights are pulled from HF rather than from
+    ``/work`` (which isn't pre-populated).
 
     Raises ``FileNotFoundError`` if a precomputed-attack suffix file cannot
     be resolved.
@@ -260,9 +273,10 @@ def build_command(
     else:
         raise ValueError(f"Unknown experiment_name: {experiment_name}")
 
+    model_path = _resolve_model_path(model_name, base_dir, defense_hf_namespace)
     cmd += [
         f"algorithm/dataset_handler={dataset_handler}",
-        f"algorithm.model.pretrained_model_name_or_path={_resolve_model_path(model_name, base_dir)}",
+        f"algorithm.model.pretrained_model_name_or_path={model_path}",
         "algorithm.model.trust_remote_code=true",
         "trainer.precision=bf16-mixed",
         # Pool jobs are scored from saved generations, not from checkpoints.
