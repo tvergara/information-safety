@@ -100,6 +100,7 @@ def build_eai_submit_argv(*, config: dict[str, Any]) -> list[str]:
         f"export RESULTS_FILE={TRC_BASE_DIR}/results/final-results.jsonl",
         f"export GENERATIONS_DIR={TRC_BASE_DIR}/generations",
         f"export HF_HOME={TRC_HF_HOME}",
+        f"export SCRATCH={TRC_BASE_DIR}",
         "export HYDRA_FULL_ERROR=1",
         hydra_str,
     ])

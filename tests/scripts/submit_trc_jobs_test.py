@@ -163,6 +163,13 @@ def test_container_command_sets_hf_home_on_work() -> None:
     assert TRC_HF_HOME.startswith("/work/")
 
 
+def test_container_command_overrides_scratch_to_writable_work_dir() -> None:
+    config = _baseline_config()
+    argv = build_eai_submit_argv(config=config)
+    joined = " ".join(argv)
+    assert f"export SCRATCH={TRC_BASE_DIR}" in joined
+
+
 def test_paths_use_work_not_scratch_for_defense() -> None:
     defense_config = _wmdp_defense_config()
     argv = build_eai_submit_argv(config=defense_config)
