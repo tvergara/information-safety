@@ -16,23 +16,20 @@ fi
 
 cluster="$1"
 
-# tamia goes through the robot host (publickey, no Duo); nibi's robot grant is
-# unconfirmed, so keep the ControlMaster path until it is.
+# Both tamia and nibi go through the robot host (publickey, no Duo).
 case "$cluster" in
     tamia)
         rsync_host="robot.tamia.ecpia.ca"
-        # Hardcoded because the robot wrapper rejects `bash`/shell expansion,
-        # so we cannot probe $SCRATCH the way the nibi branch does.
+        # Hardcoded because the robot wrapper rejects shell expansion so we
+        # cannot probe $SCRATCH. Tamia uses an initial-letter scratch subdir.
         remote_scratch="/scratch/t/tvergara"
         ;;
     nibi)
-        script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-        if ! bash "$script_dir/check-cluster-ssh.sh" "$cluster"; then
-            echo "Aborting: SSH ControlMaster to $cluster is closed. From Mila, run 'ssh $cluster true' and approve the 2FA prompt on your phone, then re-run this script." >&2
-            exit 1
-        fi
-        rsync_host="$cluster"
-        remote_scratch="$(ssh "$cluster" 'echo $SCRATCH')"
+        rsync_host="robot.nibi.alliancecan.ca"
+        # Hardcoded — the robot wrapper rejects shell expansion so we can't
+        # probe $SCRATCH, and the remote (Alliance) username differs from
+        # Mila's $USER. Nibi scratch is flat (unlike Tamia's /scratch/t/...).
+        remote_scratch="/scratch/tvergara"
         ;;
     *)
         echo "Unknown cluster: $cluster (expected tamia or nibi)" >&2

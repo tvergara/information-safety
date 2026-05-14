@@ -49,6 +49,18 @@ def test_container_creates_venv_with_python_310_and_cu128_index() -> None:
     assert f"{TRC_REPO_DIR}/third_party/adversariallm" in joined
 
 
+def test_uv_venv_is_idempotent_via_clear_flag() -> None:
+    argv = build_eai_submit_argv(hf_token="hf_x")
+    joined = " ".join(argv)
+    assert f"uv venv {TRC_ADVERSARIALLM_VENV} --python 3.10 --clear" in joined
+
+
+def test_uv_install_falls_back_to_pypi_for_non_torch_deps() -> None:
+    argv = build_eai_submit_argv(hf_token="hf_x")
+    joined = " ".join(argv)
+    assert "--index-strategy unsafe-best-match" in joined
+
+
 def test_container_installs_uv_before_using_it() -> None:
     argv = build_eai_submit_argv(hf_token="hf_x")
     joined = " ".join(argv)

@@ -36,7 +36,8 @@ def build_eai_submit_argv(*, hf_token: str) -> list[str]:
     site_py = "import site; print(site.getsitepackages()[0])"
     install_adv = (
         f"(source {TRC_ADVERSARIALLM_VENV}/bin/activate"
-        " && uv pip install --extra-index-url https://download.pytorch.org/whl/cu128"
+        " && uv pip install --index-strategy unsafe-best-match"
+        " --extra-index-url https://download.pytorch.org/whl/cu128"
         f" -e {TRC_REPO_DIR}/third_party/adversariallm"
         " && uv pip install mongomock"
         f" && SITE=$(python -c {shell_quote(site_py)})"
@@ -53,7 +54,7 @@ def build_eai_submit_argv(*, hf_token: str) -> list[str]:
         'export PATH="$HOME/.local/bin:$PATH"',
         f"cd {TRC_REPO_DIR}",
         "source .venv/bin/activate",
-        f"uv venv {TRC_ADVERSARIALLM_VENV} --python 3.10",
+        f"uv venv {TRC_ADVERSARIALLM_VENV} --python 3.10 --clear",
         install_adv,
         (
             f"python {TRC_REPO_DIR}/scripts/build_adversariallm_behaviors.py"
