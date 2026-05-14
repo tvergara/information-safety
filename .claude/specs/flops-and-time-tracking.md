@@ -92,12 +92,11 @@ For Baseline/Roleplay (no training): `train_flops = 0`, `train_time = 0`.
     ```python
     eval_output_tokens = self._val_total * self.dataset_handler.max_new_tokens
     eval_flops = 2 * self._num_params * (self._eval_input_tokens + eval_output_tokens)
-    avg_flops = self._train_flops + (
-        eval_flops / self._val_total if self._val_total > 0 else 0.0
-    )
-    avg_time = self._train_time + (
-        self._eval_time / self._val_total if self._val_total > 0 else 0.0
-    )
+    n = self._val_total
+    eval_flops_per = eval_flops / n if n > 0 else 0.0
+    eval_time_per = self._eval_time / n if n > 0 else 0.0
+    avg_flops = self._train_flops + eval_flops_per
+    avg_time = self._train_time + eval_time_per
     ```
 
     New fields: `"avg_flops_per_example": avg_flops`, `"avg_time_per_example": avg_time`
