@@ -68,6 +68,10 @@ markers = [
 
 [tool.pyright]
 include = ["information_safety"]
+# naive_inference.py's UTF-8 byte length is the code-bits floor for the
+# program-length accounting; the file cannot be edited to fix transformers
+# stub mismatches without changing the measurement constant.
+exclude = ["information_safety/scripts/naive_inference.py"]
 typeCheckingMode = "basic"
 pythonVersion = "3.12"
 venvPath = "."

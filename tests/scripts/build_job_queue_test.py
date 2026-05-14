@@ -743,6 +743,79 @@ def test_resolve_suffix_file_evilmath_dataset_identity(tmp_path: Path) -> None:
     assert resolved == merged
 
 
+def test_build_command_base_dir_overrides_train_data_root() -> None:
+    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 0)
+    cmd = build_command(
+        config,
+        attacks_dir=Path("/work/information-safety-results/attacks"),
+        base_dir=Path("/work/information-safety-results"),
+    )
+    train_arg = next(
+        c for c in cmd if c.startswith("algorithm.dataset_handler.train_data_path=")
+    )
+    assert "/work/information-safety-results/data/" in train_arg
+    assert "/scratch/" not in train_arg
+
+
+def test_build_command_base_dir_overrides_defense_root() -> None:
+    defense = "sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0"
+    config = {
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "wmdp",
+        "model_name": defense,
+        "max_examples": None,
+        "epoch": 0,
+    }
+    cmd = build_command(
+        config,
+        attacks_dir=Path("/work/information-safety-results/attacks"),
+        base_dir=Path("/work/information-safety-results"),
+    )
+    expected = (
+        f"algorithm.model.pretrained_model_name_or_path="
+        f"/work/information-safety-results/defenses/{defense}"
+    )
+    assert expected in cmd
+    assert all("/scratch/" not in tok for tok in cmd)
+
+
+def test_build_command_existence_check_attacks_dir_lets_local_validation(
+    tmp_path: Path,
+) -> None:
+    local_attacks_dir = tmp_path / "attacks"
+    local_attacks_dir.mkdir()
+    canonical = local_attacks_dir / "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl"
+    canonical.write_text("")
+    remote_attacks_dir = Path("/work/information-safety-results/attacks")
+    config = _gcg_config("meta-llama/Llama-2-7b-chat-hf")
+    cmd = build_command(
+        config,
+        attacks_dir=remote_attacks_dir,
+        existence_check_attacks_dir=local_attacks_dir,
+    )
+    expected_suffix = (
+        f"algorithm.strategy.suffix_file={remote_attacks_dir}/"
+        "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl"
+    )
+    assert expected_suffix in cmd
+
+
+def test_resolve_suffix_file_uses_existence_check_dir(tmp_path: Path) -> None:
+    local = tmp_path / "local"
+    local.mkdir()
+    remote = Path("/work/information-safety-results/attacks")
+    canonical = local / "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl"
+    canonical.write_text("")
+    resolved = resolve_suffix_file(
+        attack="gcg",
+        model_name="meta-llama/Llama-2-7b-chat-hf",
+        attacks_dir=remote,
+        dataset="advbench_harmbench",
+        existence_check_dir=local,
+    )
+    assert resolved == remote / "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl"
+
+
 def test_main_writes_pending_files_for_synthetic_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
