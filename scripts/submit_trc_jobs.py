@@ -18,6 +18,7 @@ from scripts._trc_common import (
     TRC_EAI_IMAGE,
     TRC_HF_HOME,
     TRC_REPO_DIR,
+    load_submitted_state,
     shell_quote,
 )
 from scripts.build_job_queue import (
@@ -43,16 +44,6 @@ DEFAULT_STATE_FILE = Path(
 def deterministic_job_name(config: dict[str, Any]) -> str:
     payload = json.dumps(config, sort_keys=True, default=str).encode("utf-8")
     return "is_" + hashlib.sha256(payload).hexdigest()[:16]
-
-
-def load_submitted_state(state_file: Path) -> set[str]:
-    if not state_file.exists():
-        return set()
-    return {
-        json.loads(line)["job_id"]
-        for line in state_file.read_text().splitlines()
-        if line.strip()
-    }
 
 
 def record_submission(

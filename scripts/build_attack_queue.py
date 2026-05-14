@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import datasets
 
+from scripts._trc_common import compute_shards, model_slug
 from scripts.build_job_queue import (
     deterministic_id,
     ensure_queue_dirs,
@@ -22,20 +23,6 @@ class DatasetPaths:
     behaviors_csv: Path
     targets_json: Path
     total: int
-
-
-def compute_shards(*, total: int, num_shards: int) -> list[tuple[int, int]]:
-    base = total // num_shards
-    remainder = total % num_shards
-    shards: list[tuple[int, int]] = []
-    cursor = 0
-    for i in range(num_shards):
-        size = base + (1 if i < remainder else 0)
-        if size == 0:
-            continue
-        shards.append((cursor, cursor + size))
-        cursor += size
-    return shards
 
 
 _HARMBENCH_PASSTHROUGH_CATEGORY = "harmful"
@@ -71,10 +58,6 @@ def write_strongreject_targets(csv_path: Path, json_path: Path) -> int:
     with open(json_path, "w") as f:
         json.dump(targets, f)
     return len(targets)
-
-
-def _model_slug(model_name: str) -> str:
-    return model_name.replace("/", "_")
 
 
 _CSV_BASENAMES = {
@@ -150,7 +133,7 @@ def build_attack_queue(
     for attack in attacks:
         for model in models:
             for dataset in dataset_names:
-                slug = _model_slug(model)
+                slug = model_slug(model)
                 merged = attacks_dir / f"{attack}-{slug}-{dataset}-merged.jsonl"
                 if merged.exists():
                     continue
