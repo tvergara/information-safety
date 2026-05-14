@@ -48,6 +48,19 @@ def test_container_snapshot_downloads_dataset_to_base_dir() -> None:
     assert "repo_type" in joined and "dataset" in joined
 
 
+def test_container_sources_venv_for_huggingface_hub() -> None:
+    argv = build_eai_submit_argv(hf_token="hf_x", dataset_repo="tvergara/x")
+    joined = " ".join(argv)
+    assert "source .venv/bin/activate" in joined
+    assert "cd /work/information-safety" in joined
+
+
+def test_submit_uses_enforce_name() -> None:
+    argv = build_eai_submit_argv(hf_token="hf_x", dataset_repo="tvergara/x")
+    joined = " ".join(argv)
+    assert "--enforce-name" in joined
+
+
 def test_main_dry_run_prints_no_token(capsys: pytest.CaptureFixture[str]) -> None:
     with patch("scripts.bootstrap_trc_data.get_token", return_value="hf_secret_xyz"):
         with patch("scripts.bootstrap_trc_data.subprocess.run") as run:

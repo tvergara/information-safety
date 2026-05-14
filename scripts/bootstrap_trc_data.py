@@ -19,16 +19,14 @@ import sys
 
 from huggingface_hub import get_token
 
-TRC_BASE_DIR = "/work/information-safety-results"
-TRC_HF_HOME = "/work/.hf-cache"
-TRC_EAI_IMAGE = (
-    "registry.toolkit-sp.yul201.service-now.com/snow.research.mmteb/mteb-lite:v1"
+from scripts._trc_common import (
+    TRC_BASE_DIR,
+    TRC_DATA_MOUNT,
+    TRC_EAI_IMAGE,
+    TRC_HF_HOME,
+    TRC_REPO_DIR,
+    shell_quote,
 )
-TRC_DATA_MOUNT = "snow.research.mmteb.safety:/work:rw"
-
-
-def _shell_quote(s: str) -> str:
-    return "'" + s.replace("'", "'\\''") + "'"
 
 
 def build_eai_submit_argv(*, hf_token: str, dataset_repo: str) -> list[str]:
@@ -39,12 +37,14 @@ def build_eai_submit_argv(*, hf_token: str, dataset_repo: str) -> list[str]:
     )
     container_cmd = " && ".join([
         f"mkdir -p {TRC_HF_HOME}",
-        f"printf %s {_shell_quote(hf_token)} > {TRC_HF_HOME}/token",
+        f"printf %s {shell_quote(hf_token)} > {TRC_HF_HOME}/token",
         f"chmod 600 {TRC_HF_HOME}/token",
         f"mkdir -p {TRC_BASE_DIR}",
+        f"cd {TRC_REPO_DIR}",
+        "source .venv/bin/activate",
         f"export HF_HOME={TRC_HF_HOME}",
-        f"export HUGGING_FACE_HUB_TOKEN={_shell_quote(hf_token)}",
-        f"python -c {_shell_quote(snapshot_py)}",
+        f"export HUGGING_FACE_HUB_TOKEN={shell_quote(hf_token)}",
+        f"python -c {shell_quote(snapshot_py)}",
         f"ls -la {TRC_BASE_DIR}",
     ])
     remote = (
@@ -54,7 +54,8 @@ def build_eai_submit_argv(*, hf_token: str, dataset_repo: str) -> list[str]:
         f" --data {TRC_DATA_MOUNT}"
         f" --cpu 4 --mem 16 --max-run-time 3600"
         f" --non-preemptable"
-        f" -- bash -lc {_shell_quote(container_cmd)}"
+        f" --enforce-name"
+        f" -- bash -lc {shell_quote(container_cmd)}"
     )
     return ["ssh", "trc", remote]
 
@@ -79,7 +80,7 @@ def main(argv: list[str] | None = None) -> None:
     cli_argv = build_eai_submit_argv(hf_token=token, dataset_repo=args.dataset_repo)
     if args.dry_run:
         redacted = [s.replace(token, "<redacted>") for s in cli_argv]
-        print(f"{redacted[0]} {redacted[1]} {_shell_quote(redacted[2])}")
+        print(f"{redacted[0]} {redacted[1]} {shell_quote(redacted[2])}")
         return
     result = subprocess.run(cli_argv, check=True, capture_output=True, text=True)
     print(result.stdout.strip())

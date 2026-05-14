@@ -12,6 +12,14 @@ import time
 from pathlib import Path
 from typing import Any
 
+from scripts._trc_common import (
+    TRC_BASE_DIR,
+    TRC_DATA_MOUNT,
+    TRC_EAI_IMAGE,
+    TRC_HF_HOME,
+    TRC_REPO_DIR,
+    shell_quote,
+)
 from scripts.build_job_queue import (
     build_command,
     default_attacks_dir,
@@ -25,14 +33,7 @@ from scripts.check_results import (
     WMDP_CONFIGS,
 )
 
-TRC_BASE_DIR = "/work/information-safety-results"
-TRC_REPO_DIR = "/work/information-safety"
-TRC_HF_HOME = "/work/.hf-cache"
 TRC_DEFENSE_HF_NAMESPACE = "tvergara"
-TRC_EAI_IMAGE = (
-    "registry.toolkit-sp.yul201.service-now.com/snow.research.mmteb/mteb-lite:v1"
-)
-TRC_DATA_MOUNT = "snow.research.mmteb.safety:/work:rw"
 
 DEFAULT_STATE_FILE = Path(
     os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
@@ -83,10 +84,6 @@ def iter_pending_configs(
     return [c for c in missing if deterministic_job_name(c) not in submitted]
 
 
-def _shell_quote(s: str) -> str:
-    return "'" + s.replace("'", "'\\''") + "'"
-
-
 def build_eai_submit_argv(*, config: dict[str, Any]) -> list[str]:
     hydra_cmd = build_command(
         config,
@@ -95,7 +92,7 @@ def build_eai_submit_argv(*, config: dict[str, Any]) -> list[str]:
         existence_check_attacks_dir=default_attacks_dir(),
         defense_hf_namespace=TRC_DEFENSE_HF_NAMESPACE,
     )
-    hydra_str = " ".join(_shell_quote(tok) for tok in hydra_cmd)
+    hydra_str = " ".join(shell_quote(tok) for tok in hydra_cmd)
     container_cmd = " && ".join([
         f"cd {TRC_REPO_DIR}",
         "source .venv/bin/activate",
@@ -115,7 +112,7 @@ def build_eai_submit_argv(*, config: dict[str, Any]) -> list[str]:
         f" --gpu 1 --mem 64 --cpu 8 --max-run-time 43200"
         f" --non-preemptable"
         f" --enforce-name"
-        f" -- bash -lc {_shell_quote(container_cmd)}"
+        f" -- bash -lc {shell_quote(container_cmd)}"
     )
     return ["ssh", "trc", remote]
 
@@ -128,7 +125,7 @@ def _submit_one(
 ) -> None:
     argv = build_eai_submit_argv(config=config)
     if dry_run:
-        print(f"{argv[0]} {argv[1]} {_shell_quote(argv[2])}")
+        print(f"{argv[0]} {argv[1]} {shell_quote(argv[2])}")
         return
     result = subprocess.run(argv, check=True, capture_output=True, text=True)
     eai_uuid = result.stdout.strip().splitlines()[-1]
