@@ -11,6 +11,7 @@ import pytest
 from scripts.submit_trc_jobs import (
     TRC_BASE_DIR,
     TRC_EAI_IMAGE,
+    TRC_HF_HOME,
     build_eai_submit_argv,
     deterministic_job_name,
     iter_pending_configs,
@@ -152,6 +153,14 @@ def test_container_command_sets_env_vars() -> None:
     assert "source .venv/bin/activate" in joined
     assert "cd /work/information-safety" in joined
     assert "python" in joined and "information_safety/main.py" in joined
+
+
+def test_container_command_sets_hf_home_on_work() -> None:
+    config = _baseline_config()
+    argv = build_eai_submit_argv(config=config)
+    joined = " ".join(argv)
+    assert f"export HF_HOME={TRC_HF_HOME}" in joined
+    assert TRC_HF_HOME.startswith("/work/")
 
 
 def test_paths_use_work_not_scratch_for_defense() -> None:
