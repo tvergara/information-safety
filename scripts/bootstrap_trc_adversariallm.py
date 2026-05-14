@@ -32,7 +32,16 @@ _MONGOMOCK_SHIM_PY = (
 )
 
 
-def build_eai_submit_argv(*, hf_token: str) -> list[str]:
+def _current_git_sha() -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def build_eai_submit_argv(*, hf_token: str, git_sha: str) -> list[str]:
     site_py = "import site; print(site.getsitepackages()[0])"
     install_adv = (
         f"(source {TRC_ADVERSARIALLM_VENV}/bin/activate"
@@ -48,12 +57,15 @@ def build_eai_submit_argv(*, hf_token: str) -> list[str]:
         f"mkdir -p {TRC_HF_HOME}",
         f"printf %s {shell_quote(hf_token)} > {TRC_HF_HOME}/token",
         f"chmod 600 {TRC_HF_HOME}/token",
+        "unset TRANSFORMERS_CACHE",
         f"export HF_HOME={TRC_HF_HOME}",
+        f"export HF_HUB_CACHE={TRC_HF_HOME}/hub",
         f"export HUGGING_FACE_HUB_TOKEN={shell_quote(hf_token)}",
         "curl -LsSf https://astral.sh/uv/install.sh | sh",
         'export PATH="$HOME/.local/bin:$PATH"',
         f"cd {TRC_REPO_DIR}",
-        "git pull",
+        "git fetch --all",
+        f"git checkout {git_sha}",
         "git submodule update --init --recursive",
         "source .venv/bin/activate",
         f"uv venv {TRC_ADVERSARIALLM_VENV} --python 3.10 --clear",
@@ -90,7 +102,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         raise SystemExit(2)
 
-    cli_argv = build_eai_submit_argv(hf_token=token)
+    cli_argv = build_eai_submit_argv(hf_token=token, git_sha=_current_git_sha())
     if args.dry_run:
         redacted = [s.replace(token, "<redacted>") for s in cli_argv]
         print(f"{redacted[0]} {redacted[1]} {shell_quote(redacted[2])}")

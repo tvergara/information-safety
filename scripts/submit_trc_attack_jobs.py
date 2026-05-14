@@ -140,7 +140,9 @@ def build_eai_submit_argv(*, spec: dict[str, Any]) -> list[str]:
     ])
     container_cmd = " && ".join([
         f"cd {TRC_REPO_DIR}",
+        "unset TRANSFORMERS_CACHE",
         f"export HF_HOME={TRC_HF_HOME}",
+        f"export HF_HUB_CACHE={TRC_HF_HOME}/hub",
         f"export HUGGING_FACE_HUB_TOKEN=$(cat {TRC_HF_HOME}/token)",
         run_one_attack,
     ])

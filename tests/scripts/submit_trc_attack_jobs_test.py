@@ -130,6 +130,13 @@ def test_container_exports_hf_home_and_token() -> None:
     assert "export HUGGING_FACE_HUB_TOKEN=$(cat /work/.hf-cache/token)" in joined
 
 
+def test_container_overrides_inherited_transformers_cache_to_work() -> None:
+    argv = build_eai_submit_argv(spec=_spec())
+    joined = " ".join(argv)
+    assert "unset TRANSFORMERS_CACHE" in joined
+    assert "export HF_HUB_CACHE=/work/.hf-cache/hub" in joined
+
+
 def test_remote_command_string_is_shlex_parseable() -> None:
     argv = build_eai_submit_argv(spec=_spec())
     tokens = shlex.split(argv[2])
