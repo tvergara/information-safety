@@ -192,7 +192,9 @@ def evaluate_results_file(
     unevaluated = [
         (i, row)
         for i, row in enumerate(rows)
-        if row.get("asr") is None and row.get("dataset_name") == "strongreject"
+        if row.get("asr") is None
+        and row.get("dataset_name") == "strongreject"
+        and row.get("invalidated_reason") is None
     ]
 
     if not unevaluated:

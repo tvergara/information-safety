@@ -107,10 +107,6 @@ class EvilMathHandler(BaseDatasetHandler):
                 "original_question": original_question,
             }))
 
-        if self.max_examples is not None:
-            prompts = prompts[: self.max_examples]
-            labels = labels[: self.max_examples]
-
         return GenerationValDataset(prompts, labels)
 
     def validate_batch(

@@ -365,6 +365,7 @@ def main(argv: list[str] | None = None) -> None:
 
     with open(args.results_file) as f:
         rows = [json.loads(line) for line in f if line.strip()]
+    rows = [r for r in rows if r.get("invalidated_reason") is None]
 
     configs = HARMBENCH_CONFIGS + WMDP_CONFIGS + EVILMATH_CONFIGS + STRONGREJECT_CONFIGS
     missing = iter_missing_configs(configs, rows)

@@ -116,7 +116,9 @@ def parse_wmdp_results_file(
     return [
         (i, row)
         for i, row in enumerate(rows)
-        if row.get("dataset_name") == "wmdp" and row.get("asr") is None
+        if row.get("dataset_name") == "wmdp"
+        and row.get("asr") is None
+        and row.get("invalidated_reason") is None
     ]
 
 
@@ -134,7 +136,9 @@ def evaluate_results_file(
     unevaluated = [
         (i, row)
         for i, row in enumerate(rows)
-        if row.get("dataset_name") == "wmdp" and row.get("asr") is None
+        if row.get("dataset_name") == "wmdp"
+        and row.get("asr") is None
+        and row.get("invalidated_reason") is None
     ]
 
     if not unevaluated:
