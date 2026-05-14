@@ -49,6 +49,8 @@ def build_eai_submit_argv(*, hf_token: str) -> list[str]:
         f"chmod 600 {TRC_HF_HOME}/token",
         f"export HF_HOME={TRC_HF_HOME}",
         f"export HUGGING_FACE_HUB_TOKEN={shell_quote(hf_token)}",
+        "curl -LsSf https://astral.sh/uv/install.sh | sh",
+        'export PATH="$HOME/.local/bin:$PATH"',
         f"cd {TRC_REPO_DIR}",
         "source .venv/bin/activate",
         f"uv venv {TRC_ADVERSARIALLM_VENV} --python 3.10",

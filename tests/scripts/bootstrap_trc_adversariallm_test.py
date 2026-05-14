@@ -49,6 +49,15 @@ def test_container_creates_venv_with_python_310_and_cu128_index() -> None:
     assert f"{TRC_REPO_DIR}/third_party/adversariallm" in joined
 
 
+def test_container_installs_uv_before_using_it() -> None:
+    argv = build_eai_submit_argv(hf_token="hf_x")
+    joined = " ".join(argv)
+    assert "astral.sh/uv/install.sh" in joined
+    install_idx = joined.index("astral.sh/uv/install.sh")
+    venv_idx = joined.index(f"uv venv {TRC_ADVERSARIALLM_VENV}")
+    assert install_idx < venv_idx
+
+
 def test_container_installs_mongomock_shim() -> None:
     argv = build_eai_submit_argv(hf_token="hf_x")
     joined = " ".join(argv)
