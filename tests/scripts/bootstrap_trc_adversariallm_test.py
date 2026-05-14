@@ -70,6 +70,19 @@ def test_container_installs_uv_before_using_it() -> None:
     assert install_idx < venv_idx
 
 
+def test_container_pulls_repo_before_running_build_scripts() -> None:
+    argv = build_eai_submit_argv(hf_token="hf_x")
+    joined = " ".join(argv)
+    assert "git pull" in joined
+    assert "git submodule update --init --recursive" in joined
+    pull_idx = joined.index("git pull")
+    behaviors_idx = joined.index("build_adversariallm_behaviors.py")
+    assert pull_idx < behaviors_idx
+    submodule_idx = joined.index("git submodule update --init --recursive")
+    install_idx = joined.index(f"-e {TRC_REPO_DIR}/third_party/adversariallm")
+    assert submodule_idx < install_idx
+
+
 def test_container_installs_mongomock_shim() -> None:
     argv = build_eai_submit_argv(hf_token="hf_x")
     joined = " ".join(argv)

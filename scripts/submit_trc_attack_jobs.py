@@ -187,6 +187,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--datasets", nargs="+", default=DEFAULT_DATASETS)
     parser.add_argument("--num-shards", type=int, default=16)
     parser.add_argument("--state-file", type=Path, default=None)
+    parser.add_argument("--max-submissions", type=int, default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--reset", action="store_true")
     args = parser.parse_args(argv)
@@ -208,6 +209,8 @@ def main(argv: list[str] | None = None) -> None:
 
     submitted = 0
     for spec in pending:
+        if args.max_submissions is not None and submitted >= args.max_submissions:
+            break
         _submit_one(spec=spec, state_file=state_file, dry_run=args.dry_run)
         submitted += 1
 

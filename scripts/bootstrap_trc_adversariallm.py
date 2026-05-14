@@ -53,6 +53,8 @@ def build_eai_submit_argv(*, hf_token: str) -> list[str]:
         "curl -LsSf https://astral.sh/uv/install.sh | sh",
         'export PATH="$HOME/.local/bin:$PATH"',
         f"cd {TRC_REPO_DIR}",
+        "git pull",
+        "git submodule update --init --recursive",
         "source .venv/bin/activate",
         f"uv venv {TRC_ADVERSARIALLM_VENV} --python 3.10 --clear",
         install_adv,

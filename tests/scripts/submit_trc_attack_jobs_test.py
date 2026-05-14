@@ -266,6 +266,25 @@ def test_main_submits_and_records_state(_state_file: Path) -> None:
     assert len(state) == 2
 
 
+def test_main_max_submissions_caps_submissions(_state_file: Path) -> None:
+    mock_run = MagicMock(
+        return_value=MagicMock(returncode=0, stdout="eai-uuid-ccc\n", stderr="")
+    )
+    with patch("scripts.submit_trc_attack_jobs.subprocess.run", mock_run):
+        main(
+            [
+                "--attacks", "gcg",
+                "--models", "meta-llama/Meta-Llama-3-8B-Instruct",
+                "--datasets", "harmbench",
+                "--num-shards", "4",
+                "--max-submissions", "1",
+            ]
+        )
+    assert mock_run.call_count == 1
+    state = load_submitted_state(_state_file)
+    assert len(state) == 1
+
+
 def test_main_idempotent_after_submission(_state_file: Path) -> None:
     mock_run = MagicMock(
         return_value=MagicMock(returncode=0, stdout="eai-uuid-bbb\n", stderr="")
