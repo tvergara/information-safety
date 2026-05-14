@@ -27,6 +27,7 @@ from scripts.check_results import (
 
 TRC_BASE_DIR = "/work/information-safety-results"
 TRC_REPO_DIR = "/work/information-safety"
+TRC_HF_HOME = "/work/.hf-cache"
 TRC_EAI_IMAGE = (
     "registry.toolkit-sp.yul201.service-now.com/snow.research.mmteb/mteb-lite:v1"
 )
@@ -98,6 +99,7 @@ def build_eai_submit_argv(*, config: dict[str, Any]) -> list[str]:
         "source .venv/bin/activate",
         f"export RESULTS_FILE={TRC_BASE_DIR}/results/final-results.jsonl",
         f"export GENERATIONS_DIR={TRC_BASE_DIR}/generations",
+        f"export HF_HOME={TRC_HF_HOME}",
         "export HYDRA_FULL_ERROR=1",
         hydra_str,
     ])
