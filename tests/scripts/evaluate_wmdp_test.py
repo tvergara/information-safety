@@ -212,3 +212,16 @@ class TestParseWmdpResultsFile:
 
         unevaluated = parse_wmdp_results_file(str(results_file))
         assert len(unevaluated) == 0
+
+    def test_skips_invalidated_rows(self, tmp_path: Path) -> None:
+        results_file = tmp_path / "results.jsonl"
+        rows = [
+            {"eval_run_id": "id1", "dataset_name": "wmdp", "asr": None,
+             "invalidated_reason": "wmdp_evilmath_eval_truncated_to_max_examples"},
+            {"eval_run_id": "id2", "dataset_name": "wmdp", "asr": None},
+        ]
+        _write_jsonl(results_file, rows)
+
+        unevaluated = parse_wmdp_results_file(str(results_file))
+        assert len(unevaluated) == 1
+        assert unevaluated[0][1]["eval_run_id"] == "id2"

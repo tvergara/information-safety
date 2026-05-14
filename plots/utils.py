@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 
-def load_results(path: Path) -> list[dict]:
+def load_results(path: Path) -> list[dict[str, Any]]:
     with open(path) as f:
-        return [json.loads(line) for line in f]
+        rows = [json.loads(line) for line in f]
+    return [r for r in rows if r.get("invalidated_reason") is None]
 
 
 def pareto_frontier(

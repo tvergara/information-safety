@@ -329,6 +329,7 @@ def main() -> None:
     args = parser.parse_args()
 
     rows = [json.loads(line) for line in open(args.results_file)]
+    rows = [r for r in rows if r.get("invalidated_reason") is None]
 
     def _check(configs: list[dict[str, Any]]) -> tuple[list, list, list]:
         missing: list[dict[str, Any]] = []

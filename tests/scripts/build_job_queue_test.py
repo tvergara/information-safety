@@ -779,6 +779,45 @@ def test_build_command_base_dir_overrides_defense_root() -> None:
     assert all("/scratch/" not in tok for tok in cmd)
 
 
+def test_build_command_defense_hf_namespace_emits_hf_id() -> None:
+    defense = "sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0"
+    config = {
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "wmdp",
+        "model_name": defense,
+        "max_examples": None,
+        "epoch": 0,
+    }
+    cmd = build_command(
+        config,
+        attacks_dir=Path("/work/information-safety-results/attacks"),
+        base_dir=Path("/work/information-safety-results"),
+        defense_hf_namespace="tvergara",
+    )
+    expected = f"algorithm.model.pretrained_model_name_or_path=tvergara/{defense}"
+    assert expected in cmd
+    assert all("/work/information-safety-results/defenses/" not in tok for tok in cmd)
+    assert all("/scratch/" not in tok for tok in cmd)
+
+
+def test_build_command_defense_hf_namespace_does_not_affect_base_model() -> None:
+    model = "meta-llama/Llama-3.1-8B-Instruct"
+    config = {
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "advbench_harmbench",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    }
+    cmd = build_command(
+        config,
+        attacks_dir=Path("/tmp/attacks"),
+        defense_hf_namespace="tvergara",
+    )
+    assert f"algorithm.model.pretrained_model_name_or_path={model}" in cmd
+    assert "algorithm.model.pretrained_model_name_or_path=tvergara/" + model not in cmd
+
+
 def test_build_command_existence_check_attacks_dir_lets_local_validation(
     tmp_path: Path,
 ) -> None:

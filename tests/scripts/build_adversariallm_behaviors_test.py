@@ -231,3 +231,47 @@ class TestMain:
         assert (tmp_path / "behaviors" / "wmdp_targets_text.json").exists()
         assert (tmp_path / "behaviors" / "evilmath_behaviors.csv").exists()
         assert (tmp_path / "behaviors" / "evilmath_targets_text.json").exists()
+
+    @patch("scripts.build_attack_queue.write_strongreject_targets", return_value=7)
+    @patch("scripts.build_attack_queue.write_strongreject_csv", return_value=7)
+    @patch("scripts.build_adversariallm_behaviors.datasets")
+    def test_main_with_strongreject_invokes_writers(
+        self,
+        mock_datasets: MagicMock,
+        mock_csv: MagicMock,
+        mock_targets: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        def fake_load(repo: str, *args: object, **kwargs: object) -> object:
+            if "evilmath" in repo.lower():
+                return _fake_evilmath_split(2)
+            return _fake_wmdp_subset(1)
+
+        mock_datasets.load_dataset.side_effect = fake_load
+        out_dir = tmp_path / "behaviors"
+        main([
+            "--behaviors-csv-dir",
+            str(out_dir),
+            "--with-strongreject",
+        ])
+        mock_csv.assert_called_once_with(out_dir / "strongreject_behaviors.csv")
+        mock_targets.assert_called_once_with(
+            out_dir / "strongreject_behaviors.csv",
+            out_dir / "strongreject_targets_text.json",
+        )
+
+    @patch("scripts.build_adversariallm_behaviors.datasets")
+    def test_main_without_strongreject_skips_writers(
+        self, mock_datasets: MagicMock, tmp_path: Path
+    ) -> None:
+        def fake_load(repo: str, *args: object, **kwargs: object) -> object:
+            if "evilmath" in repo.lower():
+                return _fake_evilmath_split(2)
+            return _fake_wmdp_subset(1)
+
+        mock_datasets.load_dataset.side_effect = fake_load
+        main([
+            "--behaviors-csv-dir",
+            str(tmp_path / "behaviors"),
+        ])
+        assert not (tmp_path / "behaviors" / "strongreject_behaviors.csv").exists()

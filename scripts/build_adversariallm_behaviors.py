@@ -106,6 +106,7 @@ def main(argv: list[str] | None = None) -> None:
         description="Build WMDP/EvilMath behaviors+targets for AdversariaLLM."
     )
     parser.add_argument("--behaviors-csv-dir", type=Path, required=True)
+    parser.add_argument("--with-strongreject", action="store_true")
     args = parser.parse_args(argv)
 
     wmdp_rows = build_wmdp(
@@ -118,6 +119,19 @@ def main(argv: list[str] | None = None) -> None:
     )
     print(f"Wrote WMDP behaviors: {wmdp_rows} rows")
     print(f"Wrote EvilMath behaviors: {evilmath_rows} rows")
+
+    if args.with_strongreject:
+        from scripts.build_attack_queue import (
+            write_strongreject_csv,
+            write_strongreject_targets,
+        )
+
+        sr_csv = args.behaviors_csv_dir / "strongreject_behaviors.csv"
+        sr_targets = args.behaviors_csv_dir / "strongreject_targets_text.json"
+        sr_rows = write_strongreject_csv(sr_csv)
+        sr_target_rows = write_strongreject_targets(sr_csv, sr_targets)
+        print(f"Wrote StrongREJECT behaviors: {sr_rows} rows")
+        print(f"Wrote StrongREJECT targets: {sr_target_rows} rows")
 
 
 if __name__ == "__main__":

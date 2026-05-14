@@ -241,6 +241,51 @@ def test_merge_handles_empty_synced(tmp_path: Path) -> None:
     assert rows == pre_merge_rows
 
 
+def test_merge_skips_unparseable_lines_in_synced(tmp_path: Path) -> None:
+    results_dir, generations_dir = _setup_dirs(tmp_path)
+    canonical = results_dir / "final-results.jsonl"
+    synced = results_dir / "final-results.jsonl.tamia"
+    _write_jsonl(canonical, [_row("a", asr=0.1)])
+    with open(synced, "w") as f:
+        f.write(json.dumps(_row("b")) + "\n")
+        f.write("c\n")
+        f.write(json.dumps(_row("d")) + "\n")
+        f.write('id":"orphan"}\n')
+        f.write(json.dumps(_row("e")) + "\n")
+
+    summary = merge_results(
+        cluster="tamia",
+        results_dir=results_dir,
+        generations_dir=generations_dir,
+    )
+
+    rows = _read_jsonl(canonical)
+    assert {r["eval_run_id"] for r in rows} == {"a", "b", "d", "e"}
+    assert summary.skipped_malformed == 2
+    assert summary.new_rows == 3
+
+
+def test_merge_skips_unparseable_lines_in_canonical(tmp_path: Path) -> None:
+    results_dir, generations_dir = _setup_dirs(tmp_path)
+    canonical = results_dir / "final-results.jsonl"
+    synced = results_dir / "final-results.jsonl.tamia"
+    with open(canonical, "w") as f:
+        f.write(json.dumps(_row("a", asr=0.5)) + "\n")
+        f.write("partial\n")
+        f.write(json.dumps(_row("b", asr=0.6)) + "\n")
+    _write_jsonl(synced, [_row("c")])
+
+    summary = merge_results(
+        cluster="tamia",
+        results_dir=results_dir,
+        generations_dir=generations_dir,
+    )
+
+    rows = _read_jsonl(canonical)
+    assert {r["eval_run_id"] for r in rows} == {"a", "b", "c"}
+    assert summary.skipped_malformed == 1
+
+
 def test_main_runs_end_to_end(tmp_path: Path) -> None:
     results_dir, generations_dir = _setup_dirs(tmp_path)
     canonical = results_dir / "final-results.jsonl"

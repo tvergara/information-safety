@@ -12,6 +12,15 @@ import time
 from pathlib import Path
 from typing import Any
 
+from scripts._trc_common import (
+    TRC_BASE_DIR,
+    TRC_DATA_MOUNT,
+    TRC_EAI_IMAGE,
+    TRC_HF_HOME,
+    TRC_REPO_DIR,
+    load_submitted_state,
+    shell_quote,
+)
 from scripts.build_job_queue import (
     build_command,
     default_attacks_dir,
@@ -25,13 +34,7 @@ from scripts.check_results import (
     WMDP_CONFIGS,
 )
 
-TRC_BASE_DIR = "/work/information-safety-results"
-TRC_REPO_DIR = "/work/information-safety"
-TRC_HF_HOME = "/work/.hf-cache"
-TRC_EAI_IMAGE = (
-    "registry.toolkit-sp.yul201.service-now.com/snow.research.mmteb/mteb-lite:v1"
-)
-TRC_DATA_MOUNT = "snow.research.mmteb.safety:/work:rw"
+TRC_DEFENSE_HF_NAMESPACE = "tvergara"
 
 DEFAULT_STATE_FILE = Path(
     os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
@@ -41,16 +44,6 @@ DEFAULT_STATE_FILE = Path(
 def deterministic_job_name(config: dict[str, Any]) -> str:
     payload = json.dumps(config, sort_keys=True, default=str).encode("utf-8")
     return "is_" + hashlib.sha256(payload).hexdigest()[:16]
-
-
-def load_submitted_state(state_file: Path) -> set[str]:
-    if not state_file.exists():
-        return set()
-    return {
-        json.loads(line)["job_id"]
-        for line in state_file.read_text().splitlines()
-        if line.strip()
-    }
 
 
 def record_submission(
@@ -82,24 +75,22 @@ def iter_pending_configs(
     return [c for c in missing if deterministic_job_name(c) not in submitted]
 
 
-def _shell_quote(s: str) -> str:
-    return "'" + s.replace("'", "'\\''") + "'"
-
-
 def build_eai_submit_argv(*, config: dict[str, Any]) -> list[str]:
     hydra_cmd = build_command(
         config,
         attacks_dir=Path(f"{TRC_BASE_DIR}/attacks"),
         base_dir=Path(TRC_BASE_DIR),
         existence_check_attacks_dir=default_attacks_dir(),
+        defense_hf_namespace=TRC_DEFENSE_HF_NAMESPACE,
     )
-    hydra_str = " ".join(_shell_quote(tok) for tok in hydra_cmd)
+    hydra_str = " ".join(shell_quote(tok) for tok in hydra_cmd)
     container_cmd = " && ".join([
         f"cd {TRC_REPO_DIR}",
         "source .venv/bin/activate",
         f"export RESULTS_FILE={TRC_BASE_DIR}/results/final-results.jsonl",
         f"export GENERATIONS_DIR={TRC_BASE_DIR}/generations",
         f"export HF_HOME={TRC_HF_HOME}",
+        f"export SCRATCH={TRC_BASE_DIR}",
         "export HYDRA_FULL_ERROR=1",
         hydra_str,
     ])
@@ -112,7 +103,7 @@ def build_eai_submit_argv(*, config: dict[str, Any]) -> list[str]:
         f" --gpu 1 --mem 64 --cpu 8 --max-run-time 43200"
         f" --non-preemptable"
         f" --enforce-name"
-        f" -- bash -lc {_shell_quote(container_cmd)}"
+        f" -- bash -lc {shell_quote(container_cmd)}"
     )
     return ["ssh", "trc", remote]
 
@@ -125,7 +116,7 @@ def _submit_one(
 ) -> None:
     argv = build_eai_submit_argv(config=config)
     if dry_run:
-        print(f"{argv[0]} {argv[1]} {_shell_quote(argv[2])}")
+        print(f"{argv[0]} {argv[1]} {shell_quote(argv[2])}")
         return
     result = subprocess.run(argv, check=True, capture_output=True, text=True)
     eai_uuid = result.stdout.strip().splitlines()[-1]

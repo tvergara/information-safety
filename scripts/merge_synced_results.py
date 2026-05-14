@@ -20,11 +20,22 @@ class MergeSummary:
     new_rows: int
     asr_preserved_skips: int
     new_symlinks: int
+    skipped_malformed: int
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+def _read_jsonl(path: Path) -> tuple[list[dict[str, Any]], int]:
+    rows: list[dict[str, Any]] = []
+    skipped = 0
     with open(path) as f:
-        return [json.loads(line) for line in f if line.strip()]
+        for line in f:
+            s = line.strip()
+            if not s:
+                continue
+            try:
+                rows.append(json.loads(s))
+            except json.JSONDecodeError:
+                skipped += 1
+    return rows, skipped
 
 
 def _atomic_write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -51,8 +62,11 @@ def merge_results(
     canonical_path = results_dir / "final-results.jsonl"
     synced_path = results_dir / f"final-results.jsonl.{cluster}"
 
-    canonical_rows = _read_jsonl(canonical_path) if canonical_path.exists() else []
-    synced_rows = _read_jsonl(synced_path)
+    if canonical_path.exists():
+        canonical_rows, canonical_skipped = _read_jsonl(canonical_path)
+    else:
+        canonical_rows, canonical_skipped = [], 0
+    synced_rows, synced_skipped = _read_jsonl(synced_path)
 
     by_id: dict[str, dict[str, Any]] = {r["eval_run_id"]: r for r in canonical_rows}
     cluster_gen_dir = generations_dir / f"from-{cluster}"
@@ -60,6 +74,7 @@ def merge_results(
     new_rows = 0
     asr_preserved_skips = 0
     new_symlinks = 0
+    skipped_malformed = canonical_skipped + synced_skipped
     for synced in synced_rows:
         run_id = synced["eval_run_id"]
 
@@ -79,6 +94,7 @@ def merge_results(
         new_rows=new_rows,
         asr_preserved_skips=asr_preserved_skips,
         new_symlinks=new_symlinks,
+        skipped_malformed=skipped_malformed,
     )
 
     if dry_run:
@@ -118,7 +134,8 @@ def main(argv: list[str] | None = None) -> None:
     print(
         f"{prefix}{summary.new_rows} new rows | "
         f"{summary.asr_preserved_skips} ASR-preserved skips | "
-        f"{summary.new_symlinks} new symlinks"
+        f"{summary.new_symlinks} new symlinks | "
+        f"{summary.skipped_malformed} malformed lines skipped"
     )
 
 

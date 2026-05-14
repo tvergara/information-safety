@@ -308,10 +308,10 @@ The `ssh -N` child process is left running as a nohup orphan, keeping the Contro
 
 **Use the robot node for all non-interactive work — `sbatch`, `squeue`, `rsync`, file ops.** It does not require Duo, so it does not depend on a live ControlMaster. The ControlMaster flow above (`ssh tamia` / `ssh nibi`) is only needed for interactive shells, editing files in-place, running `python` directly, pulling the repo (must go through `bootstrap-remote-cluster.sh`, see below), or other commands the wrapper rejects.
 
-**Verified status (as of 2026-05-04):**
+**Verified status (as of 2026-05-14):**
 
 - ✅ `robot.tamia.ecpia.ca` — working.
-- ⚠️ `robot.nibi.alliancecan.ca` — host is in the ssh config but the robot grant has not been confirmed. `ssh robot.nibi.alliancecan.ca "squeue --me"` currently fails. Smoke-test before relying on it; if it fails, ask support to extend the automation grant to Nibi.
+- ✅ `robot.nibi.alliancecan.ca` — working. `squeue --me`, `ls`, and `rsync` over the robot all confirmed today; Nibi's `$SCRATCH` is flat (`/scratch/<user>`, no initial subdir like Tamia's `/scratch/t/<user>`).
 
 **Connection:** `~/.ssh/config` has a single `Host` stanza enumerating `robot.tamia.ecpia.ca`, `robot.nibi.alliancecan.ca`, `robot.narval.alliancecan.ca`, `robot.fir.alliancecan.ca`, `robot.rorqual.alliancecan.ca` — pointing at `~/.ssh/id_ed25519_alliance_robot` with `PreferredAuthentications publickey,keyboard-interactive` and `RequestTTY no`. Just run:
 

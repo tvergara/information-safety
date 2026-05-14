@@ -196,7 +196,9 @@ def evaluate_results_file(
     unevaluated = [
         (i, row)
         for i, row in enumerate(rows)
-        if row.get("asr") is None and row.get("dataset_name") == "advbench_harmbench"
+        if row.get("asr") is None
+        and row.get("dataset_name") == "advbench_harmbench"
+        and row.get("invalidated_reason") is None
     ]
 
     if not unevaluated:

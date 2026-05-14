@@ -10,9 +10,24 @@ import torch
 from transformers import PreTrainedTokenizerBase
 
 from information_safety.algorithms.dataset_handlers.base import BaseDatasetHandler
+from information_safety.algorithms.dataset_handlers.wmdp import format_multiple_choice
 from information_safety.algorithms.jailbreak.prompt_methods import _build_roleplay_prompt
 from information_safety.algorithms.strategies.base import BaseStrategy
 from information_safety.attack_bits import STRATEGY_CODE_FILES, code_bits
+
+
+def _extract_behavior(meta: dict[str, Any]) -> str:
+    """Return user-facing prompt text for any of our eval-row meta schemas.
+
+    - harmbench/strongreject store ``{"behavior": ...}``.
+    - wmdp stores ``{"question": ..., "choices": [...]}`` (MCQ).
+    - evilmath stores ``{"question": ..., "original_question": ...}``.
+    """
+    if "behavior" in meta:
+        return meta["behavior"]
+    if "choices" in meta:
+        return format_multiple_choice(meta["question"], meta["choices"])
+    return meta["question"]
 
 
 @dataclass
@@ -56,7 +71,7 @@ class RoleplayStrategy(BaseStrategy):
         new_prompts: list[str] = []
         for meta_str in metadata_strs:
             meta = json.loads(meta_str)
-            behavior = meta["behavior"]
+            behavior = _extract_behavior(meta)
             roleplay_prompt = _build_roleplay_prompt(behavior, scenario=self.scenario)
 
             prompt_text: str = tokenizer.apply_chat_template(  # type: ignore[assignment]

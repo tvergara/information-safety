@@ -471,7 +471,7 @@ class TestGetValDataset:
             assert kwargs.get("add_generation_prompt") is True
 
     @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
-    def test_max_examples_limits_val_dataset(self, mock_load: MagicMock) -> None:
+    def test_max_examples_does_not_limit_val_dataset(self, mock_load: MagicMock) -> None:
         mock_load.side_effect = [_make_mock_subset(s, n=3) for s in SUBJECTS]
 
         handler = WMDPHandler(
@@ -480,7 +480,7 @@ class TestGetValDataset:
         tokenizer = _make_tokenizer()
         val_ds = cast(GenerationValDataset, handler.get_val_dataset(tokenizer))
 
-        assert len(val_ds) == 4
+        assert len(val_ds) == 9
 
 
 def _make_label(
