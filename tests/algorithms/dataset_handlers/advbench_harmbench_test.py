@@ -430,6 +430,7 @@ class TestSaveCompletions:
                 "response": "Sure, here is...",
                 "eval_flops": 10,
                 "attack_flops": 100,
+                "pareto_step_idx": 0,
             },
             {
                 "behavior": "Do Y",
@@ -437,6 +438,7 @@ class TestSaveCompletions:
                 "response": "Ok...",
                 "eval_flops": 20,
                 "attack_flops": 0,
+                "pareto_step_idx": 0,
             },
         ]
 
@@ -449,8 +451,16 @@ class TestSaveCompletions:
         with open(run_dir / "input_data.jsonl") as f:
             input_lines = [json.loads(line) for line in f]
         assert len(input_lines) == 2
-        assert input_lines[0] == {"behavior": "Do X", "category": "cybercrime"}
-        assert input_lines[1] == {"behavior": "Do Y", "category": "chemical_biological"}
+        assert input_lines[0] == {
+            "behavior": "Do X",
+            "category": "cybercrime",
+            "pareto_step_idx": 0,
+        }
+        assert input_lines[1] == {
+            "behavior": "Do Y",
+            "category": "chemical_biological",
+            "pareto_step_idx": 0,
+        }
 
         with open(run_dir / "responses.jsonl") as f:
             response_lines = [json.loads(line) for line in f]
@@ -459,11 +469,15 @@ class TestSaveCompletions:
             "behavior": "Do X",
             "response": "Sure, here is...",
             "dependent_flops": 110,
+            "pareto_step_idx": 0,
+            "attack_flops": 100,
         }
         assert response_lines[1] == {
             "behavior": "Do Y",
             "response": "Ok...",
             "dependent_flops": 20,
+            "pareto_step_idx": 0,
+            "attack_flops": 0,
         }
 
     def test_resets_completions_after_save(self, tmp_path: Path) -> None:
@@ -477,6 +491,7 @@ class TestSaveCompletions:
                 "response": "Sure...",
                 "eval_flops": 0,
                 "attack_flops": 0,
+                "pareto_step_idx": 0,
             },
         ]
 
@@ -508,6 +523,7 @@ class TestSaveCompletions:
                 "response": "r",
                 "eval_flops": 555,
                 "attack_flops": 0,
+                "pareto_step_idx": 0,
             },
         ]
         handler.save_completions("run-baseline")
@@ -528,6 +544,7 @@ class TestSaveCompletions:
                 "response": "stored",
                 "eval_flops": 0,
                 "attack_flops": 7777,
+                "pareto_step_idx": 0,
             },
         ]
         handler.save_completions("run-stored")

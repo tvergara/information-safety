@@ -13,6 +13,7 @@ import torch
 from information_safety.algorithms.strategies.precomputed_adversarial_prompt import (
     PrecomputedAutoDANStrategy,
     PrecomputedGCGStrategy,
+    PrecomputedPAIRStrategy,
 )
 
 
@@ -52,8 +53,8 @@ class TestSetup:
 
         assert result is model
         assert len(strategy._lookup) == 2
-        assert strategy._lookup["beh_a"] == "prompt_A"
-        assert strategy._lookup["beh_b"] == "prompt_B"
+        assert strategy._lookup["beh_a"][0]["adversarial_prompt"] == "prompt_A"
+        assert strategy._lookup["beh_b"][0]["adversarial_prompt"] == "prompt_B"
 
     def test_setup_raises_on_missing_behavior(self, tmp_path: Path) -> None:
         suffix_path = _make_suffix_file(
@@ -356,7 +357,10 @@ class TestStoredCompletions:
         handler.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
         strategy.setup(model, handler, pl_module)
 
-        assert strategy._completion_lookup == {"beh_a": "stored_A"}
+        beh_a_row = strategy._lookup["beh_a"][0]
+        beh_b_row = strategy._lookup["beh_b"][0]
+        assert beh_a_row.get("model_completion") == "stored_A"
+        assert "model_completion" not in beh_b_row
 
     def test_validation_step_uses_stored_completion_when_all_present(
         self, tmp_path: Path
@@ -506,3 +510,174 @@ class TestSubclassing:
         assert type(gcg).__name__ != type(autodan).__name__
         assert type(gcg).__name__ == "PrecomputedGCGStrategy"
         assert type(autodan).__name__ == "PrecomputedAutoDANStrategy"
+
+
+class TestGCGParetoMultiRow:
+    def test_precomputed_gcg_strategy_fans_out_to_n_rows_per_behavior(
+        self, tmp_path: Path
+    ) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A_step0",
+                    "model_completion": "stored_A_step0",
+                    "attack_flops": 30,
+                    "attack_bits": 100,
+                    "pareto_step_idx": 0,
+                },
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A_step1",
+                    "model_completion": "stored_A_step1",
+                    "attack_flops": 20,
+                    "attack_bits": 100,
+                    "pareto_step_idx": 1,
+                },
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A_step2",
+                    "model_completion": "stored_A_step2",
+                    "attack_flops": 10,
+                    "attack_bits": 100,
+                    "pareto_step_idx": 2,
+                },
+            ],
+        )
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        tokenizer = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = tokenizer
+        handler_setup = MagicMock()
+        handler_setup.get_val_dataset.return_value = _make_val_dataset(["beh_A"])
+        strategy.setup(model, handler_setup, pl_module)
+
+        batch = {
+            "input_ids": torch.tensor([[1, 2, 3]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+            "labels": [json.dumps({"behavior": "beh_A", "category": "c"})],
+        }
+
+        handler = MagicMock()
+        handler.record_precomputed_completions.return_value = (0, 3)
+        handler.max_length = 500
+
+        correct, total = strategy.validation_step(model, tokenizer, batch, handler)
+
+        assert (correct, total) == (0, 3)
+        handler.record_precomputed_completions.assert_called_once()
+        handler.validate_batch.assert_not_called()
+        recorded_labels, recorded_completions = (
+            handler.record_precomputed_completions.call_args[0]
+        )
+        assert sorted(recorded_completions) == [
+            "stored_A_step0",
+            "stored_A_step1",
+            "stored_A_step2",
+        ]
+        assert len(recorded_labels) == 3
+        # Each label must carry attack_flops and pareto_step_idx matching its row.
+        parsed = [json.loads(label) for label in recorded_labels]
+        by_idx = {p["pareto_step_idx"]: p for p in parsed}
+        assert by_idx[0]["attack_flops"] == 30
+        assert by_idx[1]["attack_flops"] == 20
+        assert by_idx[2]["attack_flops"] == 10
+
+    def test_precomputed_gcg_strategy_raises_if_completion_missing_on_multirow(
+        self, tmp_path: Path
+    ) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A_step0",
+                    "model_completion": "stored_A_step0",
+                    "attack_flops": 30,
+                    "attack_bits": 100,
+                    "pareto_step_idx": 0,
+                },
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A_step1",
+                    "attack_flops": 20,
+                    "attack_bits": 100,
+                    "pareto_step_idx": 1,
+                },
+            ],
+        )
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = MagicMock()
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_val_dataset(["beh_A"])
+
+        with pytest.raises(ValueError, match="model_completion"):
+            strategy.setup(model, handler, pl_module)
+
+    def test_precomputed_autodan_rejects_multirow_jsonl(self, tmp_path: Path) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A_step0",
+                    "attack_flops": 30,
+                    "attack_bits": 100,
+                    "pareto_step_idx": 0,
+                },
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A_step1",
+                    "attack_flops": 20,
+                    "attack_bits": 100,
+                    "pareto_step_idx": 1,
+                },
+            ],
+        )
+        strategy = PrecomputedAutoDANStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = MagicMock()
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_val_dataset(["beh_A"])
+
+        with pytest.raises(ValueError, match="multi-row|multiple rows"):
+            strategy.setup(model, handler, pl_module)
+
+    def test_precomputed_pair_rejects_multirow_jsonl(self, tmp_path: Path) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A_step0",
+                    "attack_flops": 30,
+                    "attack_bits": 100,
+                    "pareto_step_idx": 0,
+                },
+                {
+                    "behavior": "beh_A",
+                    "adversarial_prompt": "prompt_A_step1",
+                    "attack_flops": 20,
+                    "attack_bits": 100,
+                    "pareto_step_idx": 1,
+                },
+            ],
+        )
+        strategy = PrecomputedPAIRStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = MagicMock()
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_val_dataset(["beh_A"])
+
+        with pytest.raises(ValueError, match="multi-row|multiple rows"):
+            strategy.setup(model, handler, pl_module)

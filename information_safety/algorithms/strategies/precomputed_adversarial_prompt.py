@@ -1,10 +1,16 @@
 """Prompt-based strategies that inject precomputed per-behavior adversarial prompts.
 
 Each attack (GCG, AutoDAN, ...) runs upstream (e.g. via AdversariaLLM), emits a flat
-JSONL with `{behavior, adversarial_prompt, attack_flops, attack_bits[, model_completion]}`,
-and is replayed here at eval time. The base class is placement-agnostic (it replaces the
-whole user turn), so it works for suffix- and prefix-placed attacks alike. Each concrete
-attack lives in its own subclass so plots see a distinct `experiment_name`.
+JSONL with `{behavior, adversarial_prompt, attack_flops, attack_bits, pareto_step_idx
+[, model_completion]}`, and is replayed here at eval time. The base class is
+placement-agnostic (it replaces the whole user turn), so it works for suffix- and
+prefix-placed attacks alike. Each concrete attack lives in its own subclass so plots see
+a distinct `experiment_name`.
+
+For GCG the upstream extractor may emit multiple rows per behavior (one per Pareto-optimal
+optimization step). The strategy then fans each behavior out to all of its Pareto rows at
+eval time. AutoDAN and PAIR remain single-row-per-behavior; their subclass rejects multi-row
+inputs.
 """
 
 from __future__ import annotations
@@ -26,34 +32,31 @@ def _normalize_behavior(behavior: str) -> str:
 
 @dataclass
 class PrecomputedAdversarialPromptStrategy(BaseStrategy):
-    """Inject a per-behavior adversarial prompt loaded from a JSONL file.
+    """Inject per-behavior adversarial prompts loaded from a JSONL file.
 
-    The JSONL must contain one row per behavior with `behavior`,
-    `adversarial_prompt`, `attack_flops`, and `attack_bits`. Optionally a row
-    may include `model_completion` (the attack's stored greedy completion);
-    when present, eval-time generation is skipped and the stored response is
-    recorded directly. Every behavior in the validation dataset must be
-    present in the file. Behaviors are matched on a whitespace- and
-    case-normalized key to absorb minor drift between the HarmBench CSV
-    (AdversariaLLM) and HF split (our eval).
+    The JSONL must contain one or more rows per behavior. Each row has
+    `behavior`, `adversarial_prompt`, `attack_flops`, `attack_bits`, and
+    `pareto_step_idx`. Optionally a row may include `model_completion` (the
+    attack's stored greedy completion); when present, eval-time generation is
+    skipped and the stored response is recorded directly. Every behavior in the
+    validation dataset must be present in the file. Behaviors are matched on a
+    whitespace- and case-normalized key.
 
     `attack_bits` is the per-config program-length accounting emitted by
     `scripts/extract_adversariallm_attacks.py`. It is a single config-level
     constant (the same value on every row); we read it once at setup time and
-    raise if rows disagree. Per-row replication is a plumbing artifact, not a
-    per-behavior signal.
+    raise if rows disagree.
 
-    `attack_flops` is per-behavior: it is the dependent attack-time FLOPs spent
-    optimizing for that behavior. We expose it via `_attack_flops_lookup` and
-    inject it into the per-batch metadata labels so the dataset handler can
-    record it on the corresponding completion row.
+    `attack_flops` is per-row: for GCG Pareto rows it is cumulative FLOPs through
+    that step.
     """
 
     requires_training_data: ClassVar[bool] = False
+    allow_multirow_per_behavior: ClassVar[bool] = False
     suffix_file: str
-    _lookup: dict[str, str] = field(default_factory=dict, repr=False)
-    _completion_lookup: dict[str, str] = field(default_factory=dict, repr=False)
-    _attack_flops_lookup: dict[str, int] = field(default_factory=dict, repr=False)
+    _lookup: dict[str, list[dict[str, Any]]] = field(
+        default_factory=dict, repr=False
+    )
     _attack_bits: int = 0
 
     def setup(
@@ -72,8 +75,6 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
                     continue
                 row = json.loads(stripped)
                 key = _normalize_behavior(row["behavior"])
-                self._lookup[key] = row["adversarial_prompt"]
-                self._attack_flops_lookup[key] = row["attack_flops"]
                 row_bits = row["attack_bits"]
                 if attack_bits_seen is None:
                     attack_bits_seen = row_bits
@@ -82,12 +83,29 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
                         f"attack_bits mismatch in {self.suffix_file}: "
                         f"{row_bits} != {attack_bits_seen}"
                     )
-                if "model_completion" in row:
-                    self._completion_lookup[key] = row["model_completion"]
+                self._lookup.setdefault(key, []).append(row)
 
         if attack_bits_seen is None:
             raise ValueError(f"No rows found in {self.suffix_file}")
         self._attack_bits = attack_bits_seen
+
+        for key, rows in self._lookup.items():
+            rows.sort(key=lambda r: r.get("pareto_step_idx", 0))
+            if not self.allow_multirow_per_behavior and len(rows) > 1:
+                raise ValueError(
+                    f"{type(self).__name__} expected one row per behavior; "
+                    f"got {len(rows)} rows for {key!r} (multi-row/multiple rows "
+                    f"are GCG-only)"
+                )
+            if len(rows) > 1:
+                missing = [
+                    r["pareto_step_idx"] for r in rows if "model_completion" not in r
+                ]
+                if missing:
+                    raise ValueError(
+                        f"multi-row path requires model_completion on every row; "
+                        f"missing on pareto_step_idx={missing} for behavior {key!r}"
+                    )
 
         val_dataset = handler.get_val_dataset(tokenizer)
         missing = 0
@@ -127,23 +145,30 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
             meta = json.loads(meta_str)
             key = _normalize_behavior(meta["behavior"])
 
-            meta_with_flops = {**meta, "attack_flops": self._attack_flops_lookup[key]}
-            label_with_flops = json.dumps(meta_with_flops)
+            rows = self._lookup[key]
+            for row in rows:
+                pareto_step_idx = row.get("pareto_step_idx", 0)
+                meta_with_flops = {
+                    **meta,
+                    "attack_flops": row["attack_flops"],
+                    "pareto_step_idx": pareto_step_idx,
+                }
+                label_with_flops = json.dumps(meta_with_flops)
 
-            if key in self._completion_lookup:
-                stored_labels.append(label_with_flops)
-                stored_completions.append(self._completion_lookup[key])
-                continue
+                if "model_completion" in row:
+                    stored_labels.append(label_with_flops)
+                    stored_completions.append(row["model_completion"])
+                    continue
 
-            adversarial_prompt = self._lookup[key]
-            prompt_text: str = tokenizer.apply_chat_template(  # type: ignore[assignment]
-                [{"role": "user", "content": adversarial_prompt}],
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=False,
-            )
-            new_prompts.append(prompt_text)
-            kept_labels.append(label_with_flops)
+                adversarial_prompt = row["adversarial_prompt"]
+                prompt_text: str = tokenizer.apply_chat_template(  # type: ignore[assignment]
+                    [{"role": "user", "content": adversarial_prompt}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=False,
+                )
+                new_prompts.append(prompt_text)
+                kept_labels.append(label_with_flops)
 
         correct_total = 0
         total_total = 0
@@ -184,6 +209,8 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
 @dataclass
 class PrecomputedGCGStrategy(PrecomputedAdversarialPromptStrategy):
     """GCG (Zou et al., 2023): suffix-placed, discrete-optimization adversarial prompt."""
+
+    allow_multirow_per_behavior: ClassVar[bool] = True
 
 
 @dataclass

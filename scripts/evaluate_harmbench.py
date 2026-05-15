@@ -141,7 +141,12 @@ def run_classifier(
 
 
 def evaluate(generations_dir: str) -> dict[str, Any]:
-    """Run full evaluation on a generations directory."""
+    """Run full evaluation on a generations directory.
+
+    Computes canonical ASR over rows with ``pareto_step_idx == 0`` (legacy rows without
+    the field are treated as 0). Also emits a ``per_row_labels`` block containing every
+    row's classifier label so downstream plots can recover the FLOPs-vs-ASR curve.
+    """
     gen_path = Path(generations_dir)
 
     with open(gen_path / "input_data.jsonl") as f:
@@ -154,22 +159,50 @@ def evaluate(generations_dir: str) -> dict[str, Any]:
     has_categories = "category" in input_data[0]
     categories = [row["category"] for row in input_data] if has_categories else None
     responses = [row["response"] for row in response_data]
+    pareto_step_idxs = [row.get("pareto_step_idx", 0) for row in input_data]
+    attack_flops_list = [row.get("attack_flops", 0) for row in response_data]
 
     model, tokenizer = load_classifier()
     labels = run_classifier(model, tokenizer, behaviors, responses)
 
-    overall_asr, per_category = compute_asr(labels, categories)
+    canonical_labels = [
+        lab for lab, idx in zip(labels, pareto_step_idxs) if idx == 0
+    ]
+    canonical_categories: list[str] | None
+    if categories is not None:
+        canonical_categories = [
+            cat for cat, idx in zip(categories, pareto_step_idxs) if idx == 0
+        ]
+    else:
+        canonical_categories = None
+
+    overall_asr, per_category = compute_asr(canonical_labels, canonical_categories)
+
+    per_row_labels = [
+        {
+            "behavior": b,
+            "label": lab,
+            "pareto_step_idx": idx,
+            "attack_flops": flops,
+        }
+        for b, lab, idx, flops in zip(
+            behaviors, labels, pareto_step_idxs, attack_flops_list
+        )
+    ]
 
     results: dict[str, Any] = {
         "overall_asr": overall_asr,
         "per_category": per_category,
-        "total": len(labels),
-        "successful": sum(1 for lab in labels if lab == 1),
-        "failed": sum(1 for lab in labels if lab == 0),
-        "unparsable": sum(1 for lab in labels if lab == -1),
+        "total": len(canonical_labels),
+        "successful": sum(1 for lab in canonical_labels if lab == 1),
+        "failed": sum(1 for lab in canonical_labels if lab == 0),
+        "unparsable": sum(1 for lab in canonical_labels if lab == -1),
+        "per_row_labels": per_row_labels,
     }
 
-    print(f"\nOverall ASR: {overall_asr:.4f} ({results['successful']}/{results['total']})")
+    print(
+        f"\nOverall ASR: {overall_asr:.4f} ({results['successful']}/{results['total']})"
+    )
     print("\nPer-category ASR:")
     for cat, asr in per_category.items():
         print(f"  {cat}: {asr:.4f}")
@@ -227,9 +260,20 @@ def evaluate_results_file(
         has_categories = "category" in input_data[0]
         categories = [r["category"] for r in input_data] if has_categories else None
         responses = [r["response"] for r in response_data]
+        pareto_step_idxs = [r.get("pareto_step_idx", 0) for r in input_data]
 
         labels = run_classifier(model, tokenizer, behaviors, responses)
-        overall_asr, _ = compute_asr(labels, categories)
+        canonical_labels = [
+            lab for lab, idx in zip(labels, pareto_step_idxs) if idx == 0
+        ]
+        canonical_categories: list[str] | None
+        if categories is not None:
+            canonical_categories = [
+                cat for cat, idx in zip(categories, pareto_step_idxs) if idx == 0
+            ]
+        else:
+            canonical_categories = None
+        overall_asr, _ = compute_asr(canonical_labels, canonical_categories)
 
         rows[idx]["asr"] = overall_asr
         num_updated += 1

@@ -140,7 +140,12 @@ def compute_overall(
 
 
 def evaluate(generations_dir: str) -> dict[str, Any]:
-    """Run full evaluation on a generations directory."""
+    """Run full evaluation on a generations directory.
+
+    Canonical ``overall_score`` is the mean over rows with ``pareto_step_idx == 0``
+    (legacy rows without the field count as 0). All rows are scored and emitted under
+    ``per_row_labels`` so downstream plots can recover the FLOPs-vs-ASR curve.
+    """
     gen_path = Path(generations_dir)
 
     with open(gen_path / "input_data.jsonl") as f:
@@ -152,16 +157,42 @@ def evaluate(generations_dir: str) -> dict[str, Any]:
     has_categories = "category" in input_data[0]
     categories = [row["category"] for row in input_data] if has_categories else None
     responses = [row["response"] for row in response_data]
+    pareto_step_idxs = [row.get("pareto_step_idx", 0) for row in input_data]
+    attack_flops_list = [row.get("attack_flops", 0) for row in response_data]
 
     model, tokenizer = load_classifier()
     scores = run_classifier(model, tokenizer, behaviors, responses)
-    overall_score, per_category = compute_overall(scores, categories)
+
+    canonical_scores = [
+        s for s, idx in zip(scores, pareto_step_idxs) if idx == 0
+    ]
+    canonical_categories: list[str] | None
+    if categories is not None:
+        canonical_categories = [
+            cat for cat, idx in zip(categories, pareto_step_idxs) if idx == 0
+        ]
+    else:
+        canonical_categories = None
+    overall_score, per_category = compute_overall(canonical_scores, canonical_categories)
+
+    per_row_labels = [
+        {
+            "behavior": b,
+            "label": s,
+            "pareto_step_idx": idx,
+            "attack_flops": flops,
+        }
+        for b, s, idx, flops in zip(
+            behaviors, scores, pareto_step_idxs, attack_flops_list
+        )
+    ]
 
     results: dict[str, Any] = {
         "overall_score": overall_score,
         "per_category": per_category,
-        "total": len(scores),
-        "scores": scores,
+        "total": len(canonical_scores),
+        "scores": canonical_scores,
+        "per_row_labels": per_row_labels,
     }
 
     print(f"\nOverall score: {overall_score:.4f} (n={results['total']})")
@@ -223,9 +254,20 @@ def evaluate_results_file(
         has_categories = "category" in input_data[0]
         categories = [r["category"] for r in input_data] if has_categories else None
         responses = [r["response"] for r in response_data]
+        pareto_step_idxs = [r.get("pareto_step_idx", 0) for r in input_data]
 
         scores = run_classifier(model, tokenizer, behaviors, responses)
-        overall_score, _ = compute_overall(scores, categories)
+        canonical_scores = [
+            s for s, idx in zip(scores, pareto_step_idxs) if idx == 0
+        ]
+        canonical_categories: list[str] | None
+        if categories is not None:
+            canonical_categories = [
+                cat for cat, idx in zip(categories, pareto_step_idxs) if idx == 0
+            ]
+        else:
+            canonical_categories = None
+        overall_score, _ = compute_overall(canonical_scores, canonical_categories)
 
         rows[idx]["asr"] = overall_score
         num_updated += 1

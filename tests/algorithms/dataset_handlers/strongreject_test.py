@@ -229,6 +229,7 @@ class TestSaveCompletions:
                 "response": "resp_a",
                 "eval_flops": 10,
                 "attack_flops": 100,
+                "pareto_step_idx": 0,
             },
             {
                 "behavior": "Do Y",
@@ -236,6 +237,7 @@ class TestSaveCompletions:
                 "response": "resp_b",
                 "eval_flops": 20,
                 "attack_flops": 0,
+                "pareto_step_idx": 0,
             },
         ]
 
@@ -248,12 +250,14 @@ class TestSaveCompletions:
         with open(run_dir / "input_data.jsonl") as f:
             input_lines = [json.loads(line) for line in f]
         assert len(input_lines) == 2
-        assert set(input_lines[0].keys()) == {"behavior", "category"}
+        assert set(input_lines[0].keys()) == {"behavior", "category", "pareto_step_idx"}
 
         with open(run_dir / "responses.jsonl") as f:
             response_lines = [json.loads(line) for line in f]
         assert len(response_lines) == 2
-        assert set(response_lines[0].keys()) == {"behavior", "response", "dependent_flops"}
+        assert set(response_lines[0].keys()) == {
+            "behavior", "response", "dependent_flops", "pareto_step_idx", "attack_flops",
+        }
         assert response_lines[0]["dependent_flops"] == 110
         assert response_lines[1]["dependent_flops"] == 20
 
@@ -268,6 +272,7 @@ class TestSaveCompletions:
                 "response": "r",
                 "eval_flops": 0,
                 "attack_flops": 0,
+                "pareto_step_idx": 0,
             },
         ]
 

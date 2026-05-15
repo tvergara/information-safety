@@ -154,6 +154,7 @@ class EvilMathHandler(BaseDatasetHandler):
                 "predicted_answer": predicted,
                 "correct": is_correct,
                 "eval_flops": eval_flops,
+                "pareto_step_idx": meta.get("pareto_step_idx", 0),
             })
 
         return correct, len(generated_texts)
@@ -169,6 +170,7 @@ class EvilMathHandler(BaseDatasetHandler):
                     "question": entry["question"],
                     "correct_answer": entry["correct_answer"],
                     "original_question": entry["original_question"],
+                    "pareto_step_idx": entry["pareto_step_idx"],
                 }
                 f.write(json.dumps(row) + "\n")
 
@@ -180,6 +182,7 @@ class EvilMathHandler(BaseDatasetHandler):
                     "predicted_answer": entry["predicted_answer"],
                     "correct": entry["correct"],
                     "dependent_flops": entry["eval_flops"],
+                    "pareto_step_idx": entry["pareto_step_idx"],
                 }
                 f.write(json.dumps(row) + "\n")
 

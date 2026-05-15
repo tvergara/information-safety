@@ -155,3 +155,99 @@ class TestEndToEnd:
 
         results_file = tmp_path / "eval_results.json"
         assert results_file.exists()
+
+
+class TestParetoFiltering:
+    def test_canonical_asr_only_uses_pareto_step_0_rows(self, tmp_path: Path) -> None:
+        from scripts.evaluate_harmbench import evaluate_results_file
+
+        gen_base = tmp_path / "generations"
+        gen_base.mkdir()
+        run_dir = gen_base / "run-1"
+        run_dir.mkdir()
+
+        input_data = [
+            {"behavior": "do X", "category": "cyber", "pareto_step_idx": 0},
+            {"behavior": "do X", "category": "cyber", "pareto_step_idx": 1},
+            {"behavior": "do Y", "category": "violence", "pareto_step_idx": 0},
+            {"behavior": "do Y", "category": "violence", "pareto_step_idx": 1},
+        ]
+        response_data = [
+            {"behavior": "do X", "response": "r0", "pareto_step_idx": 0},
+            {"behavior": "do X", "response": "r1", "pareto_step_idx": 1},
+            {"behavior": "do Y", "response": "r0", "pareto_step_idx": 0},
+            {"behavior": "do Y", "response": "r1", "pareto_step_idx": 1},
+        ]
+        with open(run_dir / "input_data.jsonl", "w") as f:
+            for row in input_data:
+                f.write(json.dumps(row) + "\n")
+        with open(run_dir / "responses.jsonl", "w") as f:
+            for row in response_data:
+                f.write(json.dumps(row) + "\n")
+
+        results_file = tmp_path / "results.jsonl"
+        rows = [
+            {
+                "eval_run_id": "run-1",
+                "dataset_name": "advbench_harmbench",
+                "asr": None,
+            }
+        ]
+        with open(results_file, "w") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+
+        # Classifier returns: do X step0 -> Yes, do X step1 -> No,
+        # do Y step0 -> No, do Y step1 -> Yes.
+        # Pareto_step_idx==0 rows have labels [1, 0] -> mean 0.5.
+        # All rows have labels [1, 0, 0, 1] -> mean 0.5. Pick distinct values to verify
+        # the filter. Make step1 labels both Yes -> all=[1,1,1,1] mean 1.0, step0=[1,0]=0.5.
+        model, tokenizer = _make_model_tokenizer(["Yes", "Yes", "No", "Yes"])
+
+        with patch(
+            "scripts.evaluate_harmbench.load_classifier",
+            return_value=(model, tokenizer),
+        ):
+            evaluate_results_file(str(results_file), generations_base=str(gen_base))
+
+        with open(results_file) as f:
+            updated = [json.loads(line) for line in f]
+
+        assert updated[0]["asr"] == 0.5
+
+    def test_per_row_labels_block_emitted_in_eval_results_json(
+        self, tmp_path: Path
+    ) -> None:
+        input_data = [
+            {"behavior": "b", "category": "c", "pareto_step_idx": 0},
+            {"behavior": "b", "category": "c", "pareto_step_idx": 1},
+        ]
+        response_data = [
+            {"behavior": "b", "response": "r0", "pareto_step_idx": 0, "dependent_flops": 100},
+            {"behavior": "b", "response": "r1", "pareto_step_idx": 1, "dependent_flops": 50},
+        ]
+        with open(tmp_path / "input_data.jsonl", "w") as f:
+            for row in input_data:
+                f.write(json.dumps(row) + "\n")
+        with open(tmp_path / "responses.jsonl", "w") as f:
+            for row in response_data:
+                f.write(json.dumps(row) + "\n")
+
+        model, tokenizer = _make_model_tokenizer(["Yes", "No"])
+        with patch(
+            "scripts.evaluate_harmbench.load_classifier",
+            return_value=(model, tokenizer),
+        ):
+            evaluate(str(tmp_path))
+
+        results_path = tmp_path / "eval_results.json"
+        with open(results_path) as f:
+            blob = json.load(f)
+        assert "per_row_labels" in blob
+        assert len(blob["per_row_labels"]) == 2
+        idxs = sorted(r["pareto_step_idx"] for r in blob["per_row_labels"])
+        assert idxs == [0, 1]
+        for r in blob["per_row_labels"]:
+            assert "behavior" in r
+            assert "label" in r
+            assert "attack_flops" in r

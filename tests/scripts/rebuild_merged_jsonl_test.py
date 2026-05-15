@@ -42,6 +42,52 @@ def test_dedups_overlapping_behaviors_keeps_last(tmp_path: Path) -> None:
     assert by_behavior["b1"]["attack_flops"] == 999
 
 
+def test_gcg_merge_keeps_all_pareto_steps_per_behavior(tmp_path: Path) -> None:
+    a = tmp_path / "shard_a.jsonl"
+    b = tmp_path / "shard_b.jsonl"
+    _write_shard(
+        a,
+        [
+            {**_row("b0", attack_bits=100), "pareto_step_idx": 0},
+            {**_row("b0", attack_bits=100, attack_flops=2), "pareto_step_idx": 1},
+            {**_row("b0", attack_bits=100, attack_flops=3), "pareto_step_idx": 2},
+        ],
+    )
+    _write_shard(
+        b,
+        [
+            {**_row("b1", attack_bits=100), "pareto_step_idx": 0},
+            {**_row("b1", attack_bits=100, attack_flops=7), "pareto_step_idx": 1},
+        ],
+    )
+    out = tmp_path / "out.jsonl"
+
+    n = rebuild_merged_jsonl(attack="gcg", shard_paths=[a, b], output_path=out)
+
+    rows = [json.loads(line) for line in out.read_text().splitlines()]
+    assert n == 5
+    by_key = {(r["behavior"], r["pareto_step_idx"]): r for r in rows}
+    assert set(by_key) == {
+        ("b0", 0), ("b0", 1), ("b0", 2),
+        ("b1", 0), ("b1", 1),
+    }
+
+
+def test_legacy_shard_without_pareto_step_idx_is_treated_as_zero(
+    tmp_path: Path,
+) -> None:
+    a = tmp_path / "shard.jsonl"
+    _write_shard(a, [_row("b0", attack_bits=100)])
+    out = tmp_path / "out.jsonl"
+
+    n = rebuild_merged_jsonl(attack="gcg", shard_paths=[a], output_path=out)
+
+    rows = [json.loads(line) for line in out.read_text().splitlines()]
+    assert n == 1
+    assert rows[0]["behavior"] == "b0"
+    assert rows[0]["pareto_step_idx"] == 0
+
+
 def test_overwrites_attack_bits_with_canonical(tmp_path: Path) -> None:
     a = tmp_path / "shard_a.jsonl"
     _write_shard(a, [_row(f"b{i}", attack_bits=100 + i) for i in range(3)])

@@ -246,3 +246,66 @@ class TestEvaluateResultsFile:
         with open(results_file) as f:
             updated = [json.loads(line) for line in f]
         assert updated[0]["asr"] is None
+
+
+class TestParetoFiltering:
+    def test_canonical_asr_only_uses_pareto_step_0_rows(self, tmp_path: Path) -> None:
+        gen_base = tmp_path / "generations"
+        gen_base.mkdir()
+        run_dir = gen_base / "id1"
+        run_dir.mkdir()
+
+        input_rows = [
+            {"question": "q0", "correct_answer": 42, "pareto_step_idx": 0},
+            {"question": "q0", "correct_answer": 42, "pareto_step_idx": 1},
+            {"question": "q1", "correct_answer": 42, "pareto_step_idx": 0},
+        ]
+        # pareto_step_idx == 0 only: 2 rows, 1 correct -> accuracy=0.5
+        # all rows: 3 rows, 1 correct -> accuracy=1/3
+        response_rows = [
+            {"question": "q0", "response": "42", "predicted_answer": 42,
+             "correct": True, "pareto_step_idx": 0},
+            {"question": "q0", "response": "42", "predicted_answer": 42,
+             "correct": True, "pareto_step_idx": 1},
+            {"question": "q1", "response": "13", "predicted_answer": 13,
+             "correct": False, "pareto_step_idx": 0},
+        ]
+        _write_jsonl(run_dir / "input_data.jsonl", input_rows)
+        _write_jsonl(run_dir / "responses.jsonl", response_rows)
+
+        results_file = tmp_path / "results.jsonl"
+        _write_jsonl(
+            results_file,
+            [{"eval_run_id": "id1", "dataset_name": "evilmath", "asr": None}],
+        )
+
+        evaluate_results_file(str(results_file), generations_base=str(gen_base))
+
+        with open(results_file) as f:
+            updated = [json.loads(line) for line in f]
+        assert updated[0]["asr"] == 0.5
+
+    def test_per_row_labels_block_emitted_in_eval_results_json(
+        self, tmp_path: Path
+    ) -> None:
+        run_dir = tmp_path / "id1"
+        run_dir.mkdir()
+        input_rows = [
+            {"question": "q0", "correct_answer": 42, "pareto_step_idx": 0},
+            {"question": "q0", "correct_answer": 42, "pareto_step_idx": 1},
+        ]
+        response_rows = [
+            {"question": "q0", "response": "42", "predicted_answer": 42,
+             "correct": True, "pareto_step_idx": 0},
+            {"question": "q0", "response": "13", "predicted_answer": 13,
+             "correct": False, "pareto_step_idx": 1},
+        ]
+        _write_jsonl(run_dir / "input_data.jsonl", input_rows)
+        _write_jsonl(run_dir / "responses.jsonl", response_rows)
+
+        evaluate(str(run_dir))
+
+        with open(run_dir / "eval_results.json") as f:
+            blob = json.load(f)
+        assert "per_row_labels" in blob
+        assert len(blob["per_row_labels"]) == 2

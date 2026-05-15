@@ -368,6 +368,7 @@ class TestSaveCompletions:
                 "predicted_answer": 42,
                 "correct": True,
                 "eval_flops": 0,
+                "pareto_step_idx": 0,
             }
         ]
 
@@ -388,6 +389,7 @@ class TestSaveCompletions:
                 "predicted_answer": 42,
                 "correct": True,
                 "eval_flops": 0,
+                "pareto_step_idx": 0,
             }
         ]
 
@@ -397,7 +399,9 @@ class TestSaveCompletions:
         with open(run_dir / "input_data.jsonl") as f:
             rows = [json.loads(line) for line in f]
         assert len(rows) == 1
-        assert set(rows[0].keys()) == {"question", "correct_answer", "original_question"}
+        assert set(rows[0].keys()) == {
+            "question", "correct_answer", "original_question", "pareto_step_idx",
+        }
 
     def test_responses_has_correct_keys(self, tmp_path: Path) -> None:
         handler = EvilMathHandler(generations_dir=str(tmp_path))
@@ -410,6 +414,7 @@ class TestSaveCompletions:
                 "predicted_answer": 42,
                 "correct": True,
                 "eval_flops": 0,
+                "pareto_step_idx": 0,
             }
         ]
 
@@ -420,7 +425,8 @@ class TestSaveCompletions:
             rows = [json.loads(line) for line in f]
         assert len(rows) == 1
         assert set(rows[0].keys()) == {
-            "question", "response", "predicted_answer", "correct", "dependent_flops"
+            "question", "response", "predicted_answer", "correct", "dependent_flops",
+            "pareto_step_idx",
         }
 
     def test_save_completions_writes_dependent_flops(self, tmp_path: Path) -> None:
@@ -434,6 +440,7 @@ class TestSaveCompletions:
                 "predicted_answer": 42,
                 "correct": True,
                 "eval_flops": 1234,
+                "pareto_step_idx": 0,
             },
             {
                 "question": "q2",
@@ -443,6 +450,7 @@ class TestSaveCompletions:
                 "predicted_answer": 8,
                 "correct": False,
                 "eval_flops": 5678,
+                "pareto_step_idx": 0,
             },
         ]
 
@@ -468,6 +476,7 @@ class TestSaveCompletions:
                 "predicted_answer": 42,
                 "correct": True,
                 "eval_flops": 0,
+                "pareto_step_idx": 0,
             }
         ]
         handler.save_completions("test-run-reset")
