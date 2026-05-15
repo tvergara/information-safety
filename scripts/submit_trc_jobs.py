@@ -18,6 +18,7 @@ from scripts._trc_common import (
     TRC_EAI_IMAGE,
     TRC_HF_HOME,
     TRC_REPO_DIR,
+    extract_eai_uuid,
     load_submitted_state,
     shell_quote,
 )
@@ -75,7 +76,9 @@ def iter_pending_configs(
     return [c for c in missing if deterministic_job_name(c) not in submitted]
 
 
-def build_eai_submit_argv(*, config: dict[str, Any]) -> list[str]:
+def build_eai_submit_argv(
+    *, config: dict[str, Any], preemptable: bool = True
+) -> list[str]:
     hydra_cmd = build_command(
         config,
         attacks_dir=Path(f"{TRC_BASE_DIR}/attacks"),
@@ -95,13 +98,14 @@ def build_eai_submit_argv(*, config: dict[str, Any]) -> list[str]:
         hydra_str,
     ])
     job_name = deterministic_job_name(config)
+    preempt_flag = "--preemptable" if preemptable else "--non-preemptable"
     remote = (
         f"eai job submit"
         f" --name {job_name}"
         f" --image {TRC_EAI_IMAGE}"
         f" --data {TRC_DATA_MOUNT}"
         f" --gpu 1 --mem 64 --cpu 8 --max-run-time 43200"
-        f" --non-preemptable"
+        f" {preempt_flag}"
         f" --enforce-name"
         f" -- bash -lc {shell_quote(container_cmd)}"
     )
@@ -113,13 +117,14 @@ def _submit_one(
     config: dict[str, Any],
     state_file: Path,
     dry_run: bool,
+    preemptable: bool,
 ) -> None:
-    argv = build_eai_submit_argv(config=config)
+    argv = build_eai_submit_argv(config=config, preemptable=preemptable)
     if dry_run:
         print(f"{argv[0]} {argv[1]} {shell_quote(argv[2])}")
         return
     result = subprocess.run(argv, check=True, capture_output=True, text=True)
-    eai_uuid = result.stdout.strip().splitlines()[-1]
+    eai_uuid = extract_eai_uuid(result.stdout)
     record_submission(
         state_file=state_file,
         config=config,
@@ -139,6 +144,13 @@ def main(
     parser.add_argument("--state-file", type=Path, default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--reset", action="store_true")
+    preempt_group = parser.add_mutually_exclusive_group()
+    preempt_group.add_argument(
+        "--preemptable", dest="preemptable", action="store_true", default=True
+    )
+    preempt_group.add_argument(
+        "--non-preemptable", dest="preemptable", action="store_false"
+    )
     args = parser.parse_args(argv)
 
     state_file = args.state_file if args.state_file is not None else DEFAULT_STATE_FILE
@@ -165,7 +177,12 @@ def main(
     skipped = 0
     for config in pending:
         try:
-            _submit_one(config=config, state_file=state_file, dry_run=args.dry_run)
+            _submit_one(
+                config=config,
+                state_file=state_file,
+                dry_run=args.dry_run,
+                preemptable=args.preemptable,
+            )
             submitted += 1
         except FileNotFoundError as exc:
             print(f"WARNING: skipping config — {exc}")
