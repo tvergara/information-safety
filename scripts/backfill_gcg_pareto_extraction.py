@@ -1,10 +1,12 @@
 """Backfill existing AdversariaLLM run.json directories with Pareto-step extraction.
 
-Walks a save-dir root containing one subdirectory per ``<attack>-<model>-<dataset>`` base
-(AdversariaLLM Hydra layout: ``<base>/<YYYY-MM-DD>/<HH-MM-SS>/<i>/run.json`` and
-``<base>/attacks/<base>.jsonl``). For each base, re-extracts the attack rows via the
-canonical extractor (GCG fans out to one row per Pareto-optimal step; AutoDAN/PAIR remain
-single-row with ``pareto_step_idx=0``) and rewrites ``<base>/attacks/<base>.jsonl`` in place.
+Walks a save-dir root containing one subdirectory per ``<base>`` (AdversariaLLM Hydra
+layout: ``<base>/<YYYY-MM-DD>/<HH-MM-SS>/<i>/run.json``). For each base, re-extracts the
+attack rows via the canonical extractor (GCG fans out to one row per Pareto-optimal step;
+AutoDAN/PAIR remain single-row with ``pareto_step_idx=0``) and writes the result to the
+canonical per-shard JSONL at ``<attacks-dir>/<base>.jsonl``, overwriting any pre-Pareto
+single-row file that ``scripts/run_one_attack.sh`` originally produced. The downstream
+``scripts/rebuild_merged_jsonl.py`` consumes these per-shard files.
 
 Does NOT touch ``final-results.jsonl`` or the ``generations/`` tree -- those backfill steps
 are out of scope for this script and are owned by the eval pipeline.
@@ -67,11 +69,12 @@ def _atomic_write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     os.replace(tmp, path)
 
 
-def backfill_root(*, adv_save_dir_root: Path, dry_run: bool) -> int:
+def backfill_root(*, adv_save_dir_root: Path, attacks_dir: Path, dry_run: bool) -> int:
     """Re-extract Pareto rows for every base directory under ``adv_save_dir_root``.
 
-    Returns the number of base directories whose attacks JSONL was rewritten (or would have been,
-    in dry-run mode).
+    Writes each base's rows to ``attacks_dir/<base>.jsonl``, overwriting any pre-existing
+    single-row file. Returns the number of base directories whose JSONL was rewritten (or
+    would have been, in dry-run mode).
     """
     touched = 0
     for base in sorted(p for p in adv_save_dir_root.iterdir() if p.is_dir()):
@@ -79,9 +82,8 @@ def backfill_root(*, adv_save_dir_root: Path, dry_run: bool) -> int:
         if not run_files:
             continue
         rows = _extract_rows_for_base(run_files)
-        attacks_jsonl = base / "attacks" / f"{base.name}.jsonl"
         if not dry_run:
-            _atomic_write_jsonl(attacks_jsonl, rows)
+            _atomic_write_jsonl(attacks_dir / f"{base.name}.jsonl", rows)
         touched += 1
     return touched
 
@@ -89,12 +91,17 @@ def backfill_root(*, adv_save_dir_root: Path, dry_run: bool) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adv-save-dir-root", required=True, type=Path)
+    parser.add_argument("--attacks-dir", required=True, type=Path)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    n = backfill_root(adv_save_dir_root=args.adv_save_dir_root, dry_run=args.dry_run)
+    n = backfill_root(
+        adv_save_dir_root=args.adv_save_dir_root,
+        attacks_dir=args.attacks_dir,
+        dry_run=args.dry_run,
+    )
     suffix = " (dry run)" if args.dry_run else ""
-    print(f"Backfilled {n} base directories under {args.adv_save_dir_root}{suffix}")
+    print(f"Backfilled {n} base directories into {args.attacks_dir}{suffix}")
 
 
 if __name__ == "__main__":
