@@ -135,9 +135,39 @@ def test_eai_command_has_required_flags() -> None:
     assert "--mem 64" in joined
     assert "--cpu 8" in joined
     assert "--max-run-time 43200" in joined
-    assert "--non-preemptable" in joined
+    assert "--preemptable" in joined
+    assert "--non-preemptable" not in joined
     assert TRC_EAI_IMAGE in joined
     assert "snow.research.mmteb.safety:/work:rw" in joined
+
+
+def test_build_eai_submit_argv_emits_non_preemptable_when_requested() -> None:
+    argv = build_eai_submit_argv(config=_baseline_config(), preemptable=False)
+    joined = " ".join(argv)
+    assert "--non-preemptable" in joined
+    assert " --preemptable" not in joined
+
+
+def test_main_forwards_non_preemptable_flag(
+    tmp_path: Path,
+    _state_file: Path,
+    _local_attacks_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    results_file = tmp_path / "final-results.jsonl"
+    results_file.write_text("")
+    with patch("scripts.submit_trc_jobs.subprocess.run"):
+        main(
+            [
+                "--dry-run",
+                "--non-preemptable",
+                "--results-file",
+                str(results_file),
+            ]
+        )
+    captured = capsys.readouterr()
+    assert "--non-preemptable" in captured.out
+    assert " --preemptable" not in captured.out
 
 
 def test_container_command_sets_env_vars() -> None:
@@ -283,7 +313,7 @@ def test_main_idempotent_after_submission(
 ) -> None:
     results_file = tmp_path / "final-results.jsonl"
     results_file.write_text("")
-    mock_run = MagicMock(return_value=MagicMock(returncode=0, stdout="abcd-uuid\n", stderr=""))
+    mock_run = MagicMock(return_value=MagicMock(returncode=0, stdout="aaaaaaaa-1111-2222-3333-dddddddddddd\n", stderr=""))
     with patch("scripts.submit_trc_jobs.subprocess.run", mock_run):
         main(
             [
@@ -390,6 +420,31 @@ def test_state_records_eai_uuid(
     assert rows[0]["config"] == config
 
 
+def test_main_records_clean_uuid_from_single_line_submit_output(
+    tmp_path: Path,
+    _state_file: Path,
+    _local_attacks_dir: Path,
+) -> None:
+    results_file = tmp_path / "final-results.jsonl"
+    results_file.write_text("")
+    submit_stdout = (
+        "9db35489-d4c2-4753-ba16-bbd815424302 QUEUING is_xyz"
+        "                snow.research.mmteb snow.siva_reddy"
+        " 2026-05-15T04:12:20Z 0 [bash -lc ...] -"
+        " https://9db35489-d4c2-4753-ba16-bbd815424302.job.example/\n"
+    )
+    mock_run = MagicMock(
+        return_value=MagicMock(returncode=0, stdout=submit_stdout, stderr="")
+    )
+    with patch("scripts.submit_trc_jobs.subprocess.run", mock_run):
+        main(
+            ["--results-file", str(results_file)],
+            configs=[_baseline_config()],
+        )
+    rows = [json.loads(line) for line in _state_file.read_text().splitlines() if line]
+    assert rows[0]["eai_uuid"] == "9db35489-d4c2-4753-ba16-bbd815424302"
+
+
 def test_main_actually_submits_when_not_dry_run(
     tmp_path: Path,
     _state_file: Path,
@@ -397,7 +452,7 @@ def test_main_actually_submits_when_not_dry_run(
 ) -> None:
     results_file = tmp_path / "final-results.jsonl"
     results_file.write_text("")
-    mock_run = MagicMock(return_value=MagicMock(returncode=0, stdout="eai-uuid-xyz\n", stderr=""))
+    mock_run = MagicMock(return_value=MagicMock(returncode=0, stdout="aaaaaaaa-1111-2222-3333-eeeeeeeeeeee\n", stderr=""))
     with patch("scripts.submit_trc_jobs.subprocess.run", mock_run):
         main(
             [

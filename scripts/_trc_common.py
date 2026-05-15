@@ -9,7 +9,10 @@ here so they stay consistent and there is one place to update them.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
+
+_EAI_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 TRC_BASE_DIR = "/work/information-safety-results"
 TRC_REPO_DIR = "/work/information-safety"
@@ -22,6 +25,13 @@ TRC_DATA_MOUNT = "snow.research.mmteb.safety:/work:rw"
 
 def shell_quote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
+
+
+def extract_eai_uuid(stdout: str) -> str:
+    m = _EAI_UUID_RE.search(stdout)
+    if m is None:
+        raise ValueError(f"no UUID found in eai job submit output: {stdout!r}")
+    return m.group()
 
 
 def model_slug(model_name: str) -> str:
@@ -57,6 +67,8 @@ def trc_behaviors_csv(dataset: str) -> str:
         return f"{TRC_BASE_DIR}/attacks/harmbench_behaviors_standard.csv"
     if dataset == "strongreject":
         return f"{TRC_BASE_DIR}/attacks/strongreject_behaviors.csv"
+    if dataset == "evilmath":
+        return f"{TRC_BASE_DIR}/attacks/evilmath_behaviors.csv"
     raise ValueError(f"Unknown dataset: {dataset}")
 
 
@@ -68,4 +80,6 @@ def trc_targets_json(dataset: str) -> str:
         )
     if dataset == "strongreject":
         return f"{TRC_BASE_DIR}/attacks/strongreject_targets_text.json"
+    if dataset == "evilmath":
+        return f"{TRC_BASE_DIR}/attacks/evilmath_targets_text.json"
     raise ValueError(f"Unknown dataset: {dataset}")

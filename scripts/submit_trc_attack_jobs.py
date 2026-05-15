@@ -19,6 +19,7 @@ from scripts._trc_common import (
     TRC_HF_HOME,
     TRC_REPO_DIR,
     compute_shards,
+    extract_eai_uuid,
     load_submitted_state,
     model_slug,
     shell_quote,
@@ -31,6 +32,7 @@ TRC_ADVERSARIALLM_VENV = "/work/envs/adversariallm/.venv"
 DATASET_TOTALS_DEFAULT: dict[str, int] = {
     "harmbench": 200,
     "strongreject": 313,
+    "evilmath": 298,
 }
 
 DEFAULT_ATTACKS = ["gcg", "autodan", "pair"]
@@ -110,7 +112,9 @@ def iter_pending_attack_shards(
     return pending
 
 
-def build_eai_submit_argv(*, spec: dict[str, Any]) -> list[str]:
+def build_eai_submit_argv(
+    *, spec: dict[str, Any], preemptable: bool = True
+) -> list[str]:
     attack = spec["attack"]
     model = spec["model"]
     dataset = spec["dataset"]
@@ -147,13 +151,14 @@ def build_eai_submit_argv(*, spec: dict[str, Any]) -> list[str]:
         run_one_attack,
     ])
     job_name = deterministic_job_name(spec)
+    preempt_flag = "--preemptable" if preemptable else "--non-preemptable"
     remote = (
         f"eai job submit"
         f" --name {job_name}"
         f" --image {TRC_EAI_IMAGE}"
         f" --data {TRC_DATA_MOUNT}"
         f" --gpu 1 --mem 64 --cpu 8 --max-run-time 43200"
-        f" --non-preemptable"
+        f" {preempt_flag}"
         f" --enforce-name"
         f" -- bash -lc {shell_quote(container_cmd)}"
     )
@@ -165,13 +170,14 @@ def _submit_one(
     spec: dict[str, Any],
     state_file: Path,
     dry_run: bool,
+    preemptable: bool,
 ) -> None:
-    argv = build_eai_submit_argv(spec=spec)
+    argv = build_eai_submit_argv(spec=spec, preemptable=preemptable)
     if dry_run:
         print(f"{argv[0]} {argv[1]} {shell_quote(argv[2])}")
         return
     result = subprocess.run(argv, check=True, capture_output=True, text=True)
-    eai_uuid = result.stdout.strip().splitlines()[-1]
+    eai_uuid = extract_eai_uuid(result.stdout)
     job_id = deterministic_job_name(spec)
     record_submission(
         state_file=state_file,
@@ -192,6 +198,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max-submissions", type=int, default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--reset", action="store_true")
+    preempt_group = parser.add_mutually_exclusive_group()
+    preempt_group.add_argument(
+        "--preemptable", dest="preemptable", action="store_true", default=True
+    )
+    preempt_group.add_argument(
+        "--non-preemptable", dest="preemptable", action="store_false"
+    )
     args = parser.parse_args(argv)
 
     state_file = args.state_file if args.state_file is not None else DEFAULT_STATE_FILE
@@ -213,7 +226,12 @@ def main(argv: list[str] | None = None) -> None:
     for spec in pending:
         if args.max_submissions is not None and submitted >= args.max_submissions:
             break
-        _submit_one(spec=spec, state_file=state_file, dry_run=args.dry_run)
+        _submit_one(
+            spec=spec,
+            state_file=state_file,
+            dry_run=args.dry_run,
+            preemptable=args.preemptable,
+        )
         submitted += 1
 
     prefix = "[dry-run] " if args.dry_run else ""
