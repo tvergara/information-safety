@@ -7,7 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from scripts.extract_adversariallm_attacks import convert_run_dir
+from scripts.extract_adversariallm_attacks import (
+    _extract_gcg_pareto,
+    convert_run_dir,
+)
 
 _GCG_CONFIG: dict[str, object] = {
     "num_steps": 10,
@@ -110,7 +113,6 @@ def test_convert_run_dir_emits_one_row_per_behavior(tmp_path: Path) -> None:
 
     with open(out_file) as f:
         rows = [json.loads(line) for line in f if line.strip()]
-    assert len(rows) == 2
     behaviors = {r["behavior"] for r in rows}
     assert behaviors == {"beh_A", "beh_B"}
     for row in rows:
@@ -118,6 +120,7 @@ def test_convert_run_dir_emits_one_row_per_behavior(tmp_path: Path) -> None:
         assert "behavior" in row and "adversarial_prompt" in row
         assert "attack_bits" in row and isinstance(row["attack_bits"], int)
         assert row["attack_bits"] > 0
+        assert "pareto_step_idx" in row
 
 
 def test_convert_run_dir_selects_lowest_loss_step(tmp_path: Path) -> None:
@@ -164,8 +167,8 @@ def test_convert_run_dir_selects_lowest_loss_step(tmp_path: Path) -> None:
 
     with open(out_file) as f:
         rows = [json.loads(line) for line in f if line.strip()]
-    assert len(rows) == 1
-    assert rows[0]["adversarial_prompt"] == "beh_A best"
+    canonical = next(r for r in rows if r["pareto_step_idx"] == 0)
+    assert canonical["adversarial_prompt"] == "beh_A best"
 
 
 def test_convert_run_dir_raises_on_empty(tmp_path: Path) -> None:
@@ -211,6 +214,7 @@ def test_extract_handles_pair_shaped_runs_with_all_none_losses(tmp_path: Path) -
     _write_run_json(
         run_dir / "0" / "run.json",
         behavior="beh_A",
+        attack_params=dict(_PAIR_CONFIG),
         steps=[
             {
                 "step": 0,
@@ -289,9 +293,10 @@ def test_convert_run_dir_sums_flops_across_steps(tmp_path: Path) -> None:
 
     with open(out_file) as f:
         rows = [json.loads(line) for line in f if line.strip()]
-    assert len(rows) == 1
-    assert rows[0]["attack_flops"] == 350
-    assert "gcg_flops" not in rows[0]
+    canonical = next(r for r in rows if r["pareto_step_idx"] == 0)
+    assert canonical["attack_flops"] == 350
+    for row in rows:
+        assert "gcg_flops" not in row
 
 
 def _make_steps(behavior: str) -> list[dict]:
@@ -420,10 +425,12 @@ def test_extract_includes_model_completion(tmp_path: Path) -> None:
 
 
 def test_extract_omits_model_completion_when_missing(tmp_path: Path) -> None:
+    """AutoDAN/PAIR paths may not record model_completions; row should omit the key."""
     run_dir = tmp_path / "adv_out"
     _write_run_json(
         run_dir / "0" / "run.json",
         behavior="beh_A",
+        attack_params=dict(_PAIR_CONFIG),
         steps=[
             {
                 "step": 0,
@@ -502,7 +509,7 @@ def test_extract_autodan_uses_last_step_flops_not_sum(tmp_path: Path) -> None:
 def test_extract_gcg_keeps_sum(tmp_path: Path) -> None:
     """GCG writes step.flops as deltas.
 
-    Extractor should sum across all steps.
+    Extractor should sum across all steps (cumulative through the final pareto step).
     """
     run_dir = tmp_path / "adv_out"
     _write_run_json(
@@ -548,5 +555,149 @@ def test_extract_gcg_keeps_sum(tmp_path: Path) -> None:
 
     with open(out_file) as f:
         rows = [json.loads(line) for line in f if line.strip()]
-    assert len(rows) == 1
-    assert rows[0]["attack_flops"] == 60
+    canonical = next(r for r in rows if r["pareto_step_idx"] == 0)
+    assert canonical["attack_flops"] == 60
+
+
+def _gcg_step(
+    step_idx: int, loss: float | None, flops: int, prompt_text: str
+) -> dict:
+    return {
+        "step": step_idx,
+        "loss": loss,
+        "flops": flops,
+        "model_input": [
+            {"role": "user", "content": prompt_text},
+            {"role": "assistant", "content": ""},
+        ],
+        "model_completions": [f"completion_for_{prompt_text}"],
+    }
+
+
+def _make_gcg_run_json(behavior: str, steps: list[dict]) -> dict:
+    return {
+        "config": {
+            "attack_params": dict(_GCG_CONFIG),
+            "model_params": {"id": _ATTACKED_MODEL_ID},
+        },
+        "runs": [
+            {
+                "original_prompt": [
+                    {"role": "user", "content": behavior},
+                    {"role": "assistant", "content": "target_A"},
+                ],
+                "steps": steps,
+                "total_time": 0.0,
+            }
+        ],
+    }
+
+
+class TestExtractGCGPareto:
+    def test_gcg_emits_one_row_per_pareto_step(self) -> None:
+        steps = [
+            _gcg_step(0, 3.0, 10, "p_step_0"),
+            _gcg_step(1, 2.5, 10, "p_step_1"),
+            _gcg_step(2, 2.5, 10, "p_step_2"),
+            _gcg_step(3, 1.8, 10, "p_step_3"),
+            _gcg_step(4, 2.0, 10, "p_step_4"),
+            _gcg_step(5, 1.5, 10, "p_step_5"),
+        ]
+        run_json = _make_gcg_run_json("beh_A", steps)
+
+        rows = _extract_gcg_pareto(run_json, "fake.json")
+
+        assert len(rows) == 4
+        adversarial_prompts = [r["adversarial_prompt"] for r in rows]
+        assert adversarial_prompts == [
+            "p_step_5",
+            "p_step_3",
+            "p_step_1",
+            "p_step_0",
+        ]
+        pareto_idxs = [r["pareto_step_idx"] for r in rows]
+        assert pareto_idxs == [0, 1, 2, 3]
+        attack_flops = [r["attack_flops"] for r in rows]
+        assert attack_flops == [60, 40, 20, 10]
+        for row in rows:
+            assert row["behavior"] == "beh_A"
+
+    def test_gcg_pareto_step_0_is_argmin_loss(self, tmp_path: Path) -> None:
+        steps = [
+            _gcg_step(0, 3.0, 100, "worst"),
+            _gcg_step(1, 0.1, 100, "best"),
+            _gcg_step(2, 0.5, 100, "middle"),
+        ]
+        run_json = _make_gcg_run_json("beh_A", steps)
+
+        rows = _extract_gcg_pareto(run_json, "fake.json")
+
+        zero = next(r for r in rows if r["pareto_step_idx"] == 0)
+        assert zero["adversarial_prompt"] == "best"
+        assert zero["attack_flops"] == 200
+        assert zero["model_completion"] == "completion_for_best"
+
+        run_dir = tmp_path / "adv_out"
+        _write_run_json(
+            run_dir / "0" / "run.json",
+            behavior="beh_A",
+            steps=steps,
+        )
+        out_file = tmp_path / "out.jsonl"
+        convert_run_dir(str(run_dir), str(out_file))
+
+        with open(out_file) as f:
+            converted_rows = [json.loads(line) for line in f if line.strip()]
+        zero_converted = next(
+            r for r in converted_rows if r.get("pareto_step_idx", 0) == 0
+        )
+        assert zero_converted["adversarial_prompt"] == zero["adversarial_prompt"]
+        assert zero_converted["attack_flops"] == zero["attack_flops"]
+        assert zero_converted["model_completion"] == zero["model_completion"]
+
+
+class TestAutodanAndPairUnchanged:
+    def test_autodan_unchanged_emits_single_row_with_pareto_step_0(
+        self, tmp_path: Path
+    ) -> None:
+        run_dir = tmp_path / "adv_out"
+        _write_run_json(
+            run_dir / "0" / "run.json",
+            behavior="beh_A",
+            steps=[
+                _gcg_step(0, 1.0, 10, "s0"),
+                _gcg_step(1, 0.5, 30, "s1"),
+                _gcg_step(2, 0.2, 60, "s2"),
+            ],
+            attack_params=dict(_AUTODAN_CONFIG),
+        )
+        out_file = tmp_path / "out.jsonl"
+        convert_run_dir(str(run_dir), str(out_file))
+
+        with open(out_file) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        assert len(rows) == 1
+        assert rows[0]["pareto_step_idx"] == 0
+        assert rows[0]["attack_flops"] == 60
+
+    def test_pair_unchanged_emits_single_row_with_pareto_step_0(
+        self, tmp_path: Path
+    ) -> None:
+        run_dir = tmp_path / "adv_out"
+        _write_run_json(
+            run_dir / "0" / "run.json",
+            behavior="beh_A",
+            steps=[
+                _gcg_step(0, None, 1000, "p0"),
+                _gcg_step(1, None, 1000, "p1"),
+            ],
+            attack_params=dict(_PAIR_CONFIG),
+        )
+        out_file = tmp_path / "out.jsonl"
+        convert_run_dir(str(run_dir), str(out_file))
+
+        with open(out_file) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        assert len(rows) == 1
+        assert rows[0]["pareto_step_idx"] == 0
+        assert rows[0]["adversarial_prompt"] == "p1"

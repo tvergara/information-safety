@@ -141,6 +141,7 @@ class StrongRejectHandler(BaseDatasetHandler):
                 "response": gen_text,
                 "eval_flops": eval_flops,
                 "attack_flops": meta["attack_flops"],
+                "pareto_step_idx": meta.get("pareto_step_idx", 0),
             })
 
         return 0, len(generated_texts)
@@ -157,6 +158,7 @@ class StrongRejectHandler(BaseDatasetHandler):
                 "response": completion,
                 "eval_flops": 0,
                 "attack_flops": meta["attack_flops"],
+                "pareto_step_idx": meta.get("pareto_step_idx", 0),
             })
         return 0, len(completions)
 
@@ -167,7 +169,11 @@ class StrongRejectHandler(BaseDatasetHandler):
 
         with open(run_dir / "input_data.jsonl", "w") as f:
             for entry in self._completions:
-                row = {"behavior": entry["behavior"], "category": entry["category"]}
+                row = {
+                    "behavior": entry["behavior"],
+                    "category": entry["category"],
+                    "pareto_step_idx": entry["pareto_step_idx"],
+                }
                 f.write(json.dumps(row) + "\n")
 
         with open(run_dir / "responses.jsonl", "w") as f:
@@ -177,6 +183,8 @@ class StrongRejectHandler(BaseDatasetHandler):
                     "behavior": entry["behavior"],
                     "response": entry["response"],
                     "dependent_flops": dependent_flops,
+                    "pareto_step_idx": entry["pareto_step_idx"],
+                    "attack_flops": entry["attack_flops"],
                 }
                 f.write(json.dumps(row) + "\n")
 

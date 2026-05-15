@@ -30,20 +30,22 @@ def rebuild_merged_jsonl(
     else:
         canonical_bits = compute_attack_bits(attack, {})
 
-    rows_by_behavior: dict[str, dict] = {}
+    rows_by_key: dict[tuple[str, int], dict] = {}
     for path in shard_paths:
         with open(path) as f:
             for line in f:
                 row = json.loads(line)
                 row["attack_bits"] = canonical_bits
-                rows_by_behavior[row["behavior"]] = row
+                pareto_step_idx = row.get("pareto_step_idx", 0)
+                row["pareto_step_idx"] = pareto_step_idx
+                rows_by_key[(row["behavior"], pareto_step_idx)] = row
 
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     with open(tmp_path, "w") as f:
-        for row in rows_by_behavior.values():
+        for row in rows_by_key.values():
             f.write(json.dumps(row) + "\n")
     os.replace(tmp_path, output_path)
-    return len(rows_by_behavior)
+    return len(rows_by_key)
 
 
 def main(argv: list[str] | None = None) -> None:

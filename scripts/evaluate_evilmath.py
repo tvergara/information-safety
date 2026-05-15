@@ -40,13 +40,34 @@ def compute_evilmath_metrics(
     input_data: list[dict[str, Any]],
     response_data: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Compute accuracy and format compliance across all examples."""
-    total = len(input_data)
-    correct_count = sum(1 for r in response_data if r["correct"])
-    parsable_count = sum(1 for r in response_data if r["predicted_answer"] is not None)
+    """Compute accuracy and format compliance over canonical rows.
+
+    Canonical rows are those with ``pareto_step_idx == 0`` (legacy rows without the field
+    are treated as 0). All rows are also emitted under ``per_row_labels`` for plotting.
+    """
+    pareto_step_idxs = [row.get("pareto_step_idx", 0) for row in input_data]
+    canonical_responses = [
+        r for r, idx in zip(response_data, pareto_step_idxs) if idx == 0
+    ]
+
+    total = len(canonical_responses)
+    correct_count = sum(1 for r in canonical_responses if r["correct"])
+    parsable_count = sum(
+        1 for r in canonical_responses if r["predicted_answer"] is not None
+    )
 
     accuracy = correct_count / total if total > 0 else 0.0
     format_compliance = parsable_count / total if total > 0 else 0.0
+
+    per_row_labels = [
+        {
+            "question": row.get("question"),
+            "label": int(resp["correct"]),
+            "pareto_step_idx": idx,
+            "attack_flops": resp.get("attack_flops", 0),
+        }
+        for row, resp, idx in zip(input_data, response_data, pareto_step_idxs)
+    ]
 
     return {
         "accuracy": accuracy,
@@ -54,6 +75,7 @@ def compute_evilmath_metrics(
         "total": total,
         "correct": correct_count,
         "parsable": parsable_count,
+        "per_row_labels": per_row_labels,
     }
 
 

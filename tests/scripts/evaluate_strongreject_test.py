@@ -276,3 +276,84 @@ class TestEvaluateResultsFile:
         with patch("scripts.evaluate_strongreject.load_classifier") as mock_load:
             evaluate_results_file(str(results_file), generations_base=str(tmp_path))
         mock_load.assert_not_called()
+
+
+class TestParetoFiltering:
+    def test_canonical_asr_only_uses_pareto_step_0_rows(self, tmp_path: Path) -> None:
+        gen_base = tmp_path / "gens"
+        run_dir = gen_base / "run-1"
+        run_dir.mkdir(parents=True)
+
+        input_data = [
+            {"behavior": "b", "category": "c", "pareto_step_idx": 0},
+            {"behavior": "b", "category": "c", "pareto_step_idx": 1},
+        ]
+        response_data = [
+            {"behavior": "b", "response": "r0", "pareto_step_idx": 0},
+            {"behavior": "b", "response": "r1", "pareto_step_idx": 1},
+        ]
+        with open(run_dir / "input_data.jsonl", "w") as f:
+            for row in input_data:
+                f.write(json.dumps(row) + "\n")
+        with open(run_dir / "responses.jsonl", "w") as f:
+            for row in response_data:
+                f.write(json.dumps(row) + "\n")
+
+        results_file = tmp_path / "results.jsonl"
+        with open(results_file, "w") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "eval_run_id": "run-1",
+                        "dataset_name": "strongreject",
+                        "asr": None,
+                    }
+                )
+                + "\n"
+            )
+
+        model, tokenizer = _make_classifier_with_logits(target_token_idx=4)
+
+        with patch(
+            "scripts.evaluate_strongreject.load_classifier",
+            return_value=(model, tokenizer),
+        ):
+            evaluate_results_file(str(results_file), generations_base=str(gen_base))
+
+        with open(results_file) as f:
+            updated = [json.loads(line) for line in f]
+
+        # Both rows score 1.0 (mass on token "5"); canonical asr should be 1.0 over
+        # one pareto_step_idx==0 row.
+        assert updated[0]["asr"] == pytest.approx(1.0)
+
+    def test_per_row_labels_block_emitted_in_eval_results_json(
+        self, tmp_path: Path
+    ) -> None:
+        input_data = [
+            {"behavior": "b", "category": "c", "pareto_step_idx": 0},
+            {"behavior": "b", "category": "c", "pareto_step_idx": 1},
+        ]
+        response_data = [
+            {"behavior": "b", "response": "r0", "pareto_step_idx": 0, "dependent_flops": 10},
+            {"behavior": "b", "response": "r1", "pareto_step_idx": 1, "dependent_flops": 5},
+        ]
+        with open(tmp_path / "input_data.jsonl", "w") as f:
+            for row in input_data:
+                f.write(json.dumps(row) + "\n")
+        with open(tmp_path / "responses.jsonl", "w") as f:
+            for row in response_data:
+                f.write(json.dumps(row) + "\n")
+
+        model, tokenizer = _make_classifier_with_logits(target_token_idx=4)
+
+        with patch(
+            "scripts.evaluate_strongreject.load_classifier",
+            return_value=(model, tokenizer),
+        ):
+            evaluate(str(tmp_path))
+
+        with open(tmp_path / "eval_results.json") as f:
+            blob = json.load(f)
+        assert "per_row_labels" in blob
+        assert len(blob["per_row_labels"]) == 2
