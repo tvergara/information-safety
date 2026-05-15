@@ -6,7 +6,15 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from scripts import extract_adversariallm_attacks
 from scripts.backfill_gcg_pareto_extraction import backfill_root
+
+
+@pytest.fixture(autouse=True)
+def _relax_min_attack_steps(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(extract_adversariallm_attacks, "MIN_ATTACK_STEPS", 1)
 
 _GCG_CONFIG: dict[str, object] = {
     "num_steps": 10,

@@ -7,10 +7,16 @@ from pathlib import Path
 
 import pytest
 
+from scripts import extract_adversariallm_attacks
 from scripts.extract_adversariallm_attacks import (
     _extract_gcg_pareto,
     convert_run_dir,
 )
+
+
+@pytest.fixture(autouse=True)
+def _relax_min_attack_steps(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(extract_adversariallm_attacks, "MIN_ATTACK_STEPS", 1)
 
 _GCG_CONFIG: dict[str, object] = {
     "num_steps": 10,
@@ -701,3 +707,69 @@ class TestAutodanAndPairUnchanged:
         assert len(rows) == 1
         assert rows[0]["pareto_step_idx"] == 0
         assert rows[0]["adversarial_prompt"] == "p1"
+
+
+class TestMinAttackStepsFilter:
+    def test_below_threshold_drops_behavior(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(extract_adversariallm_attacks, "MIN_ATTACK_STEPS", 5)
+        run_dir = tmp_path / "adv_out"
+        _write_run_json(
+            run_dir / "0" / "run.json",
+            behavior="beh_A",
+            steps=[_gcg_step(i, 1.0 - 0.1 * i, 10, f"s{i}") for i in range(4)],
+            attack_params=dict(_GCG_CONFIG),
+        )
+
+        out_file = tmp_path / "out.jsonl"
+        convert_run_dir(str(run_dir), str(out_file))
+
+        with open(out_file) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        assert rows == []
+
+    def test_at_threshold_emits_rows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(extract_adversariallm_attacks, "MIN_ATTACK_STEPS", 5)
+        run_dir = tmp_path / "adv_out"
+        _write_run_json(
+            run_dir / "0" / "run.json",
+            behavior="beh_A",
+            steps=[_gcg_step(i, 1.0 - 0.1 * i, 10, f"s{i}") for i in range(5)],
+            attack_params=dict(_GCG_CONFIG),
+        )
+
+        out_file = tmp_path / "out.jsonl"
+        convert_run_dir(str(run_dir), str(out_file))
+
+        with open(out_file) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        assert len(rows) == 5
+
+    def test_convert_run_dir_skips_filtered_behaviors_but_keeps_others(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(extract_adversariallm_attacks, "MIN_ATTACK_STEPS", 5)
+        run_dir = tmp_path / "adv_out"
+        _write_run_json(
+            run_dir / "0" / "run.json",
+            behavior="beh_short",
+            steps=[_gcg_step(i, 1.0 - 0.1 * i, 10, f"x{i}") for i in range(3)],
+            attack_params=dict(_GCG_CONFIG),
+        )
+        _write_run_json(
+            run_dir / "1" / "run.json",
+            behavior="beh_long",
+            steps=[_gcg_step(i, 1.0 - 0.05 * i, 10, f"y{i}") for i in range(5)],
+            attack_params=dict(_GCG_CONFIG),
+        )
+
+        out_file = tmp_path / "out.jsonl"
+        convert_run_dir(str(run_dir), str(out_file))
+
+        with open(out_file) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        behaviors = {r["behavior"] for r in rows}
+        assert behaviors == {"beh_long"}

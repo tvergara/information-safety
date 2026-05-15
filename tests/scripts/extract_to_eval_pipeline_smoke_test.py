@@ -11,14 +11,21 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 import torch
 
 from information_safety.algorithms.strategies.precomputed_adversarial_prompt import (
     PrecomputedGCGStrategy,
 )
+from scripts import extract_adversariallm_attacks
 from scripts.evaluate_harmbench import evaluate_results_file
 from scripts.extract_adversariallm_attacks import convert_run_dir
 from scripts.rebuild_merged_jsonl import rebuild_merged_jsonl
+
+
+@pytest.fixture(autouse=True)
+def _relax_min_attack_steps(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(extract_adversariallm_attacks, "MIN_ATTACK_STEPS", 1)
 
 _GCG_CONFIG: dict[str, object] = {
     "num_steps": 10,
