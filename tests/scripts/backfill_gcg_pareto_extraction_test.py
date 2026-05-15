@@ -67,9 +67,9 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
             f.write(json.dumps(row) + "\n")
 
 
-def _make_old_style_gcg_layout(root: Path, base_name: str) -> Path:
+def _make_gcg_layout(root: Path, base_name: str) -> Path:
     base = root / base_name
-    run_dir = base / "runs" / "ts1"
+    run_dir = base / "2026-01-15" / "12-30-45"
     _write_run_json(
         run_dir / "0" / "run.json",
         behavior="beh_A",
@@ -96,7 +96,7 @@ def _make_old_style_gcg_layout(root: Path, base_name: str) -> Path:
 
 def _make_autodan_layout(root: Path, base_name: str) -> Path:
     base = root / base_name
-    run_dir = base / "runs" / "ts1"
+    run_dir = base / "2026-01-15" / "12-30-45"
     _write_run_json(
         run_dir / "0" / "run.json",
         behavior="beh_A",
@@ -111,7 +111,7 @@ def _make_autodan_layout(root: Path, base_name: str) -> Path:
 
 
 def test_backfill_rewrites_gcg_jsonl_with_pareto_rows(tmp_path: Path) -> None:
-    base = _make_old_style_gcg_layout(tmp_path, "gcg-model-data")
+    base = _make_gcg_layout(tmp_path, "gcg-model-data")
 
     n_touched = backfill_root(adv_save_dir_root=tmp_path, dry_run=False)
     assert n_touched >= 1
@@ -127,7 +127,7 @@ def test_backfill_rewrites_gcg_jsonl_with_pareto_rows(tmp_path: Path) -> None:
 
 
 def test_backfill_is_idempotent(tmp_path: Path) -> None:
-    base = _make_old_style_gcg_layout(tmp_path, "gcg-model-data")
+    base = _make_gcg_layout(tmp_path, "gcg-model-data")
 
     backfill_root(adv_save_dir_root=tmp_path, dry_run=False)
     first = (base / "attacks" / "gcg-model-data.jsonl").read_text()
@@ -148,7 +148,7 @@ def test_backfill_adds_pareto_step_idx_to_autodan_runs(tmp_path: Path) -> None:
 
 
 def test_backfill_dry_run_writes_nothing(tmp_path: Path) -> None:
-    base = _make_old_style_gcg_layout(tmp_path, "gcg-model-data")
+    base = _make_gcg_layout(tmp_path, "gcg-model-data")
 
     before = (base / "attacks" / "gcg-model-data.jsonl").read_text()
     backfill_root(adv_save_dir_root=tmp_path, dry_run=True)
@@ -157,7 +157,7 @@ def test_backfill_dry_run_writes_nothing(tmp_path: Path) -> None:
 
 
 def test_backfill_does_not_touch_final_results_or_generations(tmp_path: Path) -> None:
-    _make_old_style_gcg_layout(tmp_path, "gcg-model-data")
+    _make_gcg_layout(tmp_path, "gcg-model-data")
     results_file = tmp_path / "final-results.jsonl"
     results_file.write_text(json.dumps({"asr": 0.5, "eval_run_id": "abc"}) + "\n")
     gens_dir = tmp_path / "generations"
@@ -172,3 +172,29 @@ def test_backfill_does_not_touch_final_results_or_generations(tmp_path: Path) ->
 
     assert results_file.read_text() == results_before
     assert (gens_dir / "abc" / "responses.jsonl").read_text() == gens_before
+
+
+def test_backfill_discovers_hydra_timestamped_layout(tmp_path: Path) -> None:
+    base = tmp_path / "gcg-model-data"
+    _write_run_json(
+        base / "2026-01-15" / "12-30-45" / "0" / "run.json",
+        behavior="beh_A",
+        steps=[_gcg_step(0, 2.0, 10, "p0"), _gcg_step(1, 0.2, 30, "p2")],
+    )
+    _write_run_json(
+        base / "2026-01-15" / "13-00-00" / "0" / "run.json",
+        behavior="beh_B",
+        steps=[_gcg_step(0, 1.5, 10, "q0"), _gcg_step(1, 0.3, 30, "q1")],
+    )
+    _write_jsonl(base / "attacks" / "gcg-model-data.jsonl", [])
+
+    n_touched = backfill_root(adv_save_dir_root=tmp_path, dry_run=False)
+    assert n_touched == 1
+
+    rows = [
+        json.loads(line)
+        for line in (base / "attacks" / "gcg-model-data.jsonl").read_text().splitlines()
+    ]
+    behaviors = {r["behavior"] for r in rows}
+    assert behaviors == {"beh_A", "beh_B"}
+    assert len(rows) == 4

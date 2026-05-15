@@ -1,10 +1,10 @@
 """Backfill existing AdversariaLLM run.json directories with Pareto-step extraction.
 
 Walks a save-dir root containing one subdirectory per ``<attack>-<model>-<dataset>`` base
-(legacy layout: ``<base>/runs/<ts>/<i>/run.json`` and ``<base>/attacks/<base>.jsonl``).
-For each base, re-extracts the attack rows via the canonical extractor (GCG fans out to
-one row per Pareto-optimal step; AutoDAN/PAIR remain single-row with ``pareto_step_idx=0``)
-and rewrites ``<base>/attacks/<base>.jsonl`` in place.
+(AdversariaLLM Hydra layout: ``<base>/<YYYY-MM-DD>/<HH-MM-SS>/<i>/run.json`` and
+``<base>/attacks/<base>.jsonl``). For each base, re-extracts the attack rows via the
+canonical extractor (GCG fans out to one row per Pareto-optimal step; AutoDAN/PAIR remain
+single-row with ``pareto_step_idx=0``) and rewrites ``<base>/attacks/<base>.jsonl`` in place.
 
 Does NOT touch ``final-results.jsonl`` or the ``generations/`` tree -- those backfill steps
 are out of scope for this script and are owned by the eval pipeline.
@@ -26,10 +26,7 @@ from scripts.extract_adversariallm_attacks import (
 
 
 def _find_run_files(base: Path) -> list[Path]:
-    runs_dir = base / "runs"
-    if not runs_dir.is_dir():
-        return []
-    return sorted(runs_dir.rglob("run.json"))
+    return sorted(base.rglob("run.json"))
 
 
 def _extract_rows_for_base(run_files: list[Path]) -> list[dict[str, Any]]:
@@ -71,7 +68,7 @@ def _atomic_write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def backfill_root(*, adv_save_dir_root: Path, dry_run: bool) -> int:
-    """Re-extract Pareto rows for every ``<base>/runs/`` subtree under ``adv_save_dir_root``.
+    """Re-extract Pareto rows for every base directory under ``adv_save_dir_root``.
 
     Returns the number of base directories whose attacks JSONL was rewritten (or would have been,
     in dry-run mode).
