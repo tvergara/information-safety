@@ -6,6 +6,8 @@ import math
 
 import torch
 
+_SEQ_CHUNK_TOKENS = 64
+
 
 def compute_bits_from_logits(
     logits: torch.Tensor,
@@ -17,19 +19,23 @@ def compute_bits_from_logits(
     Uses the fast log-softmax approach: bits = ceil(-sum(log_probs) / log(2)).
     This measures how compressible the data is under the model's predictions.
     """
-    log_probs = torch.log_softmax(logits, dim=-1)
+    shift_logits = logits[:, :-1, :]
+    shift_targets = input_ids[:, 1:]
+    shift_mask = attention_mask[:, 1:].to(shift_logits.dtype)
 
-    logits_for_pred = log_probs[:, :-1, :]
-    target_tokens = input_ids[:, 1:]
+    seq_len = shift_logits.shape[1]
+    total_log_prob = 0.0
+    for start in range(0, seq_len, _SEQ_CHUNK_TOKENS):
+        end = start + _SEQ_CHUNK_TOKENS
+        chunk_logits = shift_logits[:, start:end, :]
+        chunk_targets = shift_targets[:, start:end]
+        chunk_mask = shift_mask[:, start:end]
 
-    token_log_probs = torch.gather(
-        logits_for_pred, 2, target_tokens.unsqueeze(-1)
-    ).squeeze(-1)
+        chunk_log_probs = torch.log_softmax(chunk_logits, dim=-1)
+        chunk_token_lp = torch.gather(
+            chunk_log_probs, 2, chunk_targets.unsqueeze(-1)
+        ).squeeze(-1)
+        total_log_prob += (chunk_token_lp * chunk_mask).sum().item()
 
-    mask = attention_mask[:, 1:]
-    token_log_probs = token_log_probs * mask
-
-    total_log_prob = token_log_probs.sum()
-    bits = (-total_log_prob / math.log(2)).item()
-
+    bits = -total_log_prob / math.log(2)
     return int(math.ceil(bits))

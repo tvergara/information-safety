@@ -55,6 +55,8 @@ from typing import Any
 
 from information_safety.attack_bits import compute_attack_bits
 
+MIN_ATTACK_STEPS = 20
+
 
 def _find_run_files(run_dir: str) -> list[str]:
     return sorted(glob.glob(os.path.join(run_dir, "**", "run.json"), recursive=True))
@@ -153,6 +155,8 @@ def _dispatch_attack_name(attack_params: dict[str, Any]) -> str:
 def _extract_rows_from_run(
     run_json: dict, run_file: str, attack_name: str, attack_bits: int
 ) -> list[dict[str, Any]]:
+    if len(run_json["runs"][0]["steps"]) < MIN_ATTACK_STEPS:
+        return []
     if attack_name == "gcg":
         rows = _extract_gcg_pareto(run_json, run_file)
         for row in rows:
@@ -195,6 +199,8 @@ def convert_run_dir(run_dir: str, output_file: str) -> None:
         else:
             attack_bits = compute_attack_bits(attack_name, attack_params)
         new_rows = _extract_rows_from_run(run_json, run_file, attack_name, attack_bits)
+        if not new_rows:
+            continue
         behavior = new_rows[0]["behavior"]
         if behavior in seen:
             raise ValueError(

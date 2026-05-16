@@ -50,6 +50,8 @@ def _extract_rows_for_base(run_files: list[Path]) -> list[dict[str, Any]]:
         new_rows = _extract_rows_from_run(
             run_json, str(run_file), attack_name, attack_bits
         )
+        if not new_rows:
+            continue
         behavior = new_rows[0]["behavior"]
         if behavior in seen:
             raise ValueError(

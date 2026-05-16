@@ -9,8 +9,11 @@ here so they stay consistent and there is one place to update them.
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 from pathlib import Path
+from typing import Any
 
 _EAI_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
@@ -60,6 +63,53 @@ def load_submitted_state(state_file: Path) -> set[str]:
         for line in state_file.read_text().splitlines()
         if line.strip()
     }
+
+
+def current_git_sha() -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def default_state_file(name: str) -> Path:
+    return (
+        Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
+        / "information-safety"
+        / name
+    )
+
+
+def append_state_row(state_file: Path, row: dict[str, Any]) -> None:
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(state_file, "a") as f:
+        f.write(json.dumps(row, default=str) + "\n")
+
+
+def build_eai_submit_remote(
+    *,
+    name: str,
+    container_cmd: str,
+    cpu: int,
+    mem: int,
+    max_run_time: int,
+    preemptable: bool,
+    gpu: int = 0,
+) -> str:
+    gpu_flag = f" --gpu {gpu}" if gpu else ""
+    preempt_flag = "--preemptable" if preemptable else "--non-preemptable"
+    return (
+        f"eai job submit"
+        f" --name {name}"
+        f" --image {TRC_EAI_IMAGE}"
+        f" --data {TRC_DATA_MOUNT}"
+        f"{gpu_flag} --cpu {cpu} --mem {mem} --max-run-time {max_run_time}"
+        f" {preempt_flag}"
+        f" --enforce-name"
+        f" -- bash -lc {shell_quote(container_cmd)}"
+    )
 
 
 def trc_behaviors_csv(dataset: str) -> str:

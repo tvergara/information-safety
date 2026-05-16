@@ -128,7 +128,7 @@ def test_main_dry_run_redacts_token(capsys: pytest.CaptureFixture[str]) -> None:
     with patch(
         "scripts.bootstrap_trc_adversariallm.get_token", return_value="hf_secret_abc"
     ), patch(
-        "scripts.bootstrap_trc_adversariallm._current_git_sha", return_value="abc1234"
+        "scripts.bootstrap_trc_adversariallm.current_git_sha", return_value="abc1234"
     ):
         with patch("scripts.bootstrap_trc_adversariallm.subprocess.run") as run:
             main(["--dry-run"])
@@ -144,7 +144,7 @@ def test_main_passes_token_into_token_file_and_env() -> None:
     with patch(
         "scripts.bootstrap_trc_adversariallm.get_token", return_value="hf_from_cache"
     ), patch(
-        "scripts.bootstrap_trc_adversariallm._current_git_sha", return_value="abc1234"
+        "scripts.bootstrap_trc_adversariallm.current_git_sha", return_value="abc1234"
     ):
         with patch("scripts.bootstrap_trc_adversariallm.subprocess.run") as run:
             run.return_value = MagicMock(returncode=0, stdout="uuid\n", stderr="")
@@ -161,7 +161,7 @@ def test_main_pins_work_repo_to_local_head_sha() -> None:
     with patch(
         "scripts.bootstrap_trc_adversariallm.get_token", return_value="hf_x"
     ), patch(
-        "scripts.bootstrap_trc_adversariallm._current_git_sha",
+        "scripts.bootstrap_trc_adversariallm.current_git_sha",
         return_value="cafef00d",
     ):
         with patch("scripts.bootstrap_trc_adversariallm.subprocess.run") as run:
