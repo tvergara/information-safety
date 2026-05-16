@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import subprocess
 import sys
 import time
@@ -14,11 +13,13 @@ from typing import Any
 
 from scripts._trc_common import (
     TRC_BASE_DIR,
-    TRC_DATA_MOUNT,
     TRC_EAI_IMAGE,
     TRC_HF_HOME,
     TRC_REPO_DIR,
+    append_state_row,
+    build_eai_submit_remote,
     compute_shards,
+    default_state_file,
     extract_eai_uuid,
     load_submitted_state,
     model_slug,
@@ -26,6 +27,20 @@ from scripts._trc_common import (
     trc_behaviors_csv,
     trc_targets_json,
 )
+
+__all__ = [
+    "DATASET_TOTALS_DEFAULT",
+    "TRC_ADVERSARIALLM_VENV",
+    "TRC_BASE_DIR",
+    "TRC_EAI_IMAGE",
+    "TRC_REPO_DIR",
+    "build_eai_submit_argv",
+    "deterministic_job_name",
+    "iter_pending_attack_shards",
+    "load_submitted_state",
+    "main",
+    "record_submission",
+]
 
 TRC_ADVERSARIALLM_VENV = "/work/envs/adversariallm/.venv"
 
@@ -43,9 +58,7 @@ DEFAULT_MODELS = [
 ]
 DEFAULT_DATASETS = ["harmbench", "strongreject"]
 
-DEFAULT_STATE_FILE = Path(
-    os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
-) / "information-safety" / "trc-attacks-submitted.jsonl"
+DEFAULT_STATE_FILE = default_state_file("trc-attacks-submitted.jsonl")
 
 
 def deterministic_job_name(spec: dict[str, Any]) -> str:
@@ -66,15 +79,12 @@ def record_submission(
     job_id: str,
     eai_uuid: str,
 ) -> None:
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    row = {
+    append_state_row(state_file, {
         "job_id": job_id,
         "eai_uuid": eai_uuid,
         "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "spec": spec,
-    }
-    with open(state_file, "a") as f:
-        f.write(json.dumps(row, default=str) + "\n")
+    })
 
 
 def iter_pending_attack_shards(
@@ -150,17 +160,14 @@ def build_eai_submit_argv(
         f"export HUGGING_FACE_HUB_TOKEN=$(cat {TRC_HF_HOME}/token)",
         run_one_attack,
     ])
-    job_name = deterministic_job_name(spec)
-    preempt_flag = "--preemptable" if preemptable else "--non-preemptable"
-    remote = (
-        f"eai job submit"
-        f" --name {job_name}"
-        f" --image {TRC_EAI_IMAGE}"
-        f" --data {TRC_DATA_MOUNT}"
-        f" --gpu 1 --mem 64 --cpu 8 --max-run-time 43200"
-        f" {preempt_flag}"
-        f" --enforce-name"
-        f" -- bash -lc {shell_quote(container_cmd)}"
+    remote = build_eai_submit_remote(
+        name=deterministic_job_name(spec),
+        container_cmd=container_cmd,
+        gpu=1,
+        cpu=8,
+        mem=64,
+        max_run_time=43200,
+        preemptable=preemptable,
     )
     return ["ssh", "trc", remote]
 

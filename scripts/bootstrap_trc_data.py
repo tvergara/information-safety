@@ -21,12 +21,20 @@ from huggingface_hub import get_token
 
 from scripts._trc_common import (
     TRC_BASE_DIR,
-    TRC_DATA_MOUNT,
     TRC_EAI_IMAGE,
     TRC_HF_HOME,
     TRC_REPO_DIR,
+    build_eai_submit_remote,
     shell_quote,
 )
+
+__all__ = [
+    "TRC_BASE_DIR",
+    "TRC_EAI_IMAGE",
+    "TRC_HF_HOME",
+    "build_eai_submit_argv",
+    "main",
+]
 
 
 def build_eai_submit_argv(*, hf_token: str, dataset_repo: str) -> list[str]:
@@ -47,15 +55,13 @@ def build_eai_submit_argv(*, hf_token: str, dataset_repo: str) -> list[str]:
         f"python -c {shell_quote(snapshot_py)}",
         f"ls -la {TRC_BASE_DIR}",
     ])
-    remote = (
-        f"eai job submit"
-        f" --name is_bootstrap_data"
-        f" --image {TRC_EAI_IMAGE}"
-        f" --data {TRC_DATA_MOUNT}"
-        f" --cpu 4 --mem 16 --max-run-time 3600"
-        f" --non-preemptable"
-        f" --enforce-name"
-        f" -- bash -lc {shell_quote(container_cmd)}"
+    remote = build_eai_submit_remote(
+        name="is_bootstrap_data",
+        container_cmd=container_cmd,
+        cpu=4,
+        mem=16,
+        max_run_time=3600,
+        preemptable=False,
     )
     return ["ssh", "trc", remote]
 

@@ -15,12 +15,23 @@ from huggingface_hub import get_token
 
 from scripts._trc_common import (
     TRC_BASE_DIR,
-    TRC_DATA_MOUNT,
     TRC_EAI_IMAGE,
     TRC_HF_HOME,
     TRC_REPO_DIR,
+    build_eai_submit_remote,
+    current_git_sha,
     shell_quote,
 )
+
+__all__ = [
+    "TRC_ADVERSARIALLM_VENV",
+    "TRC_BASE_DIR",
+    "TRC_EAI_IMAGE",
+    "TRC_HF_HOME",
+    "TRC_REPO_DIR",
+    "build_eai_submit_argv",
+    "main",
+]
 
 TRC_ADVERSARIALLM_VENV = "/work/envs/adversariallm/.venv"
 
@@ -30,15 +41,6 @@ _MONGOMOCK_SHIM_PY = (
     "    import mongomock, pymongo\n"
     "    pymongo.MongoClient = mongomock.MongoClient\n"
 )
-
-
-def _current_git_sha() -> str:
-    return subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
 
 
 def build_eai_submit_argv(*, hf_token: str, git_sha: str) -> list[str]:
@@ -76,15 +78,13 @@ def build_eai_submit_argv(*, hf_token: str, git_sha: str) -> list[str]:
             " --with-strongreject"
         ),
     ])
-    remote = (
-        f"eai job submit"
-        f" --name is_bootstrap_adversariallm"
-        f" --image {TRC_EAI_IMAGE}"
-        f" --data {TRC_DATA_MOUNT}"
-        f" --cpu 4 --mem 16 --max-run-time 7200"
-        f" --non-preemptable"
-        f" --enforce-name"
-        f" -- bash -lc {shell_quote(container_cmd)}"
+    remote = build_eai_submit_remote(
+        name="is_bootstrap_adversariallm",
+        container_cmd=container_cmd,
+        cpu=4,
+        mem=16,
+        max_run_time=7200,
+        preemptable=False,
     )
     return ["ssh", "trc", remote]
 
@@ -102,7 +102,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         raise SystemExit(2)
 
-    cli_argv = build_eai_submit_argv(hf_token=token, git_sha=_current_git_sha())
+    cli_argv = build_eai_submit_argv(hf_token=token, git_sha=current_git_sha())
     if args.dry_run:
         redacted = [s.replace(token, "<redacted>") for s in cli_argv]
         print(f"{redacted[0]} {redacted[1]} {shell_quote(redacted[2])}")
