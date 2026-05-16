@@ -48,7 +48,7 @@ def test_container_uses_work_hf_cache() -> None:
 def test_container_creates_venv_with_python_310() -> None:
     argv = build_eai_submit_argv(hf_token="hf_x", git_sha="abc1234")
     joined = " ".join(argv)
-    assert f"uv venv {TRC_INFORMATION_SAFETY_VENV} --python 3.10 --clear" in joined
+    assert f"uv venv {TRC_INFORMATION_SAFETY_VENV} --python 3.12 --clear" in joined
 
 
 def test_container_installs_information_safety_with_cu128() -> None:

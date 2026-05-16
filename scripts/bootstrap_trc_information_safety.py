@@ -112,7 +112,7 @@ def build_eai_submit_argv(*, hf_token: str, git_sha: str) -> list[str]:
         "git fetch --all",
         f"git checkout {git_sha}",
         "git submodule update --init --recursive",
-        f"uv venv {TRC_INFORMATION_SAFETY_VENV} --python 3.10 --clear",
+        f"uv venv {TRC_INFORMATION_SAFETY_VENV} --python 3.12 --clear",
         install_pkg,
         prefetch_models,
         prefetch_datasets,
