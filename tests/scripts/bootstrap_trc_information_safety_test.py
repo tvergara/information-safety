@@ -9,9 +9,8 @@ import pytest
 
 from scripts._trc_common import TRC_EAI_IMAGE, TRC_HF_HOME, TRC_REPO_DIR
 from scripts.bootstrap_trc_information_safety import (
-    HF_MODELS_TO_PREFETCH,
     TRC_INFORMATION_SAFETY_VENV,
-    WMDP_DATASETS_TO_PREFETCH,
+    TRC_UV_PYTHON_INSTALL_DIR,
     build_eai_submit_argv,
     main,
 )
@@ -31,17 +30,16 @@ def test_argv_mounts_work_data_with_correct_image() -> None:
     assert TRC_EAI_IMAGE in joined
 
 
-def test_container_writes_hf_token_and_exports_env() -> None:
+def test_container_writes_hf_token_to_hf_home() -> None:
     argv = build_eai_submit_argv(hf_token="hf_secret", git_sha="abc1234")
     joined = " ".join(argv)
     assert f"{TRC_HF_HOME}/token" in joined
-    assert "export HUGGING_FACE_HUB_TOKEN" in joined
+    assert "hf_secret" in joined
 
 
 def test_container_uses_work_hf_cache() -> None:
     argv = build_eai_submit_argv(hf_token="hf_x", git_sha="abc1234")
     joined = " ".join(argv)
-    assert "unset TRANSFORMERS_CACHE" in joined
     assert f"export HF_HUB_CACHE={TRC_HF_HOME}/hub" in joined
 
 
@@ -81,26 +79,13 @@ def test_container_checks_out_local_sha_and_updates_submodules() -> None:
     assert fetch_idx < checkout_idx < submodule_idx < install_idx
 
 
-def test_container_prefetches_all_hf_models() -> None:
+def test_container_pins_uv_python_install_dir_to_persistent_volume() -> None:
     argv = build_eai_submit_argv(hf_token="hf_x", git_sha="abc1234")
     joined = " ".join(argv)
-    for model_id in HF_MODELS_TO_PREFETCH:
-        assert model_id in joined, f"missing model_id {model_id}"
-    assert "huggingface-cli download" in joined
-
-
-def test_container_prefetches_wmdp_datasets() -> None:
-    argv = build_eai_submit_argv(hf_token="hf_x", git_sha="abc1234")
-    joined = " ".join(argv)
-    for ds in WMDP_DATASETS_TO_PREFETCH:
-        assert ds in joined, f"missing dataset {ds}"
-
-
-def test_container_runs_main_py_smoke_test() -> None:
-    argv = build_eai_submit_argv(hf_token="hf_x", git_sha="abc1234")
-    joined = " ".join(argv)
-    assert "information_safety/main.py" in joined
-    assert "debug=true" in joined
+    assert f"export UV_PYTHON_INSTALL_DIR={TRC_UV_PYTHON_INSTALL_DIR}" in joined
+    export_idx = joined.index(f"export UV_PYTHON_INSTALL_DIR={TRC_UV_PYTHON_INSTALL_DIR}")
+    venv_idx = joined.index(f"uv venv {TRC_INFORMATION_SAFETY_VENV}")
+    assert export_idx < venv_idx
 
 
 def test_submit_flags_enforce_name_and_non_preemptable() -> None:
