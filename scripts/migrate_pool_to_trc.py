@@ -61,12 +61,19 @@ def pool_job_name(spec_id: str) -> str:
 
 
 def is_hf_hosted_spec(spec: dict[str, Any]) -> bool:
+    saw_model_override = False
     for token in spec["command"]:
         if token.startswith(_HF_MODEL_PREFIX):
-            return not token[len(_HF_MODEL_PREFIX):].startswith("/")
-    raise ValueError(
-        f"spec {spec.get('id', '?')} has no {_HF_MODEL_PREFIX} override"
-    )
+            saw_model_override = True
+            if token[len(_HF_MODEL_PREFIX):].startswith("/"):
+                return False
+        elif "=/scratch/" in token or "=/network/" in token:
+            return False
+    if not saw_model_override:
+        raise ValueError(
+            f"spec {spec.get('id', '?')} has no {_HF_MODEL_PREFIX} override"
+        )
+    return True
 
 
 def _rsync_pending_to_local(*, queue_root: str) -> Path:
@@ -102,10 +109,9 @@ def _build_container_cmd(spec: dict[str, Any]) -> str:
     spec_cmd = shlex.join(spec["command"])
     return " && ".join([
         f"cd {TRC_REPO_DIR}",
+        f"export SCRATCH={TRC_BASE_DIR}",
         f"export RESULTS_FILE={TRC_RESULTS_FILE}",
         f"export GENERATIONS_DIR={TRC_GENERATIONS_DIR}",
-        "export HF_HUB_OFFLINE=1",
-        "export HF_DATASETS_OFFLINE=1",
         f"export HF_HOME={TRC_HF_HOME}",
         f"export HF_HUB_CACHE={TRC_HF_HOME}/hub",
         f"source {TRC_INFORMATION_SAFETY_VENV}/bin/activate",

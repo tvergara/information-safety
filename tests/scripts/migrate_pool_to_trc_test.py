@@ -52,6 +52,28 @@ def test_is_hf_hosted_spec_rejects_local_path() -> None:
     assert not is_hf_hosted_spec(spec)
 
 
+def test_is_hf_hosted_spec_rejects_other_scratch_args() -> None:
+    spec = {
+        "command": [
+            "python", "main.py",
+            "algorithm.model.pretrained_model_name_or_path=Qwen/Qwen3-4B",
+            "algorithm.strategy.suffix_file=/scratch/t/tvergara/information-safety/attacks/x.jsonl",
+        ]
+    }
+    assert not is_hf_hosted_spec(spec)
+
+
+def test_is_hf_hosted_spec_rejects_network_scratch_args() -> None:
+    spec = {
+        "command": [
+            "python", "main.py",
+            "algorithm.model.pretrained_model_name_or_path=Qwen/Qwen3-4B",
+            "trainer.callbacks.dirpath=/network/scratch/b/brownet/foo",
+        ]
+    }
+    assert not is_hf_hosted_spec(spec)
+
+
 def test_pool_job_name_uses_spec_id() -> None:
     assert pool_job_name("004d4a94a0fd476c") == "is_pool_004d4a94a0fd476c"
 
@@ -262,8 +284,7 @@ def test_main_submission_includes_spec_command_and_offline_env(tmp_path: Path) -
         )
         main(["--queue-root", "q", "--count", "1", "--state-file", str(state_file)])
         joined = " ".join(run.call_args_list[0].args[0])
-        assert "HF_HUB_OFFLINE=1" in joined
-        assert "HF_DATASETS_OFFLINE=1" in joined
+        assert "export SCRATCH=/work/information-safety-results" in joined
         assert "/work/envs/information-safety/.venv/bin/activate" in joined
         assert "information_safety/main.py" in joined
         assert "Qwen/Qwen3-4B" in joined
