@@ -38,6 +38,12 @@ class CircuitBreakerDataset(Dataset):
             assistant_tag="<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
             switch_select = [0, 1]
             use_refusal_retain = True
+        elif 'qwen3' in self.model_name_or_path:
+            print("USING QWEN3 TEMPLATE")
+            user_tag = "<|im_start|>user\n"
+            assistant_tag = "<|im_end|>\n<|im_start|>assistant\n"
+            switch_select = [0, 1]
+            use_refusal_retain = True
         elif 'mistral' in self.model_name_or_path:
             print("USING MISTRAL TEMPLATE")
             # fix spacing issue in template

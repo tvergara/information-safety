@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -9,6 +10,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from information_safety.defenses.tar import TARHParams, train_tar
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+VENDORED_TAR_PY = REPO_ROOT / "tar" / "tar.py"
 
 
 @pytest.fixture
@@ -258,3 +262,46 @@ class TestTrainTarSubprocessCommand:
         assert cmd[cmd.index("--batch_size") + 1] == "3"
         assert cmd[cmd.index("--gradient_accumulation_steps") + 1] == "5"
         assert cmd[cmd.index("--lr") + 1] == "1.5e-05"
+
+
+class TestVendoredTarScript:
+    """Regression guards on tar/tar.py — the vendored TAR training script.
+
+    A full integration test would assert the saved model.safetensors is ~16 GB (bf16) rather than
+    ~31 GB (fp32) for Llama-3.1-8B, but that requires FSDP training on real hardware. These static-
+    source checks catch the most likely regression — an upstream refresh dropping the dtype kwarg.
+    """
+
+    def test_from_pretrained_loads_bfloat16(self) -> None:
+        """Without torch_dtype, HF defaults to fp32.
+
+        Accelerate's bf16 mixed_precision then autocasts compute but keeps fp32 master params,
+        producing ~31 GB safetensors that OOM TRC's 80 GB H100s once optimizer state and
+        activations are added.
+        """
+        tree = ast.parse(VENDORED_TAR_PY.read_text())
+        model_calls: list[ast.Call] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not isinstance(func, ast.Attribute) or func.attr != "from_pretrained":
+                continue
+            receiver = func.value
+            if isinstance(receiver, ast.Name) and receiver.id == "model_type":
+                model_calls.append(node)
+        assert len(model_calls) == 1, (
+            f"Expected exactly one model_type.from_pretrained call, got {len(model_calls)}"
+        )
+
+        dtype_kwarg = next(
+            (kw for kw in model_calls[0].keywords if kw.arg == "torch_dtype"),
+            None,
+        )
+        assert dtype_kwarg is not None, (
+            "model_type.from_pretrained must pass torch_dtype=torch.bfloat16 "
+            "so FSDP saves bf16 weights, not fp32. See tar.py."
+        )
+        assert ast.unparse(dtype_kwarg.value) == "torch.bfloat16", (
+            f"Expected torch_dtype=torch.bfloat16, got {ast.unparse(dtype_kwarg.value)}"
+        )
