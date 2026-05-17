@@ -2,10 +2,15 @@
 
 Pulls pending spec files from Tamia (``run-wmdp-rerun/pending/``), filters to
 HF-hosted models (skipping any spec whose model path starts with ``/``), and
-submits each one as an ``eai job submit`` on TRC. After a successful submit,
-the spec is *deleted* from Tamia's pending dir so its workers can no longer
-pick it up. Idempotent via a local JSONL state file keyed on
-``is_pool_<spec_id>``.
+submits each one as an ``eai job submit`` on TRC. Job names are
+``is_pool_<spec_id>_<epoch>`` so re-runs never collide with TRC's
+``--enforce-name`` on already-terminated jobs of the same spec.
+
+Idempotent via Tamia pending: specs are deleted from ``pending/`` after a
+successful submit, so re-runs only see specs that still need to ship. The
+local JSONL state file is an append-only audit log
+(``job_id``, ``spec_id``, ``eai_uuid``, ``submitted_at``) and is no longer
+consulted for dedup.
 """
 
 from __future__ import annotations
@@ -29,7 +34,6 @@ from scripts._trc_common import (
     current_git_sha,
     default_state_file,
     extract_eai_uuid,
-    load_submitted_state,
     verify_sha_pushed,
 )
 
@@ -66,8 +70,8 @@ _SYNC_POLL_SECONDS = 10
 _SYNC_TIMEOUT_SECONDS = 1800
 
 
-def pool_job_name(spec_id: str) -> str:
-    return f"is_pool_{spec_id}"
+def pool_job_name(spec_id: str, *, epoch: int) -> str:
+    return f"is_pool_{spec_id}_{epoch}"
 
 
 def rewrite_defense_paths(spec: dict[str, Any]) -> dict[str, Any]:
@@ -141,9 +145,9 @@ def _build_container_cmd(spec: dict[str, Any]) -> str:
     ])
 
 
-def _build_eai_submit_argv(spec: dict[str, Any]) -> list[str]:
+def _build_eai_submit_argv(spec: dict[str, Any], *, epoch: int) -> list[str]:
     remote = build_eai_submit_remote(
-        name=pool_job_name(spec["id"]),
+        name=pool_job_name(spec["id"], epoch=epoch),
         container_cmd=_build_container_cmd(spec),
         gpu=1,
         cpu=8,
@@ -249,18 +253,16 @@ def main(argv: list[str] | None = None) -> None:
             )
         ]
     hf_specs = [s for s in pending_specs if is_hf_hosted_spec(s)]
-    submitted_state = load_submitted_state(args.state_file)
+    epoch = int(time.time())
 
     submitted = 0
     for spec in hf_specs:
         if submitted >= args.count:
             break
         spec_id = spec["id"]
-        job_id = pool_job_name(spec_id)
-        if job_id in submitted_state:
-            continue
+        job_id = pool_job_name(spec_id, epoch=epoch)
 
-        cli_argv = _build_eai_submit_argv(spec)
+        cli_argv = _build_eai_submit_argv(spec, epoch=epoch)
         if args.dry_run:
             print(" ".join(cli_argv))
             submitted += 1

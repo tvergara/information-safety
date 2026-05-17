@@ -85,8 +85,11 @@ def test_is_hf_hosted_spec_rejects_network_scratch_args() -> None:
     assert not is_hf_hosted_spec(spec)
 
 
-def test_pool_job_name_uses_spec_id() -> None:
-    assert pool_job_name("004d4a94a0fd476c") == "is_pool_004d4a94a0fd476c"
+def test_pool_job_name_includes_spec_id_and_epoch() -> None:
+    assert (
+        pool_job_name("004d4a94a0fd476c", epoch=1778991031)
+        == "is_pool_004d4a94a0fd476c_1778991031"
+    )
 
 
 def test_is_hf_hosted_spec_raises_when_model_override_missing() -> None:
@@ -174,16 +177,26 @@ def test_main_writes_state_file(tmp_path: Path) -> None:
             if line.strip()
         ]
         assert len(rows) == 1
-        assert rows[0]["job_id"] == "is_pool_aaa"
+        assert rows[0]["job_id"].startswith("is_pool_aaa_")
         assert rows[0]["spec_id"] == "aaa"
         assert "submitted_at" in rows[0]
 
 
-def test_main_is_idempotent_via_state_file(tmp_path: Path) -> None:
+def test_main_resubmits_spec_already_in_state_file_with_fresh_epoch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     local = tmp_path / "pending"
     local.mkdir()
     _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
     state_file = tmp_path / "state.jsonl"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(json.dumps({
+        "job_id": "is_pool_aaa_1000000000",
+        "spec_id": "aaa",
+        "eai_uuid": "00000000-0000-0000-0000-000000000000",
+        "submitted_at": "old",
+    }) + "\n")
+    monkeypatch.setattr("scripts.migrate_pool_to_trc.time.time", lambda: 2000000000)
 
     with patch(
         "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
@@ -194,16 +207,40 @@ def test_main_is_idempotent_via_state_file(tmp_path: Path) -> None:
             stderr="",
         )
         main(["--queue-root", "q", "--count", "10", "--state-file", str(state_file)])
-        first_count = sum(
-            1 for c in run.call_args_list if "eai job submit" in " ".join(c.args[0])
+        submit_calls = [
+            c for c in run.call_args_list if "eai job submit" in " ".join(c.args[0])
+        ]
+        assert len(submit_calls) == 1
+        joined = " ".join(submit_calls[0].args[0])
+        assert "is_pool_aaa_2000000000" in joined
+
+
+def test_main_uses_one_epoch_for_all_submissions_in_one_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    local = tmp_path / "pending"
+    local.mkdir()
+    _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
+    _write_spec(local / "bbb.json", "bbb", "allenai/Olmo-3-7B-Instruct")
+    state_file = tmp_path / "state.jsonl"
+    times = iter([5555555555, 5555555556, 5555555557, 5555555558])
+    monkeypatch.setattr("scripts.migrate_pool_to_trc.time.time", lambda: next(times))
+
+    with patch(
+        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
+    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+        run.return_value = MagicMock(
+            returncode=0,
+            stdout="33333333-3333-3333-3333-333333333333\n",
+            stderr="",
         )
-        run.reset_mock()
         main(["--queue-root", "q", "--count", "10", "--state-file", str(state_file)])
-        second_count = sum(
-            1 for c in run.call_args_list if "eai job submit" in " ".join(c.args[0])
-        )
-        assert first_count == 1
-        assert second_count == 0
+        submit_calls = [
+            c for c in run.call_args_list if "eai job submit" in " ".join(c.args[0])
+        ]
+        joined_all = " ".join(" ".join(c.args[0]) for c in submit_calls)
+        assert "is_pool_aaa_5555555555" in joined_all
+        assert "is_pool_bbb_5555555555" in joined_all
 
 
 def test_main_deletes_tamia_pending_after_successful_submit(tmp_path: Path) -> None:
