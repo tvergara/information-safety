@@ -383,9 +383,9 @@ def test_matches_base_model_unaffected_by_substring() -> None:
     assert not _matches(row_defense, config)
 
 
-def test_data_sweep_points_for_gpt_oss_drops_512() -> None:
+def test_data_sweep_points_for_gpt_oss_drops_512_and_256() -> None:
     assert data_sweep_points_for(GPT_OSS) == [
-        p for p in DATA_SWEEP_POINTS if p[0] != 512
+        p for p in DATA_SWEEP_POINTS if p[0] not in {256, 512}
     ]
 
 
@@ -396,11 +396,11 @@ def test_data_sweep_points_for_other_models_returns_full_grid() -> None:
         assert data_sweep_points_for(model) == DATA_SWEEP_POINTS
 
 
-def test_no_gpt_oss_data_strategy_configs_use_max_examples_512() -> None:
+def test_no_gpt_oss_data_strategy_configs_use_oom_max_examples() -> None:
     bad = [
         c for c in CONFIGS
         if c["experiment_name"] == "DataStrategy"
         and c["model_name"] == GPT_OSS
-        and c["max_examples"] == 512
+        and c["max_examples"] in {256, 512}
     ]
     assert bad == []

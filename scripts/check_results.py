@@ -62,7 +62,7 @@ DATA_SWEEP_POINTS = [
 
 def data_sweep_points_for(model_name: str) -> list[tuple[int, int]]:
     if model_name == "openai/gpt-oss-20b":
-        return [p for p in DATA_SWEEP_POINTS if p[0] != 512]
+        return [p for p in DATA_SWEEP_POINTS if p[0] not in {256, 512}]
     return DATA_SWEEP_POINTS
 
 
