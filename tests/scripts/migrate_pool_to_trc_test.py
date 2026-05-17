@@ -479,6 +479,13 @@ def test_build_sync_container_cmd_pins_to_sha() -> None:
     assert "uv pip install" in cmd
 
 
+def test_build_sync_container_cmd_installs_uv_before_pip() -> None:
+    cmd = _build_sync_container_cmd(sha="deadbeef1234")
+    install_marker = "curl -LsSf https://astral.sh/uv/install.sh | sh"
+    assert install_marker in cmd
+    assert cmd.index(install_marker) < cmd.index("uv pip install")
+
+
 def test_wait_for_eai_job_returns_on_succeeded() -> None:
     with patch("scripts.migrate_pool_to_trc.subprocess.run") as run, patch(
         "scripts.migrate_pool_to_trc.time.sleep"
