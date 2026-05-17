@@ -74,6 +74,20 @@ def current_git_sha() -> str:
     ).stdout.strip()
 
 
+def verify_sha_pushed(sha: str) -> None:
+    result = subprocess.run(
+        ["git", "branch", "-r", "--contains", sha],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    if not result.stdout.strip():
+        raise RuntimeError(
+            f"local sha {sha[:8]} is not on any remote branch; "
+            "push before submitting to TRC"
+        )
+
+
 def default_state_file(name: str) -> Path:
     return (
         Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))

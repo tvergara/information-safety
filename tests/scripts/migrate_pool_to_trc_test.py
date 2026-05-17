@@ -5,16 +5,26 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from scripts.migrate_pool_to_trc import (
+    _build_sync_container_cmd,
+    _ensure_trc_synced,
+    _wait_for_eai_job,
     is_hf_hosted_spec,
     main,
     pool_job_name,
     rewrite_defense_paths,
 )
+
+
+@pytest.fixture(autouse=True)
+def _stub_ensure_trc_synced() -> Any:
+    with patch("scripts.migrate_pool_to_trc._ensure_trc_synced") as p:
+        yield p
 
 
 def _write_spec(path: Path, spec_id: str, model: str) -> None:
@@ -421,6 +431,164 @@ def test_main_exclude_model_filters_by_model_path(tmp_path: Path) -> None:
         joined_all = " ".join(" ".join(c.args[0]) for c in submit_calls)
         assert "is_pool_qwen" in joined_all
         assert "is_pool_oss" not in joined_all
+
+
+def test_build_sync_container_cmd_pins_to_sha() -> None:
+    cmd = _build_sync_container_cmd(sha="deadbeef1234")
+    assert "git reset --hard deadbeef1234" in cmd
+    assert "git fetch origin --quiet" in cmd
+    assert "git submodule update --init --recursive" in cmd
+    assert "/work/envs/information-safety/.venv/bin/activate" in cmd
+    assert "uv pip install" in cmd
+
+
+def test_wait_for_eai_job_returns_on_succeeded() -> None:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run, patch(
+        "scripts.migrate_pool_to_trc.time.sleep"
+    ):
+        run.return_value = MagicMock(stdout="state: SUCCEEDED\n", returncode=0)
+        _wait_for_eai_job("uuid-1")
+        run.assert_called_once()
+
+
+def test_wait_for_eai_job_raises_on_failed() -> None:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run, patch(
+        "scripts.migrate_pool_to_trc.time.sleep"
+    ):
+        run.return_value = MagicMock(stdout="state: FAILED\n", returncode=0)
+        with pytest.raises(RuntimeError, match="FAILED"):
+            _wait_for_eai_job("uuid-2")
+
+
+def test_wait_for_eai_job_raises_when_no_state_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("scripts.migrate_pool_to_trc._SYNC_POLL_SECONDS", 0)
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+        run.return_value = MagicMock(stdout="garbage output\n", returncode=0)
+        with pytest.raises(RuntimeError, match="no 'state:' line"):
+            _wait_for_eai_job("uuid-x")
+
+
+def test_wait_for_eai_job_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("scripts.migrate_pool_to_trc._SYNC_TIMEOUT_SECONDS", 1)
+    monkeypatch.setattr("scripts.migrate_pool_to_trc._SYNC_POLL_SECONDS", 0)
+    fake_times = iter([0.0, 0.0, 10.0, 10.0, 10.0])
+    monkeypatch.setattr(
+        "scripts.migrate_pool_to_trc.time.time", lambda: next(fake_times)
+    )
+    monkeypatch.setattr("scripts.migrate_pool_to_trc.time.sleep", lambda _: None)
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+        run.return_value = MagicMock(stdout="state: QUEUING\n", returncode=0)
+        with pytest.raises(TimeoutError):
+            _wait_for_eai_job("uuid-3")
+
+
+def test_ensure_trc_synced_skips_when_state_matches_local_sha(tmp_path: Path) -> None:
+    state_file = tmp_path / "trc-synced-sha"
+    state_file.write_text("abc1234\n")
+    with patch(
+        "scripts.migrate_pool_to_trc.current_git_sha", return_value="abc1234"
+    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+        _ensure_trc_synced(state_file=state_file)
+        run.assert_not_called()
+
+
+def test_ensure_trc_synced_raises_on_unpushed_sha(tmp_path: Path) -> None:
+    state_file = tmp_path / "trc-synced-sha"
+    with patch(
+        "scripts.migrate_pool_to_trc.current_git_sha", return_value="unpushed"
+    ), patch(
+        "scripts.migrate_pool_to_trc.verify_sha_pushed",
+        side_effect=RuntimeError("not on any remote branch"),
+    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+        with pytest.raises(RuntimeError, match="not on any remote branch"):
+            _ensure_trc_synced(state_file=state_file)
+        run.assert_not_called()
+        assert not state_file.exists()
+
+
+def test_ensure_trc_synced_submits_and_writes_state_on_success(tmp_path: Path) -> None:
+    state_file = tmp_path / "trc-synced-sha"
+    with patch(
+        "scripts.migrate_pool_to_trc.current_git_sha", return_value="newsha9"
+    ), patch("scripts.migrate_pool_to_trc.verify_sha_pushed"), patch(
+        "scripts.migrate_pool_to_trc.subprocess.run"
+    ) as run, patch("scripts.migrate_pool_to_trc.time.sleep"):
+        submit_result = MagicMock(
+            stdout="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n", returncode=0
+        )
+        poll_result = MagicMock(stdout="state: SUCCEEDED\n", returncode=0)
+        run.side_effect = [submit_result, poll_result]
+        _ensure_trc_synced(state_file=state_file)
+        assert state_file.read_text().strip() == "newsha9"
+        submit_argv = run.call_args_list[0].args[0]
+        assert "git reset --hard newsha9" in " ".join(submit_argv)
+
+
+def test_ensure_trc_synced_does_not_write_state_on_failure(tmp_path: Path) -> None:
+    state_file = tmp_path / "trc-synced-sha"
+    with patch(
+        "scripts.migrate_pool_to_trc.current_git_sha", return_value="badsha"
+    ), patch("scripts.migrate_pool_to_trc.verify_sha_pushed"), patch(
+        "scripts.migrate_pool_to_trc.subprocess.run"
+    ) as run, patch("scripts.migrate_pool_to_trc.time.sleep"):
+        submit_result = MagicMock(
+            stdout="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n", returncode=0
+        )
+        poll_result = MagicMock(stdout="state: FAILED\n", returncode=0)
+        run.side_effect = [submit_result, poll_result]
+        with pytest.raises(RuntimeError):
+            _ensure_trc_synced(state_file=state_file)
+        assert not state_file.exists()
+
+
+def test_main_calls_ensure_trc_synced_before_submitting(
+    tmp_path: Path, _stub_ensure_trc_synced: MagicMock,
+) -> None:
+    local = tmp_path / "pending"
+    local.mkdir()
+    _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
+    state_file = tmp_path / "state.jsonl"
+    call_order: list[str] = []
+
+    _stub_ensure_trc_synced.side_effect = lambda **_kw: call_order.append("sync")
+
+    def record_submit(argv: list[str], **_kwargs: object) -> MagicMock:
+        if "eai job submit" in " ".join(argv):
+            call_order.append("submit")
+        return MagicMock(
+            returncode=0,
+            stdout="11111111-1111-1111-1111-111111111111\n",
+            stderr="",
+        )
+
+    with patch(
+        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
+    ), patch("scripts.migrate_pool_to_trc.subprocess.run", side_effect=record_submit):
+        main(["--queue-root", "q", "--count", "1", "--state-file", str(state_file)])
+        assert call_order[0] == "sync"
+        assert "submit" in call_order
+
+
+def test_main_dry_run_skips_sync(
+    tmp_path: Path, _stub_ensure_trc_synced: MagicMock,
+) -> None:
+    local = tmp_path / "pending"
+    local.mkdir()
+    _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
+    state_file = tmp_path / "state.jsonl"
+
+    with patch(
+        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
+    ), patch("scripts.migrate_pool_to_trc.subprocess.run"):
+        main([
+            "--queue-root", "q",
+            "--count", "1",
+            "--state-file", str(state_file),
+            "--dry-run",
+        ])
+        _stub_ensure_trc_synced.assert_not_called()
 
 
 def test_main_submission_includes_spec_command_and_offline_env(tmp_path: Path) -> None:

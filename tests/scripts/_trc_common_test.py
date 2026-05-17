@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from scripts._trc_common import (
@@ -7,6 +9,7 @@ from scripts._trc_common import (
     extract_eai_uuid,
     trc_behaviors_csv,
     trc_targets_json,
+    verify_sha_pushed,
 )
 
 
@@ -42,3 +45,16 @@ def test_trc_targets_json_evilmath_on_work_mount() -> None:
         trc_targets_json("evilmath")
         == f"{TRC_BASE_DIR}/attacks/evilmath_targets_text.json"
     )
+
+
+def test_verify_sha_pushed_passes_when_remote_branch_contains_sha() -> None:
+    with patch("scripts._trc_common.subprocess.run") as run:
+        run.return_value = MagicMock(stdout="  origin/main\n", returncode=0)
+        verify_sha_pushed("abc1234")
+
+
+def test_verify_sha_pushed_raises_when_no_remote_branch_contains_sha() -> None:
+    with patch("scripts._trc_common.subprocess.run") as run:
+        run.return_value = MagicMock(stdout="", returncode=0)
+        with pytest.raises(RuntimeError, match="not on any remote branch"):
+            verify_sha_pushed("abc1234")
