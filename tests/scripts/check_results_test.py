@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from scripts.check_results import (
-    CONFIGS,
     DATA_SWEEP_POINTS,
     EVILMATH_CONFIGS,
     EVILMATH_DEFENSES,
@@ -13,18 +12,7 @@ from scripts.check_results import (
     WMDP_CONFIGS,
     WMDP_DEFENSES,
     _matches,
-    data_sweep_points_for,
 )
-
-GPT_OSS = "openai/gpt-oss-20b"
-
-
-def _total_epochs_across_models() -> int:
-    return sum(
-        max_epochs
-        for model in MODELS
-        for _, max_epochs in data_sweep_points_for(model)
-    )
 
 
 def _is_base_model(model_name: str) -> bool:
@@ -68,7 +56,9 @@ def test_wmdp_base_models_have_no_precomputed_attacks() -> None:
 
 
 def test_wmdp_data_strategy_total_epoch_rows() -> None:
-    assert len(_wmdp_data_strategy()) == _total_epochs_across_models() * 3
+    total_epochs_per_model = sum(max_epochs for _, max_epochs in DATA_SWEEP_POINTS)
+    expected = len(MODELS) * total_epochs_per_model * 3
+    assert len(_wmdp_data_strategy()) == expected
 
 
 def test_wmdp_data_strategy_includes_mix_zero_rows() -> None:
@@ -77,7 +67,9 @@ def test_wmdp_data_strategy_includes_mix_zero_rows() -> None:
         for c in _wmdp_data_strategy()
         if c["corpus_fraction"] == 0.0
     ]
-    assert len(mix_zero) == _total_epochs_across_models()
+    total_epochs_per_model = sum(max_epochs for _, max_epochs in DATA_SWEEP_POINTS)
+    expected = len(MODELS) * total_epochs_per_model
+    assert len(mix_zero) == expected
     for c in mix_zero:
         assert c["corpus_subset"] is None
 
@@ -88,7 +80,9 @@ def test_wmdp_data_strategy_includes_mix_half_bio_rows() -> None:
         for c in _wmdp_data_strategy()
         if c["corpus_fraction"] == 0.5 and c["corpus_subset"] == "bio"
     ]
-    assert len(bio_rows) == _total_epochs_across_models()
+    total_epochs_per_model = sum(max_epochs for _, max_epochs in DATA_SWEEP_POINTS)
+    expected = len(MODELS) * total_epochs_per_model
+    assert len(bio_rows) == expected
 
 
 def test_wmdp_data_strategy_includes_mix_half_cyber_rows() -> None:
@@ -97,7 +91,9 @@ def test_wmdp_data_strategy_includes_mix_half_cyber_rows() -> None:
         for c in _wmdp_data_strategy()
         if c["corpus_fraction"] == 0.5 and c["corpus_subset"] == "cyber"
     ]
-    assert len(cyber_rows) == _total_epochs_across_models()
+    total_epochs_per_model = sum(max_epochs for _, max_epochs in DATA_SWEEP_POINTS)
+    expected = len(MODELS) * total_epochs_per_model
+    assert len(cyber_rows) == expected
 
 
 def test_wmdp_data_strategy_no_chem_subset() -> None:
@@ -172,7 +168,9 @@ def test_evilmath_base_models_have_no_precomputed_attacks() -> None:
 
 
 def test_evilmath_data_strategy_total_epoch_rows() -> None:
-    assert len(_evilmath_data_strategy()) == _total_epochs_across_models()
+    total_epochs_per_model = sum(max_epochs for _, max_epochs in DATA_SWEEP_POINTS)
+    expected = len(MODELS) * total_epochs_per_model
+    assert len(_evilmath_data_strategy()) == expected
 
 
 def test_evilmath_data_strategy_no_corpus_keys() -> None:
@@ -381,26 +379,3 @@ def test_matches_base_model_unaffected_by_substring() -> None:
     }
     assert _matches(row_base, config)
     assert not _matches(row_defense, config)
-
-
-def test_data_sweep_points_for_gpt_oss_drops_512() -> None:
-    assert data_sweep_points_for(GPT_OSS) == [
-        p for p in DATA_SWEEP_POINTS if p[0] != 512
-    ]
-
-
-def test_data_sweep_points_for_other_models_returns_full_grid() -> None:
-    for model in MODELS:
-        if model == GPT_OSS:
-            continue
-        assert data_sweep_points_for(model) == DATA_SWEEP_POINTS
-
-
-def test_no_gpt_oss_data_strategy_configs_use_max_examples_512() -> None:
-    bad = [
-        c for c in CONFIGS
-        if c["experiment_name"] == "DataStrategy"
-        and c["model_name"] == GPT_OSS
-        and c["max_examples"] == 512
-    ]
-    assert bad == []
