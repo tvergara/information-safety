@@ -36,9 +36,13 @@ __all__ = [
     "is_hf_hosted_spec",
     "main",
     "pool_job_name",
+    "rewrite_defense_paths",
 ]
 
 TRC_INFORMATION_SAFETY_VENV = "/work/envs/information-safety/.venv"
+DEFENSE_LOCAL_PREFIX = "/scratch/t/tvergara/information-safety/defenses/"
+DEFENSE_HF_NAMESPACE = "tvergara"
+DATASET_HANDLER_PREFIX = "algorithm/dataset_handler="
 TRC_RESULTS_FILE = f"{TRC_BASE_DIR}/main/final-results.jsonl"
 TRC_GENERATIONS_DIR = f"{TRC_BASE_DIR}/main/generations"
 
@@ -58,6 +62,18 @@ _HF_MODEL_PREFIX = "algorithm.model.pretrained_model_name_or_path="
 
 def pool_job_name(spec_id: str) -> str:
     return f"is_pool_{spec_id}"
+
+
+def rewrite_defense_paths(spec: dict[str, Any]) -> dict[str, Any]:
+    new_command: list[str] = []
+    for token in spec["command"]:
+        if token.startswith(_HF_MODEL_PREFIX):
+            value = token[len(_HF_MODEL_PREFIX):]
+            if value.startswith(DEFENSE_LOCAL_PREFIX):
+                defense_name = value[len(DEFENSE_LOCAL_PREFIX):].rstrip("/")
+                token = f"{_HF_MODEL_PREFIX}{DEFENSE_HF_NAMESPACE}/{defense_name}"
+        new_command.append(token)
+    return {**spec, "command": new_command}
 
 
 def is_hf_hosted_spec(spec: dict[str, Any]) -> bool:
@@ -127,7 +143,7 @@ def _build_eai_submit_argv(spec: dict[str, Any]) -> list[str]:
         cpu=8,
         mem=64,
         max_run_time=43200,
-        preemptable=True,
+        preemptable=False,
     )
     return ["ssh", "trc", remote]
 
@@ -142,10 +158,24 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--count", type=int, required=True)
     parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--include-dataset", default=None)
+    parser.add_argument("--exclude-model", action="append", default=[])
     args = parser.parse_args(argv)
 
     local = _rsync_pending_to_local(queue_root=args.queue_root)
-    pending_specs = _load_pending_specs(local)
+    pending_specs = [rewrite_defense_paths(s) for s in _load_pending_specs(local)]
+    if args.include_dataset is not None:
+        wanted = f"{DATASET_HANDLER_PREFIX}{args.include_dataset}"
+        pending_specs = [s for s in pending_specs if wanted in s["command"]]
+    if args.exclude_model:
+        pending_specs = [
+            s for s in pending_specs
+            if not any(
+                t.startswith(_HF_MODEL_PREFIX)
+                and t[len(_HF_MODEL_PREFIX):] in args.exclude_model
+                for t in s["command"]
+            )
+        ]
     hf_specs = [s for s in pending_specs if is_hf_hosted_spec(s)]
     submitted_state = load_submitted_state(args.state_file)
 
