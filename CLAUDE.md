@@ -370,6 +370,15 @@ Tamia/Nibi force whole-node allocations (4xH100). To run our backlog of single-G
 
 **Queue states:** `pending/` (unclaimed) → `claimed/<id>.<worker>.json` (running) → `done/<id>.json` or `failed/<id>.json`. Per-job stdout/stderr lives in `logs/<id>.<worker>.log`.
 
+**Audit before launching new consumers.** `build_job_queue.py` only checks `final-results.jsonl` — it has no awareness of TRC/Nibi state. If consolidating queue roots or re-building after migrators have shipped specs to TRC/Nibi, the pending dir can contain duplicates of work being done elsewhere. Run:
+
+```bash
+python scripts/audit_queue_dedup.py --queue-root run-wmdp-rerun           # dry run
+python scripts/audit_queue_dedup.py --queue-root run-wmdp-rerun --quarantine  # actually move
+```
+
+It rsyncs Tamia pending, queries TRC (`eai job ls`) and Nibi (`squeue`) live state, cross-references `final-results.jsonl` + the local attacks dir, and quarantines wasted specs into `quarantine-<reason>-YYYY-MM-DD/` sibling dirs (recoverable, not deleted). Categories: `LIVE_TRC`, `LIVE_NIBI`, `ALL_COMPLETE`, `NEEDS_EVAL` are wasted; `PARTIAL`, `MISSING` stay in pending.
+
 ## Periodic Self-Reflection
 
 **After completing a significant task (launching a job, finishing a feature, debugging a hard issue), pause and ask:**
