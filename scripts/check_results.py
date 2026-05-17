@@ -58,25 +58,16 @@ DATA_SWEEP_POINTS = [
     (256, 4),
     (512, 2),
 ]
-
-
-def data_sweep_points_for(model_name: str) -> list[tuple[int, int]]:
-    if model_name == "openai/gpt-oss-20b":
-        return [p for p in DATA_SWEEP_POINTS if p[0] != 512]
-    return DATA_SWEEP_POINTS
-
-
-for model in MODELS:
-    for max_ex, max_epochs in data_sweep_points_for(model):
-        for epoch in range(max_epochs):
-            HARMBENCH_CONFIGS.append({
-                "experiment_name": "DataStrategy",
-                "dataset_name": "advbench_harmbench",
-                "model_name": model,
-                "max_examples": max_ex,
-                "max_epochs": max_epochs,
-                "epoch": epoch,
-            })
+for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
+    for epoch in range(max_epochs):
+        HARMBENCH_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "advbench_harmbench",
+            "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+        })
 
 # RoleplayStrategy: one per model, epoch 0 only (no training)
 for model in MODELS:
@@ -120,35 +111,34 @@ for model in MODELS:
     })
 
 # WMDP DataStrategy: MMLU-Pro only (corpus_fraction=0.0)
-for model in MODELS:
-    for max_ex, max_epochs in data_sweep_points_for(model):
-        for epoch in range(max_epochs):
-            WMDP_CONFIGS.append({
-                "experiment_name": "DataStrategy",
-                "dataset_name": "wmdp",
-                "model_name": model,
-                "max_examples": max_ex,
-                "max_epochs": max_epochs,
-                "epoch": epoch,
-                "corpus_fraction": 0.0,
-                "corpus_subset": None,
-            })
+for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
+    for epoch in range(max_epochs):
+        WMDP_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "wmdp",
+            "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+            "corpus_fraction": 0.0,
+            "corpus_subset": None,
+        })
 
 # WMDP DataStrategy: MMLU-Pro + WMDP forget-corpus mix (corpus_fraction=0.5)
-for model in MODELS:
-    for max_ex, max_epochs in data_sweep_points_for(model):
-        for subset in ["bio", "cyber"]:
-            for epoch in range(max_epochs):
-                WMDP_CONFIGS.append({
-                    "experiment_name": "DataStrategy",
-                    "dataset_name": "wmdp",
-                    "model_name": model,
-                    "max_examples": max_ex,
-                    "max_epochs": max_epochs,
-                    "epoch": epoch,
-                    "corpus_fraction": 0.5,
-                    "corpus_subset": subset,
-                })
+for model, (max_ex, max_epochs), subset in product(
+    MODELS, DATA_SWEEP_POINTS, ["bio", "cyber"]
+):
+    for epoch in range(max_epochs):
+        WMDP_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "wmdp",
+            "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+            "corpus_fraction": 0.5,
+            "corpus_subset": subset,
+        })
 
 # WMDP defense evaluations: each defense gets Baseline + Roleplay + the three
 # DataStrategy corpus variants. WMDP is ~12x larger than the other datasets, so
@@ -219,17 +209,16 @@ for model in MODELS:
     })
 
 # EvilMath DataStrategy: GSM8K instruction-following corpus (single variant, no fraction axis)
-for model in MODELS:
-    for max_ex, max_epochs in data_sweep_points_for(model):
-        for epoch in range(max_epochs):
-            EVILMATH_CONFIGS.append({
-                "experiment_name": "DataStrategy",
-                "dataset_name": "evilmath",
-                "model_name": model,
-                "max_examples": max_ex,
-                "max_epochs": max_epochs,
-                "epoch": epoch,
-            })
+for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
+    for epoch in range(max_epochs):
+        EVILMATH_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "evilmath",
+            "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+        })
 
 # EvilMath defense evaluations: full attack matrix per defense_id.
 for defense in EVILMATH_DEFENSES:
@@ -279,17 +268,16 @@ for model in MODELS:
     })
 
 # StrongREJECT compute-matched DataStrategy sweep
-for model in MODELS:
-    for max_ex, max_epochs in data_sweep_points_for(model):
-        for epoch in range(max_epochs):
-            STRONGREJECT_CONFIGS.append({
-                "experiment_name": "DataStrategy",
-                "dataset_name": "strongreject",
-                "model_name": model,
-                "max_examples": max_ex,
-                "max_epochs": max_epochs,
-                "epoch": epoch,
-            })
+for model, (max_ex, max_epochs) in product(MODELS, DATA_SWEEP_POINTS):
+    for epoch in range(max_epochs):
+        STRONGREJECT_CONFIGS.append({
+            "experiment_name": "DataStrategy",
+            "dataset_name": "strongreject",
+            "model_name": model,
+            "max_examples": max_ex,
+            "max_epochs": max_epochs,
+            "epoch": epoch,
+        })
 
 # StrongREJECT RoleplayStrategy: one per model, epoch 0 only (no training)
 for model in MODELS:
