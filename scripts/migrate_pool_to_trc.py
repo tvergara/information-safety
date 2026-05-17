@@ -165,6 +165,7 @@ def _load_pending_specs(local: Path) -> list[dict[str, Any]]:
 def _build_sync_container_cmd(*, sha: str) -> str:
     return " && ".join([
         'export PATH="$HOME/.local/bin:$PATH"',
+        "curl -LsSf https://astral.sh/uv/install.sh | sh",
         f"cd {TRC_REPO_DIR}",
         "git fetch origin --quiet",
         f"git reset --hard {sha}",
