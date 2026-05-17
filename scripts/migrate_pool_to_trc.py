@@ -26,9 +26,11 @@ from scripts._trc_common import (
     TRC_REPO_DIR,
     append_state_row,
     build_eai_submit_remote,
+    current_git_sha,
     default_state_file,
     extract_eai_uuid,
     load_submitted_state,
+    verify_sha_pushed,
 )
 
 __all__ = [
@@ -36,9 +38,13 @@ __all__ = [
     "is_hf_hosted_spec",
     "main",
     "pool_job_name",
+    "rewrite_defense_paths",
 ]
 
 TRC_INFORMATION_SAFETY_VENV = "/work/envs/information-safety/.venv"
+DEFENSE_LOCAL_PREFIX = "/scratch/t/tvergara/information-safety/defenses/"
+DEFENSE_HF_NAMESPACE = "tvergara"
+DATASET_HANDLER_PREFIX = "algorithm/dataset_handler="
 TRC_RESULTS_FILE = f"{TRC_BASE_DIR}/main/final-results.jsonl"
 TRC_GENERATIONS_DIR = f"{TRC_BASE_DIR}/main/generations"
 
@@ -52,12 +58,28 @@ LOCAL_PENDING_CACHE = (
 )
 
 DEFAULT_STATE_FILE = default_state_file("trc-pool-submitted.jsonl")
+TRC_SYNC_STATE_FILE = default_state_file("trc-synced-sha")
 
 _HF_MODEL_PREFIX = "algorithm.model.pretrained_model_name_or_path="
+
+_SYNC_POLL_SECONDS = 10
+_SYNC_TIMEOUT_SECONDS = 1800
 
 
 def pool_job_name(spec_id: str) -> str:
     return f"is_pool_{spec_id}"
+
+
+def rewrite_defense_paths(spec: dict[str, Any]) -> dict[str, Any]:
+    new_command: list[str] = []
+    for token in spec["command"]:
+        if token.startswith(_HF_MODEL_PREFIX):
+            value = token[len(_HF_MODEL_PREFIX):]
+            if value.startswith(DEFENSE_LOCAL_PREFIX):
+                defense_name = value[len(DEFENSE_LOCAL_PREFIX):].rstrip("/")
+                token = f"{_HF_MODEL_PREFIX}{DEFENSE_HF_NAMESPACE}/{defense_name}"
+        new_command.append(token)
+    return {**spec, "command": new_command}
 
 
 def is_hf_hosted_spec(spec: dict[str, Any]) -> bool:
@@ -127,7 +149,7 @@ def _build_eai_submit_argv(spec: dict[str, Any]) -> list[str]:
         cpu=8,
         mem=64,
         max_run_time=43200,
-        preemptable=True,
+        preemptable=False,
     )
     return ["ssh", "trc", remote]
 
@@ -136,16 +158,96 @@ def _load_pending_specs(local: Path) -> list[dict[str, Any]]:
     return [json.loads(p.read_text()) for p in sorted(local.glob("*.json"))]
 
 
+def _build_sync_container_cmd(*, sha: str) -> str:
+    return " && ".join([
+        'export PATH="$HOME/.local/bin:$PATH"',
+        f"cd {TRC_REPO_DIR}",
+        "git fetch origin --quiet",
+        f"git reset --hard {sha}",
+        "git submodule update --init --recursive",
+        f"(source {TRC_INFORMATION_SAFETY_VENV}/bin/activate"
+        " && uv pip install --quiet --index-strategy unsafe-best-match"
+        " --extra-index-url https://download.pytorch.org/whl/cu128 -e .)",
+    ])
+
+
+def _wait_for_eai_job(uuid: str) -> None:
+    deadline = time.time() + _SYNC_TIMEOUT_SECONDS
+    while True:
+        result = subprocess.run(
+            ["ssh", "trc", f"eai job info {uuid}"],
+            check=True, capture_output=True, text=True,
+        )
+        state = next(
+            (
+                line.split(":", 1)[1].strip()
+                for line in result.stdout.splitlines()
+                if line.startswith("state:")
+            ),
+            None,
+        )
+        if state is None:
+            raise RuntimeError(
+                f"no 'state:' line in eai job info {uuid} output"
+            )
+        if state == "SUCCEEDED":
+            return
+        if state in {"FAILED", "CANCELLED", "INTERRUPTED"}:
+            raise RuntimeError(f"sync job {uuid} ended in state {state}")
+        if time.time() >= deadline:
+            raise TimeoutError(
+                f"sync job {uuid} did not finish within {_SYNC_TIMEOUT_SECONDS}s"
+            )
+        time.sleep(_SYNC_POLL_SECONDS)
+
+
+def _ensure_trc_synced(*, state_file: Path = TRC_SYNC_STATE_FILE) -> None:
+    sha = current_git_sha()
+    if state_file.exists() and state_file.read_text().strip() == sha:
+        return
+    verify_sha_pushed(sha)
+    print(f"Syncing TRC /work to {sha[:8]}...", file=sys.stderr)
+    remote = build_eai_submit_remote(
+        name=f"is_pool_sync_{sha[:8]}",
+        container_cmd=_build_sync_container_cmd(sha=sha),
+        cpu=4, mem=16, max_run_time=1800, preemptable=False,
+    )
+    result = subprocess.run(
+        ["ssh", "trc", remote], check=True, capture_output=True, text=True,
+    )
+    uuid = extract_eai_uuid(result.stdout)
+    _wait_for_eai_job(uuid)
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(sha)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--queue-root", required=True)
     parser.add_argument("--count", type=int, required=True)
     parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--include-dataset", default=None)
+    parser.add_argument("--exclude-model", action="append", default=[])
     args = parser.parse_args(argv)
 
+    if not args.dry_run:
+        _ensure_trc_synced()
+
     local = _rsync_pending_to_local(queue_root=args.queue_root)
-    pending_specs = _load_pending_specs(local)
+    pending_specs = [rewrite_defense_paths(s) for s in _load_pending_specs(local)]
+    if args.include_dataset is not None:
+        wanted = f"{DATASET_HANDLER_PREFIX}{args.include_dataset}"
+        pending_specs = [s for s in pending_specs if wanted in s["command"]]
+    if args.exclude_model:
+        pending_specs = [
+            s for s in pending_specs
+            if not any(
+                t.startswith(_HF_MODEL_PREFIX)
+                and t[len(_HF_MODEL_PREFIX):] in args.exclude_model
+                for t in s["command"]
+            )
+        ]
     hf_specs = [s for s in pending_specs if is_hf_hosted_spec(s)]
     submitted_state = load_submitted_state(args.state_file)
 

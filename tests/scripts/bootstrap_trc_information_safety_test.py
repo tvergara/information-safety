@@ -66,17 +66,17 @@ def test_container_installs_uv_before_using_it() -> None:
     assert install_idx < venv_idx
 
 
-def test_container_checks_out_local_sha_and_updates_submodules() -> None:
+def test_container_resets_to_local_sha_and_updates_submodules() -> None:
     argv = build_eai_submit_argv(hf_token="hf_x", git_sha="deadbeef")
     joined = " ".join(argv)
     assert "git fetch --all" in joined
-    assert "git checkout deadbeef" in joined
+    assert "git reset --hard deadbeef" in joined
     assert "git submodule update --init --recursive" in joined
     fetch_idx = joined.index("git fetch --all")
-    checkout_idx = joined.index("git checkout deadbeef")
+    reset_idx = joined.index("git reset --hard deadbeef")
     submodule_idx = joined.index("git submodule update --init --recursive")
     install_idx = joined.index(f"-e {TRC_REPO_DIR}")
-    assert fetch_idx < checkout_idx < submodule_idx < install_idx
+    assert fetch_idx < reset_idx < submodule_idx < install_idx
 
 
 def test_container_pins_uv_python_install_dir_to_persistent_volume() -> None:
@@ -124,6 +124,8 @@ def test_main_passes_token_into_token_file_and_env() -> None:
     ), patch(
         "scripts.bootstrap_trc_information_safety.current_git_sha",
         return_value="abc1234",
+    ), patch(
+        "scripts.bootstrap_trc_information_safety.verify_sha_pushed"
     ), patch("scripts.bootstrap_trc_information_safety.subprocess.run") as run:
         run.return_value = MagicMock(returncode=0, stdout="uuid\n", stderr="")
         main([])
@@ -137,3 +139,35 @@ def test_main_raises_when_no_token_available() -> None:
         "scripts.bootstrap_trc_information_safety.get_token", return_value=None
     ), pytest.raises(SystemExit):
         main([])
+
+
+def test_main_verifies_sha_pushed_before_submitting() -> None:
+    with patch(
+        "scripts.bootstrap_trc_information_safety.get_token",
+        return_value="hf_from_cache",
+    ), patch(
+        "scripts.bootstrap_trc_information_safety.current_git_sha",
+        return_value="unpushed",
+    ), patch(
+        "scripts.bootstrap_trc_information_safety.verify_sha_pushed",
+        side_effect=RuntimeError("not on any remote branch"),
+    ), patch("scripts.bootstrap_trc_information_safety.subprocess.run") as run:
+        with pytest.raises(RuntimeError, match="not on any remote branch"):
+            main([])
+        run.assert_not_called()
+
+
+def test_main_dry_run_skips_sha_verification() -> None:
+    with patch(
+        "scripts.bootstrap_trc_information_safety.get_token",
+        return_value="hf_from_cache",
+    ), patch(
+        "scripts.bootstrap_trc_information_safety.current_git_sha",
+        return_value="unpushed",
+    ), patch(
+        "scripts.bootstrap_trc_information_safety.verify_sha_pushed"
+    ) as verify, patch(
+        "scripts.bootstrap_trc_information_safety.subprocess.run"
+    ):
+        main(["--dry-run"])
+        verify.assert_not_called()

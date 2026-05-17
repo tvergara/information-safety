@@ -37,13 +37,15 @@ mkdir -p "$mila_results_dir" "$mila_generations_dir/from-trc"
 local_results="$mila_results_dir/final-results.jsonl.trc"
 local_generations="$mila_generations_dir/from-trc/"
 
-tar_cmd="mkdir -p $work_staging && rm -f $work_staging/generations.tar.gz $work_staging/final-results.jsonl"
+tar_cmd="mkdir -p $work_staging && rm -f $work_staging/generations.tar.gz $work_staging/main-generations.tar.gz $work_staging/final-results.jsonl $work_staging/main-final-results.jsonl"
 tar_cmd="$tar_cmd && cd $work_results_root && tar czf $work_staging/generations.tar.gz generations"
 tar_cmd="$tar_cmd && cp $work_results_root/results/final-results.jsonl $work_staging/final-results.jsonl"
+tar_cmd="$tar_cmd && if [ -d $work_results_root/main/generations ]; then cd $work_results_root/main && tar czf $work_staging/main-generations.tar.gz generations; fi"
+tar_cmd="$tar_cmd && if [ -f $work_results_root/main/final-results.jsonl ]; then cp $work_results_root/main/final-results.jsonl $work_staging/main-final-results.jsonl; fi"
 tar_cmd="$tar_cmd && ls -lh $work_staging/"
 
 echo "[trc] Submitting eai tar job..."
-tar_uuid=$(ssh trc "eai job submit --image $eai_image --data $data_resource:/work:rw --cpu 4 --mem 16 --max-run-time 1800 -- bash -lc $(printf %q "$tar_cmd")" | awk 'NR==1 {print $1}')
+tar_uuid=$(ssh trc "eai job submit --image $eai_image --data $data_resource:/work:rw --cpu 4 --mem 16 --max-run-time 1800 -- bash -lc $(printf %q "$tar_cmd")" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
 echo "[trc] tar job uuid: $tar_uuid"
 
 echo "[trc] Waiting for tar job to finish..."
@@ -57,18 +59,34 @@ while true; do
 done
 echo "[trc] tar job SUCCEEDED."
 
-echo "[trc] Pulling tarball + jsonl out of the data resource..."
-ssh trc "mkdir -p ~/$trc_staging_subdir/sync-staging && rm -f ~/$trc_staging_subdir/sync-staging/generations.tar.gz ~/$trc_staging_subdir/sync-staging/final-results.jsonl"
+echo "[trc] Pulling tarballs + jsonls out of the data resource..."
+ssh trc "mkdir -p ~/$trc_staging_subdir/sync-staging && rm -f ~/$trc_staging_subdir/sync-staging/generations.tar.gz ~/$trc_staging_subdir/sync-staging/main-generations.tar.gz ~/$trc_staging_subdir/sync-staging/final-results.jsonl ~/$trc_staging_subdir/sync-staging/main-final-results.jsonl"
 ssh trc "cd ~/$trc_staging_subdir && eai data pull $data_resource ./sync-staging/generations.tar.gz ."
 ssh trc "cd ~/$trc_staging_subdir && eai data pull $data_resource ./sync-staging/final-results.jsonl ."
+ssh trc "cd ~/$trc_staging_subdir && eai data pull $data_resource ./sync-staging/main-generations.tar.gz . || echo 'no main-generations tarball'"
+ssh trc "cd ~/$trc_staging_subdir && eai data pull $data_resource ./sync-staging/main-final-results.jsonl . || echo 'no main jsonl'"
 
-echo "[mila] rsync tarball + jsonl from trc login..."
-rsync -avz "trc:$trc_staging_subdir/sync-staging/final-results.jsonl" "$local_results"
+echo "[mila] rsync tarballs + jsonls from trc login..."
+local_adversariallm_jsonl="$mila_results_dir/final-results.jsonl.trc.adversariallm"
+local_pool_jsonl="$mila_results_dir/final-results.jsonl.trc.pool"
+rsync -avz "trc:$trc_staging_subdir/sync-staging/final-results.jsonl" "$local_adversariallm_jsonl"
 rsync -avz "trc:$trc_staging_subdir/sync-staging/generations.tar.gz" "$mila_generations_dir/from-trc/generations.tar.gz"
+rsync -avz "trc:$trc_staging_subdir/sync-staging/main-final-results.jsonl" "$local_pool_jsonl" 2>/dev/null || rm -f "$local_pool_jsonl"
+rsync -avz "trc:$trc_staging_subdir/sync-staging/main-generations.tar.gz" "$mila_generations_dir/from-trc/main-generations.tar.gz" 2>/dev/null || true
 
-echo "[mila] Extracting tarball into $local_generations ..."
+echo "[mila] Concatenating per-source jsonls into $local_results ..."
+cat "$local_adversariallm_jsonl" > "$local_results"
+if [ -f "$local_pool_jsonl" ]; then
+    cat "$local_pool_jsonl" >> "$local_results"
+fi
+
+echo "[mila] Extracting tarballs into $local_generations ..."
 tar xzf "$mila_generations_dir/from-trc/generations.tar.gz" -C "$mila_generations_dir/from-trc/" --strip-components=1
 rm -f "$mila_generations_dir/from-trc/generations.tar.gz"
+if [ -f "$mila_generations_dir/from-trc/main-generations.tar.gz" ]; then
+    tar xzf "$mila_generations_dir/from-trc/main-generations.tar.gz" -C "$mila_generations_dir/from-trc/" --strip-components=1
+    rm -f "$mila_generations_dir/from-trc/main-generations.tar.gz"
+fi
 
 echo ""
 echo "Synced from trc:"

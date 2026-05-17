@@ -22,6 +22,7 @@ from scripts._trc_common import (
     build_eai_submit_remote,
     current_git_sha,
     shell_quote,
+    verify_sha_pushed,
 )
 
 __all__ = [
@@ -57,7 +58,7 @@ def build_eai_submit_argv(*, hf_token: str, git_sha: str) -> list[str]:
         'export PATH="$HOME/.local/bin:$PATH"',
         f"cd {TRC_REPO_DIR}",
         "git fetch --all",
-        f"git checkout {git_sha}",
+        f"git reset --hard {git_sha}",
         "git submodule update --init --recursive",
         f"uv venv {TRC_INFORMATION_SAFETY_VENV} --python 3.12 --clear",
         install_pkg,
@@ -86,11 +87,13 @@ def main(argv: list[str] | None = None) -> None:
         )
         raise SystemExit(2)
 
-    cli_argv = build_eai_submit_argv(hf_token=token, git_sha=current_git_sha())
+    sha = current_git_sha()
+    cli_argv = build_eai_submit_argv(hf_token=token, git_sha=sha)
     if args.dry_run:
         redacted = [s.replace(token, "<redacted>") for s in cli_argv]
         print(f"{redacted[0]} {redacted[1]} {shell_quote(redacted[2])}")
         return
+    verify_sha_pushed(sha)
     result = subprocess.run(cli_argv, check=True, capture_output=True, text=True)
     print(result.stdout.strip())
 
