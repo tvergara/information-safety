@@ -11,6 +11,7 @@ network_config:
   pretrained_model_name_or_path: ${..model.pretrained_model_name_or_path}
   trust_remote_code: ${..model.trust_remote_code}
   from_config: ${..model.from_config}
+  torch_dtype: ${..model.torch_dtype}
 
 result_file: ${oc.env:RESULTS_FILE,/network/scratch/b/brownet/information-safety/results/final-results.jsonl}
 seed: ${seed}
