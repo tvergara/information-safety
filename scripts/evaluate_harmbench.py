@@ -20,6 +20,8 @@ from transformers import (
     PreTrainedTokenizerBase,
 )
 
+from scripts._asr_backfill_common import backfill_sink, select_shard
+
 logger = getLogger(__name__)
 
 CLASSIFIER_MODEL_ID = "cais/HarmBench-Llama-2-13b-cls"
@@ -218,8 +220,14 @@ def evaluate(generations_dir: str) -> dict[str, Any]:
 def evaluate_results_file(
     results_file: str,
     generations_base: str = "/network/scratch/b/brownet/information-safety/generations",
+    shard_index: int | None = None,
+    num_shards: int | None = None,
+    output_shard_file: str | None = None,
 ) -> None:
-    """Find unevaluated runs in a results JSONL and backfill ASR scores."""
+    """Find unevaluated runs in a results JSONL and backfill ASR scores.
+
+    See ``scripts.evaluate_wmdp.evaluate_results_file`` for the shard-mode contract.
+    """
     results_path = Path(results_file)
     generations_dir = Path(generations_base)
 
@@ -234,56 +242,64 @@ def evaluate_results_file(
         and row.get("invalidated_reason") is None
     ]
 
-    if not unevaluated:
-        print("No unevaluated runs found.")
-        return
+    if num_shards is not None and shard_index is not None and num_shards > 1:
+        unevaluated = [
+            (i, row) for i, row in unevaluated
+            if select_shard(row["eval_run_id"], shard_index=shard_index,
+                            num_shards=num_shards)
+        ]
 
     print(f"Found {len(unevaluated)} unevaluated runs.")
-
-    model, tokenizer = load_classifier()
     num_updated = 0
 
-    for idx, row in unevaluated:
-        eval_run_id = row["eval_run_id"]
-        gen_dir = generations_dir / eval_run_id
+    with backfill_sink(
+        output_shard_file=output_shard_file,
+        rows=rows,
+        results_path=results_path,
+    ) as record:
+        if not unevaluated:
+            return
+        model, tokenizer = load_classifier()
+        for idx, row in unevaluated:
+            eval_run_id = row["eval_run_id"]
+            gen_dir = generations_dir / eval_run_id
 
-        if not gen_dir.exists():
-            logger.warning("Generations dir missing for %s, skipping.", eval_run_id)
-            continue
+            if not gen_dir.exists():
+                logger.warning("Generations dir missing for %s, skipping.", eval_run_id)
+                continue
 
-        with open(gen_dir / "input_data.jsonl") as f:
-            input_data = [json.loads(line) for line in f]
-        with open(gen_dir / "responses.jsonl") as f:
-            response_data = [json.loads(line) for line in f]
+            with open(gen_dir / "input_data.jsonl") as f:
+                input_data = [json.loads(line) for line in f]
+            with open(gen_dir / "responses.jsonl") as f:
+                response_data = [json.loads(line) for line in f]
 
-        behaviors = [r["behavior"] for r in input_data]
-        has_categories = "category" in input_data[0]
-        categories = [r["category"] for r in input_data] if has_categories else None
-        responses = [r["response"] for r in response_data]
-        pareto_step_idxs = [r.get("pareto_step_idx", 0) for r in input_data]
+            behaviors = [r["behavior"] for r in input_data]
+            has_categories = "category" in input_data[0]
+            categories = [r["category"] for r in input_data] if has_categories else None
+            responses = [r["response"] for r in response_data]
+            pareto_step_idxs = [r.get("pareto_step_idx", 0) for r in input_data]
 
-        labels = run_classifier(model, tokenizer, behaviors, responses)
-        canonical_labels = [
-            lab for lab, idx in zip(labels, pareto_step_idxs) if idx == 0
-        ]
-        canonical_categories: list[str] | None
-        if categories is not None:
-            canonical_categories = [
-                cat for cat, idx in zip(categories, pareto_step_idxs) if idx == 0
+            labels = run_classifier(model, tokenizer, behaviors, responses)
+            canonical_labels = [
+                lab for lab, idx in zip(labels, pareto_step_idxs) if idx == 0
             ]
-        else:
-            canonical_categories = None
-        overall_asr, _ = compute_asr(canonical_labels, canonical_categories)
+            canonical_categories: list[str] | None
+            if categories is not None:
+                canonical_categories = [
+                    cat for cat, idx in zip(categories, pareto_step_idxs) if idx == 0
+                ]
+            else:
+                canonical_categories = None
+            overall_asr, _ = compute_asr(canonical_labels, canonical_categories)
 
-        rows[idx]["asr"] = overall_asr
-        num_updated += 1
-        print(f"  {eval_run_id}: ASR = {overall_asr:.4f}")
+            num_updated += 1
+            print(f"  {eval_run_id}: ASR = {overall_asr:.4f}")
+            record(idx, eval_run_id, overall_asr)
 
-        with open(results_path, "w") as f:
-            for r in rows:
-                f.write(json.dumps(r) + "\n")
-
-    print(f"\nUpdated {num_updated} rows in {results_path}")
+    if output_shard_file is not None:
+        print(f"\nWrote {num_updated} delta records to {output_shard_file}")
+    else:
+        print(f"\nUpdated {num_updated} rows in {results_path}")
 
 
 def main() -> None:
@@ -306,12 +322,29 @@ def main() -> None:
         default="/network/scratch/b/brownet/information-safety/generations",
         help="Base directory containing generation subdirectories (used with --results-file).",
     )
+    parser.add_argument(
+        "--shard-index", type=int, default=None,
+        help="Shard index in [0, num-shards). Use with --num-shards and "
+        "--output-shard-file for parallel backfill.",
+    )
+    parser.add_argument(
+        "--num-shards", type=int, default=None,
+        help="Total number of shards across the parallel run.",
+    )
+    parser.add_argument(
+        "--output-shard-file", type=str, default=None,
+        help="Write JSONL delta records to this file instead of mutating the canonical "
+        "results file.",
+    )
     args = parser.parse_args()
 
     if args.results_file:
         evaluate_results_file(
             args.results_file,
             generations_base=args.generations_base,
+            shard_index=args.shard_index,
+            num_shards=args.num_shards,
+            output_shard_file=args.output_shard_file,
         )
     elif args.generations_dir:
         evaluate(args.generations_dir)

@@ -21,6 +21,8 @@ from logging import getLogger
 from pathlib import Path
 from typing import Any
 
+from scripts._asr_backfill_common import backfill_sink, select_shard
+
 logger = getLogger(__name__)
 
 
@@ -125,8 +127,17 @@ def parse_wmdp_results_file(
 def evaluate_results_file(
     results_file: str,
     generations_base: str = "/network/scratch/b/brownet/information-safety/generations",
+    shard_index: int | None = None,
+    num_shards: int | None = None,
+    output_shard_file: str | None = None,
 ) -> None:
-    """Find unevaluated WMDP runs in a results JSONL and backfill accuracy as ASR."""
+    """Find unevaluated WMDP runs in a results JSONL and backfill accuracy as ASR.
+
+    When ``output_shard_file`` is provided, results are written as JSONL delta records
+    (``{eval_run_id, asr}``) to that file instead of mutating ``results_file`` in place.
+    When ``shard_index`` and ``num_shards`` are provided, only rows hashing to
+    ``shard_index`` are processed -- so multiple shards can run safely in parallel.
+    """
     results_path = Path(results_file)
     generations_dir = Path(generations_base)
 
@@ -141,45 +152,53 @@ def evaluate_results_file(
         and row.get("invalidated_reason") is None
     ]
 
-    if not unevaluated:
-        print("No unevaluated WMDP runs found.")
-        return
+    if num_shards is not None and shard_index is not None and num_shards > 1:
+        unevaluated = [
+            (i, row) for i, row in unevaluated
+            if select_shard(row["eval_run_id"], shard_index=shard_index,
+                            num_shards=num_shards)
+        ]
 
     print(f"Found {len(unevaluated)} unevaluated WMDP runs.")
     num_updated = 0
 
-    for idx, row in unevaluated:
-        eval_run_id = row["eval_run_id"]
-        gen_dir = generations_dir / eval_run_id
+    with backfill_sink(
+        output_shard_file=output_shard_file,
+        rows=rows,
+        results_path=results_path,
+    ) as record:
+        for idx, row in unevaluated:
+            eval_run_id = row["eval_run_id"]
+            gen_dir = generations_dir / eval_run_id
 
-        if not gen_dir.exists():
-            logger.warning("Generations dir missing for %s, skipping.", eval_run_id)
-            continue
+            if not gen_dir.exists():
+                logger.warning("Generations dir missing for %s, skipping.", eval_run_id)
+                continue
 
-        input_data, response_data = load_generations(str(gen_dir))
-        metrics = compute_wmdp_metrics(input_data, response_data)
+            input_data, response_data = load_generations(str(gen_dir))
+            metrics = compute_wmdp_metrics(input_data, response_data)
 
-        rows[idx]["asr"] = metrics["accuracy"]
-        num_updated += 1
+            num_updated += 1
 
-        print(
-            f"  {eval_run_id}: "
-            f"accuracy={metrics['accuracy']:.4f}, "
-            f"format_compliance={metrics['format_compliance']:.4f}"
-        )
-        print("  Per-subject:")
-        for subject, submetrics in metrics["per_subject"].items():
             print(
-                f"    {subject}: "
-                f"accuracy={submetrics['accuracy']:.4f}, "
-                f"format_compliance={submetrics['format_compliance']:.4f}"
+                f"  {eval_run_id}: "
+                f"accuracy={metrics['accuracy']:.4f}, "
+                f"format_compliance={metrics['format_compliance']:.4f}"
             )
+            print("  Per-subject:")
+            for subject, submetrics in metrics["per_subject"].items():
+                print(
+                    f"    {subject}: "
+                    f"accuracy={submetrics['accuracy']:.4f}, "
+                    f"format_compliance={submetrics['format_compliance']:.4f}"
+                )
 
-    with open(results_path, "w") as f:
-        for r in rows:
-            f.write(json.dumps(r) + "\n")
+            record(idx, eval_run_id, metrics["accuracy"])
 
-    print(f"\nUpdated {num_updated} rows in {results_path}")
+    if output_shard_file is not None:
+        print(f"\nWrote {num_updated} delta records to {output_shard_file}")
+    else:
+        print(f"\nUpdated {num_updated} rows in {results_path}")
 
 
 def main() -> None:
@@ -202,12 +221,29 @@ def main() -> None:
         default="/network/scratch/b/brownet/information-safety/generations",
         help="Base directory containing generation subdirectories (used with --results-file).",
     )
+    parser.add_argument(
+        "--shard-index", type=int, default=None,
+        help="Shard index in [0, num-shards). Use with --num-shards and "
+        "--output-shard-file for parallel backfill.",
+    )
+    parser.add_argument(
+        "--num-shards", type=int, default=None,
+        help="Total number of shards across the parallel run.",
+    )
+    parser.add_argument(
+        "--output-shard-file", type=str, default=None,
+        help="Write JSONL delta records to this file instead of mutating the canonical "
+        "results file.",
+    )
     args = parser.parse_args()
 
     if args.results_file:
         evaluate_results_file(
             args.results_file,
             generations_base=args.generations_base,
+            shard_index=args.shard_index,
+            num_shards=args.num_shards,
+            output_shard_file=args.output_shard_file,
         )
     elif args.generations_dir:
         evaluate(args.generations_dir)
