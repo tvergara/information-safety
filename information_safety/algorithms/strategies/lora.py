@@ -28,6 +28,7 @@ class LoRAStrategy(BaseStrategy):
     lora_alpha: int = 8
     lora_dropout: float = 0.0
     target_modules: list[str] | None = None
+    gradient_checkpointing: bool = False
 
     def setup(
         self,
@@ -35,7 +36,12 @@ class LoRAStrategy(BaseStrategy):
         handler: BaseDatasetHandler,
         pl_module: Any,
     ) -> Any:
-        """Apply LoRA adapter to the model."""
+        """Wrap model with a LoRA adapter, optionally enabling gradient checkpointing on the base
+        model first (must precede PEFT wrapping so that ``enable_input_require_grads`` reaches the
+        underlying parameters)."""
+        if self.gradient_checkpointing:
+            model.gradient_checkpointing_enable()
+            model.enable_input_require_grads()
         lora_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM,
             r=self.r,

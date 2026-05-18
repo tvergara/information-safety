@@ -239,6 +239,8 @@ def build_command(
             f"algorithm.dataset_handler.max_examples={_hydra_value(config['max_examples'])}",
             f"trainer.max_epochs={config['max_epochs']}",
         ]
+        if model_name == "openai/gpt-oss-20b":
+            cmd.append("algorithm.strategy.gradient_checkpointing=true")
         if dataset_name == "wmdp":
             cmd += [
                 f"algorithm.dataset_handler.corpus_fraction={config['corpus_fraction']}",

@@ -312,6 +312,28 @@ def test_build_command_data_strategy_emits_max_epochs_override() -> None:
     assert "trainer.max_epochs=64" in cmd
 
 
+def test_build_command_data_strategy_enables_grad_ckpt_for_gpt_oss_20b() -> None:
+    config = _data_config("openai/gpt-oss-20b", 16, 64, 0)
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    assert cmd.count("algorithm.strategy.gradient_checkpointing=true") == 1
+
+
+def test_build_command_data_strategy_skips_grad_ckpt_for_other_models() -> None:
+    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 16, 64, 0)
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    assert not any(
+        c.startswith("algorithm.strategy.gradient_checkpointing=") for c in cmd
+    )
+
+
+def test_build_command_prompt_attack_skips_grad_ckpt_even_for_gpt_oss_20b() -> None:
+    config = _baseline_config(model="openai/gpt-oss-20b")
+    cmd = build_command(config, attacks_dir=Path("/tmp/attacks"))
+    assert not any(
+        c.startswith("algorithm.strategy.gradient_checkpointing=") for c in cmd
+    )
+
+
 def test_build_command_precomputed_gcg(tmp_path: Path) -> None:
     attacks_dir = tmp_path / "attacks"
     attacks_dir.mkdir()
