@@ -91,9 +91,9 @@ def mock_vllm(monkeypatch: pytest.MonkeyPatch) -> dict[str, MagicMock]:
     llm_cls = MagicMock(return_value=fake_llm)
     sampling_cls = MagicMock()
     lora_cls = MagicMock()
-    monkeypatch.setattr(run_eval_pool, "LLM", llm_cls, raising=False)
-    monkeypatch.setattr(run_eval_pool, "SamplingParams", sampling_cls, raising=False)
-    monkeypatch.setattr(run_eval_pool, "LoRARequest", lora_cls, raising=False)
+    monkeypatch.setattr(
+        run_eval_pool, "_load_vllm", lambda: (llm_cls, sampling_cls, lora_cls),
+    )
     return {"LLM": llm_cls, "instance": fake_llm, "SamplingParams": sampling_cls,
             "LoRARequest": lora_cls}
 
@@ -248,9 +248,10 @@ class TestWorkerFailurePath:
 
         fake_llm = MagicMock()
         fake_llm.generate.side_effect = RuntimeError("vllm boom")
-        monkeypatch.setattr(run_eval_pool, "LLM", MagicMock(return_value=fake_llm), raising=False)
-        monkeypatch.setattr(run_eval_pool, "SamplingParams", MagicMock(), raising=False)
-        monkeypatch.setattr(run_eval_pool, "LoRARequest", MagicMock(), raising=False)
+        monkeypatch.setattr(
+            run_eval_pool, "_load_vllm",
+            lambda: (MagicMock(return_value=fake_llm), MagicMock(), MagicMock()),
+        )
 
         with pytest.raises(RuntimeError, match="vllm boom"):
             run_eval_pool.run_worker(
@@ -277,7 +278,7 @@ class TestRunWorkerNoPending:
     def test_returns_immediately(self, tmp_path: Path) -> None:
         queue_root = tmp_path / "eval-pool"
         run_eval_pool.ensure_eval_queue_dirs(queue_root)
-        with patch.object(run_eval_pool, "LLM", MagicMock()) as llm_cls:
+        with patch.object(run_eval_pool, "_load_vllm") as load_vllm:
             run_eval_pool.run_worker(
                 queue_root=queue_root,
                 base_model="tiny",
@@ -286,4 +287,4 @@ class TestRunWorkerNoPending:
                 generations_dir=tmp_path / "g",
                 keep_adapters=True,
             )
-        llm_cls.assert_not_called()
+        load_vllm.assert_not_called()
