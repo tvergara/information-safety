@@ -41,7 +41,7 @@ def _make_pending_spec(
         "seed": 0,
     }
     pending_dir = tmp_path / "eval-pool" / "pending"
-    pending_dir.mkdir(parents=True)
+    pending_dir.mkdir(parents=True, exist_ok=True)
     spec = {
         "spec_id": spec_id,
         "epoch": epoch,
@@ -114,14 +114,39 @@ class TestClaimAndEnsureDirs:
         for sub in ("pending", "claimed", "done", "failed", "logs"):
             assert (root / sub).is_dir()
 
-    def test_try_claim_moves_pending_to_claimed(self, tmp_path: Path) -> None:
+    def test_try_claim_filter_match_claims(self, tmp_path: Path) -> None:
         root = tmp_path / "queue"
         run_eval_pool.ensure_eval_queue_dirs(root)
-        pending = root / "pending" / "x.json"
-        pending.write_text("{}")
-        claimed = run_eval_pool.try_claim(pending, root / "claimed", pool_id="p")
+        pending = root / "pending" / "s.json"
+        pending.write_text(json.dumps({"base_model": "model-a"}))
+        claimed = run_eval_pool.try_claim(
+            pending, root / "claimed", pool_id="p", base_model_filter="model-a",
+        )
         assert claimed is not None and claimed.exists()
         assert not pending.exists()
+
+    def test_try_claim_filter_mismatch_skips(self, tmp_path: Path) -> None:
+        root = tmp_path / "queue"
+        run_eval_pool.ensure_eval_queue_dirs(root)
+        pending = root / "pending" / "s.json"
+        pending.write_text(json.dumps({"base_model": "model-b"}))
+        claimed = run_eval_pool.try_claim(
+            pending, root / "claimed", pool_id="p", base_model_filter="model-a",
+        )
+        assert claimed is None
+        assert pending.exists()
+        assert not list((root / "claimed").glob("*.json"))
+
+    def test_try_claim_file_vanishes_between_peek_and_rename(
+        self, tmp_path: Path,
+    ) -> None:
+        root = tmp_path / "queue"
+        run_eval_pool.ensure_eval_queue_dirs(root)
+        pending = root / "pending" / "ghost.json"
+        claimed = run_eval_pool.try_claim(
+            pending, root / "claimed", pool_id="p", base_model_filter="model-a",
+        )
+        assert claimed is None
 
 
 class TestWorkerEvaluatesSpec:
@@ -288,3 +313,55 @@ class TestRunWorkerNoPending:
                 keep_adapters=True,
             )
         load_vllm.assert_not_called()
+
+
+class TestRunWorkerModelFilter:
+    """Worker scoped to its base_model; pending specs for other models are left alone."""
+
+    def test_only_claims_matching_specs(
+        self, tmp_path: Path, mock_vllm: dict[str, MagicMock], mock_prompts: None,
+    ) -> None:
+        _make_pending_spec(
+            tmp_path, spec_id="speca", epoch=0, base_model="tiny-model",
+        )
+        _make_pending_spec(
+            tmp_path, spec_id="specb", epoch=0, base_model="other-model",
+        )
+        queue_root = tmp_path / "eval-pool"
+        results_file = tmp_path / "results" / "final-results.jsonl"
+        generations_dir = tmp_path / "generations"
+
+        run_eval_pool.run_worker(
+            queue_root=queue_root,
+            base_model="tiny-model",
+            adapter_root=tmp_path / "adapters",
+            results_file=results_file,
+            generations_dir=generations_dir,
+            keep_adapters=True,
+        )
+
+        assert (queue_root / "done" / "speca_ep0.json").exists()
+        assert (queue_root / "pending" / "specb_ep0.json").exists()
+        assert not (queue_root / "done" / "specb_ep0.json").exists()
+        rows = [json.loads(line) for line in results_file.read_text().splitlines()]
+        assert len(rows) == 1
+        assert rows[0]["spec_id"] == "speca"
+
+    def test_no_matching_specs_skips_vllm_load(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _make_pending_spec(
+            tmp_path, spec_id="specb", epoch=0, base_model="other-model",
+        )
+        queue_root = tmp_path / "eval-pool"
+        with patch.object(run_eval_pool, "_load_vllm") as load_vllm:
+            run_eval_pool.run_worker(
+                queue_root=queue_root,
+                base_model="tiny-model",
+                adapter_root=tmp_path / "adapters",
+                results_file=tmp_path / "r.jsonl",
+                generations_dir=tmp_path / "g",
+                keep_adapters=True,
+            )
+        load_vllm.assert_not_called()
+        assert (queue_root / "pending" / "specb_ep0.json").exists()

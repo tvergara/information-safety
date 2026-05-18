@@ -29,9 +29,22 @@ def ensure_eval_queue_dirs(queue_root: Path) -> None:
         (queue_root / sub).mkdir(parents=True, exist_ok=True)
 
 
+def _spec_base_model(path: Path) -> str | None:
+    try:
+        return json.loads(path.read_text()).get("base_model")
+    except FileNotFoundError:
+        return None
+
+
 def try_claim(
-    pending_path: Path, claimed_dir: Path, *, pool_id: str
+    pending_path: Path,
+    claimed_dir: Path,
+    *,
+    pool_id: str,
+    base_model_filter: str,
 ) -> Path | None:
+    if _spec_base_model(pending_path) != base_model_filter:
+        return None
     job_id = pending_path.stem
     target = claimed_dir / f"{job_id}.{pool_id}.json"
     try:
@@ -221,7 +234,7 @@ def run_worker(
     pending_dir = queue_root / "pending"
     claimed_dir = queue_root / "claimed"
 
-    if not any(pending_dir.glob("*.json")):
+    if not any(_spec_base_model(p) == base_model for p in pending_dir.glob("*.json")):
         return
 
     llm_cls, sampling_params_cls, lora_request_cls = _load_vllm()
@@ -239,11 +252,13 @@ def run_worker(
 
     while True:
         candidates = sorted(pending_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
-        if not candidates:
+        if not any(_spec_base_model(p) == base_model for p in candidates):
             return
         claimed: Path | None = None
         for cand in candidates:
-            claimed = try_claim(cand, claimed_dir, pool_id=pool_id)
+            claimed = try_claim(
+                cand, claimed_dir, pool_id=pool_id, base_model_filter=base_model,
+            )
             if claimed is not None:
                 break
         if claimed is None:
