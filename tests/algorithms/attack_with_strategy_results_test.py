@@ -23,6 +23,7 @@ class TestResultsTracking:
         tokenizer_config = MagicMock()
         strategy = MagicMock()
         strategy.compute_bits = MagicMock(return_value=1000)
+        strategy.defers_eval = False
         dataset_handler = MagicMock()
         dataset_handler.dataset_name = "test_dataset"
         dataset_handler.max_examples = 10
@@ -151,6 +152,37 @@ class TestResultsTracking:
         module._val_total = 0
         module.on_validation_epoch_end()
 
+    @patch.object(AttackWithStrategy, "log")
+    @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
+    @patch.object(
+        AttackWithStrategy, "current_epoch", new_callable=PropertyMock, return_value=0
+    )
+    def test_defers_eval_skips_row_write_and_save_completions(
+        self,
+        mock_epoch: MagicMock,
+        mock_rank: MagicMock,
+        mock_log: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        result_file = str(tmp_path / "results.jsonl")
+        module = self._make_module(tmp_path, result_file=result_file)
+        module.strategy.defers_eval = True
+
+        mock_trainer = MagicMock()
+        mock_trainer.logger = None
+        mock_trainer.sanity_checking = False
+        mock_trainer.max_epochs = 1
+        module._trainer = mock_trainer
+
+        module.on_validation_epoch_start()
+        module._val_correct = 0
+        module._val_total = 0
+        module.on_validation_epoch_end()
+
+        assert not Path(result_file).exists()
+        save_completions_mock = cast(MagicMock, module.dataset_handler.save_completions)
+        save_completions_mock.assert_not_called()
+
     @patch(_EXTRACT, return_value={})
     @patch.object(AttackWithStrategy, "log")
     @patch.object(AttackWithStrategy, "global_rank", new_callable=PropertyMock, return_value=0)
@@ -265,6 +297,7 @@ def _make_module_with_params(tmp_path: Path, result_file: str) -> AttackWithStra
     tokenizer_config = MagicMock()
     strategy = MagicMock()
     strategy.compute_bits = MagicMock(return_value=1000)
+    strategy.defers_eval = False
     dataset_handler = MagicMock()
     dataset_handler.dataset_name = "test_dataset"
     dataset_handler.max_examples = 10

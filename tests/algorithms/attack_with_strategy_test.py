@@ -14,6 +14,7 @@ class TestAttackWithStrategy:
         network_config = MagicMock()
         tokenizer_config = MagicMock()
         strategy = MagicMock()
+        strategy.defers_eval = False
         dataset_handler = MagicMock()
         return AttackWithStrategy(
             network_config=network_config,

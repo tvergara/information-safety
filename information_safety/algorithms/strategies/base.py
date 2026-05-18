@@ -25,6 +25,7 @@ class BaseStrategy(ABC):
     """Base class for finetuning strategies (e.g. LoRA, full finetune, etc.)."""
 
     requires_training_data: ClassVar[bool] = True
+    defers_eval: ClassVar[bool] = False
     train_dataset: Dataset | None = None
     val_dataset: Dataset | None = None
 

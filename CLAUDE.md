@@ -183,6 +183,24 @@ Every experiment must also save its generations (model responses) to `/network/s
 
 **Do NOT** create separate results files, custom eval scripts, or one-off analysis notebooks that bypass this pipeline. If you're proposing a new experiment type, it must plug into this same results file and eval flow.
 
+### Deferred-eval pipeline (vLLM eval pool)
+
+`DataStrategy` runs HF `model.generate` inline per validation epoch, which is a bottleneck for LoRA sweeps. The deferred-eval pipeline splits this into two stages so a single long-lived vLLM worker can serve many adapters via `LoRARequest`:
+
+1. **Training stage** — `DataStrategyDeferredEval` (subclass of `DataStrategy`, in `information_safety/algorithms/strategies/data_deferred.py`). Skips inline validation; on each epoch end saves the LoRA adapter to `<adapter_root>/<spec_id>/epoch_<N>/`, writes a `train_meta.json`, and enqueues a pending eval spec at `<eval_queue_root>/pending/<spec_id>_ep<N>.json`.
+2. **Eval stage** — `scripts/run_eval_pool.py` is a single-GPU vLLM worker that drains the eval queue via atomic `os.rename` claims (`pending/` → `claimed/` → `done/` or `failed/`), calls `llm.generate(prompts, lora_request=LoRARequest(...))`, and writes one result row per spec to `final-results.jsonl` with `experiment_name="DataStrategyDeferredEval"` and `asr=None`. Pass `--keep-adapters` to retain adapter directories after eval.
+
+**Queueing.** `python scripts/build_job_queue.py --queue-root <root> --defer-eval` emits training-pool jobs that select `algorithm/strategy=data-deferred` and prefix the command with `env SPEC_ID=<job_id>` so the Hydra config's `${oc.env:SPEC_ID,???}` resolves at runtime. Deferred specs are namespaced in the deterministic hash (`defer_eval: True` in the hash payload) so IDs do not collide with non-deferred specs.
+
+**Aliasing.** `DataStrategy` and `DataStrategyDeferredEval` are treated as the same family by `scripts/check_results.py` (via `EXPERIMENT_NAME_ALIASES`), `scripts/audit_queue_dedup.py` (via `DATA_STRATEGY_ALIASES`), and the plot whitelists. The compute grid in `check_results.py` is unchanged — a deferred-eval row satisfies the same `(model, max_examples, max_epochs, epoch)` slot as a legacy `DataStrategy` row.
+
+**Runners.**
+
+- Cluster (Tamia/Nibi): `sbatch slurm/run-eval-pool.sh <queue-root> <base-model>` — single-GPU H100 worker, 6h time limit, resume by re-submitting the same `QUEUE_ROOT`.
+- TRC: `python scripts/migrate_eval_pool_to_trc.py --queue-root <trc-queue-root> --count <N>` ships pending eval specs as `is_eval_<spec_id>_<epoch>` `eai job submit` jobs (mirrors `migrate_pool_to_trc.py`; default state file `trc-eval-pool-submitted.jsonl`).
+
+**Audit.** `audit_queue_dedup.py` adds a `PENDING_EVAL` category (not wasted) for pending specs containing an `eval_meta` key, so deferred-eval queue inspection doesn't false-positive on the training-pool dedup logic.
+
 ### Adding a New Algorithm
 
 1. Write tests first in `tests/algorithms/your_algorithm_test.py`

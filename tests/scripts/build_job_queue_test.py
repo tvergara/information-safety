@@ -855,6 +855,56 @@ def test_resolve_suffix_file_uses_existence_check_dir(tmp_path: Path) -> None:
     assert resolved == remote / "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl"
 
 
+def test_defer_eval_specs_have_distinct_ids() -> None:
+    """`--defer-eval` namespaces spec IDs so non-defer and defer never collide."""
+    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 1)
+    default_id = deterministic_id(config)
+    defer_id = deterministic_id({**config, "defer_eval": True})
+    assert default_id != defer_id
+
+
+def test_defer_eval_build_command_uses_data_deferred_strategy() -> None:
+    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 1)
+    cmd = build_command(
+        config, attacks_dir=Path("/tmp/attacks"), defer_eval=True,
+    )
+    assert "algorithm/strategy=data-deferred" in cmd
+    assert "algorithm/strategy=data" not in cmd
+
+
+def test_defer_eval_write_pending_jobs_namespaces_ids(tmp_path: Path) -> None:
+    queue_root = tmp_path / "queue"
+    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 1)
+    default_written = write_pending_jobs(
+        [config], queue_root=queue_root, attacks_dir=tmp_path / "attacks",
+    )
+    defer_written = write_pending_jobs(
+        [config], queue_root=queue_root, attacks_dir=tmp_path / "attacks",
+        defer_eval=True,
+    )
+    assert len(default_written) == 1
+    assert len(defer_written) == 1
+    assert default_written[0].name != defer_written[0].name
+
+    pending = sorted((queue_root / "pending").iterdir())
+    assert len(pending) == 2
+
+
+def test_defer_eval_command_prefixes_spec_id_env_var(tmp_path: Path) -> None:
+    queue_root = tmp_path / "queue"
+    config = _data_config("meta-llama/Llama-2-7b-chat-hf", 32, 32, 1)
+    written = write_pending_jobs(
+        [config], queue_root=queue_root, attacks_dir=tmp_path / "attacks",
+        defer_eval=True,
+    )
+    payload = json.loads(written[0].read_text())
+    cmd = payload["command"]
+    assert cmd[0] == "env"
+    spec_id = payload["id"]
+    assert cmd[1] == f"SPEC_ID={spec_id}"
+    assert payload["defer_eval"] is True
+
+
 def test_main_writes_pending_files_for_synthetic_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

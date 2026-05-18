@@ -48,6 +48,7 @@ class Category(enum.Enum):
     LIVE_NIBI = "LIVE_NIBI"
     ALL_COMPLETE = "ALL_COMPLETE"
     NEEDS_EVAL = "NEEDS_EVAL"
+    PENDING_EVAL = "PENDING_EVAL"
     PARTIAL = "PARTIAL"
     MISSING = "MISSING"
 
@@ -55,6 +56,9 @@ class Category(enum.Enum):
     def is_wasted(self) -> bool:
         return self in {Category.LIVE_TRC, Category.LIVE_NIBI,
                         Category.ALL_COMPLETE, Category.NEEDS_EVAL}
+
+
+DATA_STRATEGY_ALIASES = frozenset({"DataStrategy", "DataStrategyDeferredEval"})
 
 
 def parse_live_ids(text: str, pattern: re.Pattern[str]) -> set[str]:
@@ -71,12 +75,22 @@ def _row_matches(row: dict[str, Any], cfg: dict[str, Any]) -> bool:
 
     ``model_name`` uses substring matching (cfg holds the bare HF id, e.g.
     ``"Llama-3-8B"``; row holds the org-prefixed id, e.g.
-    ``"meta-llama/Llama-3-8B-Instruct"``). All other keys must match exactly.
+    ``"meta-llama/Llama-3-8B-Instruct"``). ``experiment_name`` treats
+    ``DataStrategy`` and ``DataStrategyDeferredEval`` as interchangeable so the
+    deferred-eval pipeline can satisfy a pending DataStrategy spec (and vice
+    versa). All other keys must match exactly.
     """
     for k, v in cfg.items():
         if k == "model_name":
             row_model = row.get(k)
             if not isinstance(row_model, str) or v not in row_model:
+                return False
+        elif k == "experiment_name":
+            row_name = row.get(k)
+            if v in DATA_STRATEGY_ALIASES:
+                if row_name not in DATA_STRATEGY_ALIASES:
+                    return False
+            elif row_name != v:
                 return False
         elif row.get(k) != v:
             return False
@@ -142,6 +156,8 @@ def classify_spec(
     trc_live_ids: set[str],
     nibi_live_ids: set[str],
 ) -> Category:
+    if "eval_meta" in spec:
+        return Category.PENDING_EVAL
     spec_id = spec["id"]
     if spec_id in trc_live_ids:
         return Category.LIVE_TRC

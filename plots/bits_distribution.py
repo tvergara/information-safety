@@ -30,7 +30,7 @@ def main() -> None:
             continue
         name = r["experiment_name"]
         max_ex = r.get("max_examples")
-        if name == "DataStrategy":
+        if name in ("DataStrategy", "DataStrategyDeferredEval"):
             label = f"Data ({max_ex if max_ex is not None else 'all'})"
         elif name == "BaselineStrategy":
             label = "Baseline"

@@ -24,13 +24,16 @@ logger = getLogger(__name__)
 STRATEGY_HPARAMS_EXCLUDE = frozenset({"train_dataset", "val_dataset"})
 
 
-def _extract_strategy_hparams(strategy: BaseStrategy) -> dict[str, Any]:
+def _extract_strategy_hparams(
+    strategy: BaseStrategy, exclude: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
     """Extract JSON-serializable hyperparameters from a strategy dataclass."""
     raw = dataclasses.asdict(strategy)  # type: ignore[arg-type]
+    excluded = STRATEGY_HPARAMS_EXCLUDE | exclude
     return {
         k: v
         for k, v in raw.items()
-        if not k.startswith("_") and k not in STRATEGY_HPARAMS_EXCLUDE
+        if not k.startswith("_") and k not in excluded
     }
 
 
@@ -160,6 +163,11 @@ class AttackWithStrategy(LightningModule):
         })
 
         self.strategy.on_validation_epoch_end(self, self._val_results[-1:])
+
+        if self.strategy.defers_eval:
+            self._val_correct = 0
+            self._val_total = 0
+            return
 
         eval_run_id = str(uuid.uuid4())
 
