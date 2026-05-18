@@ -352,6 +352,69 @@ def test_matches_does_not_match_different_defense() -> None:
     assert not _matches(row, config)
 
 
+def test_matches_data_strategy_satisfied_by_deferred_eval_row() -> None:
+    config = {
+        "experiment_name": "DataStrategy",
+        "dataset_name": "wmdp",
+        "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "max_examples": 16,
+        "max_epochs": 2,
+        "epoch": 0,
+    }
+    row = {
+        "experiment_name": "DataStrategyDeferredEval",
+        "dataset_name": "wmdp",
+        "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "max_examples": 16,
+        "max_epochs": 2,
+        "epoch": 0,
+        "asr": 0.4,
+    }
+    assert _matches(row, config)
+
+
+def test_matches_deferred_eval_config_satisfied_by_legacy_row() -> None:
+    config = {
+        "experiment_name": "DataStrategyDeferredEval",
+        "dataset_name": "wmdp",
+        "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "max_examples": 16,
+        "max_epochs": 2,
+        "epoch": 0,
+    }
+    row = {
+        "experiment_name": "DataStrategy",
+        "dataset_name": "wmdp",
+        "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "max_examples": 16,
+        "max_epochs": 2,
+        "epoch": 0,
+        "asr": 0.4,
+    }
+    assert _matches(row, config)
+
+
+def test_matches_data_strategy_not_satisfied_by_baseline_row() -> None:
+    config = {
+        "experiment_name": "DataStrategy",
+        "dataset_name": "wmdp",
+        "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "max_examples": 16,
+        "max_epochs": 2,
+        "epoch": 0,
+    }
+    row = {
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "wmdp",
+        "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "max_examples": 16,
+        "max_epochs": 2,
+        "epoch": 0,
+        "asr": 0.4,
+    }
+    assert not _matches(row, config)
+
+
 def test_matches_base_model_unaffected_by_substring() -> None:
     config = {
         "experiment_name": "BaselineStrategy",

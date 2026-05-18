@@ -19,7 +19,7 @@ STRATEGY_STYLE: dict[str, tuple[str, str]] = {
 
 def strategy_nameegy_label(row: dict) -> str:
     name = row["experiment_name"]
-    if name == "DataStrategy":
+    if name in ("DataStrategy", "DataStrategyDeferredEval"):
         return "Data"
     if name == "BaselineStrategy":
         return "Baseline"

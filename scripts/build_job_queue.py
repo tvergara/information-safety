@@ -192,6 +192,7 @@ def build_command(
     base_dir: Path | None = None,
     existence_check_attacks_dir: Path | None = None,
     defense_hf_namespace: str | None = None,
+    defer_eval: bool = False,
 ) -> list[str]:
     """Map a config dict to a Hydra-override CLI command.
 
@@ -229,9 +230,10 @@ def build_command(
     ]
 
     if experiment_name == "DataStrategy":
+        strategy_override = "data-deferred" if defer_eval else "data"
         cmd += [
             "experiment=finetune-with-strategy",
-            "algorithm/strategy=data",
+            f"algorithm/strategy={strategy_override}",
             "algorithm.strategy.r=16",
             "algorithm.strategy.lora_alpha=16",
             f"algorithm.dataset_handler.max_examples={_hydra_value(config['max_examples'])}",
@@ -324,12 +326,19 @@ def write_pending_jobs(
     queue_root: Path,
     attacks_dir: Path,
     base_dir: Path | None = None,
+    defer_eval: bool = False,
 ) -> list[Path]:
     """Write one ``<id>.json`` per config into ``<queue_root>/pending/``.
 
     Returns the list of files written. Re-running with the same configs is a no-op (deterministic
     ids → same filenames). Configs whose suffix file cannot be resolved are skipped with a printed
     warning.
+
+    When ``defer_eval`` is True, DataStrategy configs are emitted under
+    ``algorithm/strategy=data-deferred`` and their spec ID hash includes the
+    ``defer_eval: True`` field so IDs never collide with non-deferred specs.
+    The training command is also prefixed with ``SPEC_ID=<id>`` so the strategy
+    can stamp its adapter directory.
     """
     ensure_queue_dirs(queue_root)
     pending_dir = queue_root / "pending"
@@ -337,14 +346,23 @@ def write_pending_jobs(
     written: list[Path] = []
     for config in configs:
         try:
-            command = build_command(config, attacks_dir=attacks_dir, base_dir=base_dir)
+            command = build_command(
+                config, attacks_dir=attacks_dir, base_dir=base_dir,
+                defer_eval=defer_eval,
+            )
         except FileNotFoundError as exc:
             print(f"WARNING: skipping config — {exc}")
             continue
 
-        job_id = deterministic_id(config)
+        id_payload = dict(config)
+        if defer_eval:
+            id_payload["defer_eval"] = True
+        job_id = deterministic_id(id_payload)
         if is_job_known(queue_root, job_id):
             continue
+
+        if defer_eval:
+            command = ["env", f"SPEC_ID={job_id}", *command]
 
         payload = {
             "id": job_id,
@@ -352,6 +370,8 @@ def write_pending_jobs(
             "config": config,
             "attempts": 0,
         }
+        if defer_eval:
+            payload["defer_eval"] = True
         written.append(write_pending_payload(pending_dir, job_id, payload))
     return written
 
@@ -361,6 +381,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--results-file", type=Path, default=default_results_file())
     parser.add_argument("--queue-root", type=Path, required=True)
     parser.add_argument("--attacks-dir", type=Path, default=default_attacks_dir())
+    parser.add_argument(
+        "--defer-eval", action="store_true",
+        help="Emit DataStrategy specs that defer eval to scripts/run_eval_pool.py "
+             "(uses algorithm/strategy=data-deferred). Spec IDs are namespaced "
+             "so they never collide with non-deferred specs.",
+    )
     args = parser.parse_args(argv)
 
     with open(args.results_file) as f:
@@ -370,7 +396,8 @@ def main(argv: list[str] | None = None) -> None:
     configs = HARMBENCH_CONFIGS + WMDP_CONFIGS + EVILMATH_CONFIGS + STRONGREJECT_CONFIGS
     missing = iter_missing_configs(configs, rows)
     written = write_pending_jobs(
-        missing, queue_root=args.queue_root, attacks_dir=args.attacks_dir
+        missing, queue_root=args.queue_root, attacks_dir=args.attacks_dir,
+        defer_eval=args.defer_eval,
     )
     print(f"Total configs: {len(configs)}")
     print(f"Missing (deduped): {len(missing)}")

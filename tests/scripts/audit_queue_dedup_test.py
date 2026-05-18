@@ -260,6 +260,67 @@ class TestCategoryEnum:
     def test_needed_categories(self) -> None:
         assert not Category.PARTIAL.is_wasted
         assert not Category.MISSING.is_wasted
+        assert not Category.PENDING_EVAL.is_wasted
+
+
+class TestPendingEvalCategory:
+    def test_eval_spec_classified_as_pending_eval(self, tmp_path: Path) -> None:
+        spec = {
+            "spec_id": "abcdef0123456789",
+            "epoch": 0,
+            "base_model": "tiny",
+            "adapter_path": "/work/adapters/abcdef0123456789/epoch_0",
+            "eval_meta": {"spec_id": "abcdef0123456789", "epoch": 0},
+        }
+        result = classify_spec(
+            spec, results_rows=[], mila_attacks_dir=tmp_path,
+            trc_live_ids=set(), nibi_live_ids=set(),
+        )
+        assert result == Category.PENDING_EVAL
+
+    def test_pending_eval_not_quarantined(self) -> None:
+        assert not Category.PENDING_EVAL.is_wasted
+
+
+class TestDataStrategyAliasInRowMatching:
+    def test_data_strategy_config_satisfied_by_deferred_eval_row(self) -> None:
+        from scripts.audit_queue_dedup import _row_matches
+
+        cfg = {
+            "experiment_name": "DataStrategy",
+            "dataset_name": "advbench_harmbench",
+            "model_name": "Llama-3-8B",
+            "max_examples": 16,
+            "epoch": 0,
+        }
+        row = {
+            "experiment_name": "DataStrategyDeferredEval",
+            "dataset_name": "advbench_harmbench",
+            "model_name": "org/Llama-3-8B",
+            "max_examples": 16,
+            "epoch": 0,
+        }
+        assert _row_matches(row, cfg)
+
+    def test_deferred_eval_spec_classified_complete_by_legacy_row(self) -> None:
+        cfg = {
+            "experiment_name": "DataStrategyDeferredEval",
+            "dataset_name": "advbench_harmbench",
+            "model_name": "Llama-3-8B",
+            "max_examples": 16,
+            "max_epochs": 1,
+        }
+        rows = [
+            {
+                "experiment_name": "DataStrategy",
+                "dataset_name": "advbench_harmbench",
+                "model_name": "org/Llama-3-8B",
+                "max_examples": 16,
+                "epoch": 0,
+                "asr": 0.4,
+            },
+        ]
+        assert classify_ds(cfg, rows) == Category.ALL_COMPLETE
 
 
 @pytest.fixture

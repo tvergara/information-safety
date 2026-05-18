@@ -307,11 +307,22 @@ def _short_model(name: str) -> str:
     return name.rsplit("/", 1)[-1]
 
 
+EXPERIMENT_NAME_ALIASES: dict[str, frozenset[str]] = {
+    "DataStrategy": frozenset({"DataStrategy", "DataStrategyDeferredEval"}),
+    "DataStrategyDeferredEval": frozenset({"DataStrategy", "DataStrategyDeferredEval"}),
+}
+
+
 def _matches(row: dict[str, Any], config: dict[str, Any]) -> bool:
     for k, v in config.items():
         if k == "model_name":
             row_model = row.get(k)
             if not isinstance(row_model, str) or v not in row_model:
+                return False
+        elif k == "experiment_name":
+            row_name = row.get(k)
+            aliases = EXPERIMENT_NAME_ALIASES.get(v, frozenset({v}))
+            if row_name not in aliases:
                 return False
         elif row.get(k) != v:
             return False
