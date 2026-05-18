@@ -96,9 +96,42 @@ def test_build_container_cmd_exports_hf_offline_flags() -> None:
             "algorithm.model.pretrained_model_name_or_path=Qwen/Qwen3-4B",
         ],
     }
-    cmd = _build_container_cmd(spec)
+    cmd = _build_container_cmd(spec, eval_queue_root="/work/eval-pool/run-x-deferred")
     assert "export HF_HUB_OFFLINE=1" in cmd
     assert "export HF_DATASETS_OFFLINE=1" in cmd
+
+
+def test_build_container_cmd_exports_adapter_root_and_eval_queue_root() -> None:
+    spec = {
+        "id": "abc123",
+        "command": [
+            "env",
+            "SPEC_ID=abc123",
+            "python",
+            "information_safety/main.py",
+            "experiment=finetune-with-strategy",
+            "algorithm/strategy=data-deferred",
+            "algorithm.model.pretrained_model_name_or_path=Qwen/Qwen3-4B",
+        ],
+    }
+    cmd = _build_container_cmd(spec, eval_queue_root="/work/eval-pool/run-wmdp-rerun-deferred")
+    assert "export ADAPTER_ROOT=/work/information-safety-results/adapters" in cmd
+    assert "export EVAL_QUEUE_ROOT=/work/eval-pool/run-wmdp-rerun-deferred" in cmd
+
+
+def test_build_container_cmd_sets_env_vars_for_inline_specs_too() -> None:
+    spec = {
+        "id": "abc123",
+        "command": [
+            "python",
+            "information_safety/main.py",
+            "algorithm/strategy=data",
+            "algorithm.model.pretrained_model_name_or_path=Qwen/Qwen3-4B",
+        ],
+    }
+    cmd = _build_container_cmd(spec, eval_queue_root="/work/eval-pool/run-x-deferred")
+    assert "export ADAPTER_ROOT=" in cmd
+    assert "export EVAL_QUEUE_ROOT=" in cmd
 
 
 def test_pool_job_name_includes_spec_id_and_epoch() -> None:
@@ -699,3 +732,35 @@ def test_main_submission_includes_spec_command_and_offline_env(tmp_path: Path) -
         assert "information_safety/main.py" in joined
         assert "Qwen/Qwen3-4B" in joined
         assert "/work/information-safety-results/main/final-results.jsonl" in joined
+
+
+def test_main_submission_derives_eval_queue_root_from_queue_root_arg(
+    tmp_path: Path,
+) -> None:
+    local = tmp_path / "pending"
+    local.mkdir()
+    _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
+    state_file = tmp_path / "state.jsonl"
+
+    with patch(
+        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
+    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+        run.return_value = MagicMock(
+            returncode=0,
+            stdout="55555555-5555-5555-5555-555555555555\n",
+            stderr="",
+        )
+        main([
+            "--queue-root", "run-wmdp-rerun",
+            "--count", "1",
+            "--state-file", str(state_file),
+        ])
+        joined = " ".join(run.call_args_list[0].args[0])
+        assert (
+            "export EVAL_QUEUE_ROOT=/work/eval-pool/run-wmdp-rerun-deferred"
+            in joined
+        )
+        assert (
+            "export ADAPTER_ROOT=/work/information-safety-results/adapters"
+            in joined
+        )

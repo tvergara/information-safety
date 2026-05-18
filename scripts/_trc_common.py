@@ -20,6 +20,8 @@ _EAI_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 TRC_BASE_DIR = "/work/information-safety-results"
 TRC_REPO_DIR = "/work/information-safety"
 TRC_HF_HOME = "/work/.hf-cache"
+TRC_ADAPTER_ROOT = f"{TRC_BASE_DIR}/adapters"
+TRC_EVAL_QUEUE_BASE = "/work/eval-pool"
 TRC_EAI_IMAGE = (
     "registry.toolkit-sp.yul201.service-now.com/snow.research.mmteb/mteb-lite:v1"
 )

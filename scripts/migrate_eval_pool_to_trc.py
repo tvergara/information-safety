@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts._trc_common import (
+    TRC_ADAPTER_ROOT,
     TRC_BASE_DIR,
     TRC_HF_HOME,
     TRC_REPO_DIR,
@@ -34,8 +35,6 @@ from scripts._trc_common import (
 __all__ = ["eval_job_name", "main"]
 
 TRC_INFORMATION_SAFETY_VENV = "/work/envs/information-safety/.venv"
-TRC_EVAL_QUEUE_BASE = "/work/eval-pool"
-TRC_ADAPTER_ROOT = "/work/information-safety-results/adapters"
 TRC_RESULTS_FILE = f"{TRC_BASE_DIR}/main/final-results.jsonl"
 TRC_GENERATIONS_DIR = f"{TRC_BASE_DIR}/main/generations"
 DEFAULT_STATE_FILE = default_state_file("trc-eval-pool-submitted.jsonl")

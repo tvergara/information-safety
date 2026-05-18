@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import Any
 
 from scripts._trc_common import (
+    TRC_ADAPTER_ROOT,
     TRC_BASE_DIR,
+    TRC_EVAL_QUEUE_BASE,
     TRC_HF_HOME,
     TRC_REPO_DIR,
     append_state_row,
@@ -128,7 +130,7 @@ def _delete_tamia_pending(spec_id: str, queue_root: str) -> None:
     )
 
 
-def _build_container_cmd(spec: dict[str, Any]) -> str:
+def _build_container_cmd(spec: dict[str, Any], *, eval_queue_root: str) -> str:
     for token in spec["command"]:
         if any(ch.isspace() for ch in token):
             raise ValueError(
@@ -145,15 +147,17 @@ def _build_container_cmd(spec: dict[str, Any]) -> str:
         f"export HF_HUB_CACHE={TRC_HF_HOME}/hub",
         "export HF_HUB_OFFLINE=1",
         "export HF_DATASETS_OFFLINE=1",
+        f"export ADAPTER_ROOT={TRC_ADAPTER_ROOT}",
+        f"export EVAL_QUEUE_ROOT={eval_queue_root}",
         f"source {TRC_INFORMATION_SAFETY_VENV}/bin/activate",
         spec_cmd,
     ])
 
 
-def _build_eai_submit_argv(spec: dict[str, Any], *, epoch: int) -> list[str]:
+def _build_eai_submit_argv(spec: dict[str, Any], *, epoch: int, eval_queue_root: str) -> list[str]:
     remote = build_eai_submit_remote(
         name=pool_job_name(spec["id"], epoch=epoch),
-        container_cmd=_build_container_cmd(spec),
+        container_cmd=_build_container_cmd(spec, eval_queue_root=eval_queue_root),
         gpu=1,
         cpu=8,
         mem=64,
@@ -260,6 +264,7 @@ def main(argv: list[str] | None = None) -> None:
         ]
     hf_specs = [s for s in pending_specs if is_hf_hosted_spec(s)]
     epoch = int(time.time())
+    eval_queue_root = f"{TRC_EVAL_QUEUE_BASE}/{args.queue_root}-deferred"
 
     submitted = 0
     for spec in hf_specs:
@@ -268,7 +273,9 @@ def main(argv: list[str] | None = None) -> None:
         spec_id = spec["id"]
         job_id = pool_job_name(spec_id, epoch=epoch)
 
-        cli_argv = _build_eai_submit_argv(spec, epoch=epoch)
+        cli_argv = _build_eai_submit_argv(
+            spec, epoch=epoch, eval_queue_root=eval_queue_root,
+        )
         if args.dry_run:
             print(" ".join(cli_argv))
             submitted += 1
