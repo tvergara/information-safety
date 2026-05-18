@@ -11,6 +11,14 @@ from information_safety.algorithms.strategies.lora import LoRAStrategy
 from information_safety.attack_bits import STRATEGY_CODE_FILES, code_bits
 
 
+def _peft_model_with_one_param() -> MagicMock:
+    peft_model = MagicMock()
+    param = nn.Parameter(torch.zeros(10))
+    param.requires_grad = True
+    peft_model.parameters = MagicMock(return_value=[param])
+    return peft_model
+
+
 class TestLoRAStrategy:
     def test_init_defaults(self) -> None:
         strategy = LoRAStrategy(lr=1e-3, r=1, lora_alpha=8)
@@ -26,19 +34,43 @@ class TestLoRAStrategy:
         strategy = LoRAStrategy(lr=1e-3, r=1, lora_alpha=8)
 
         mock_model = MagicMock()
-        mock_peft_model = MagicMock()
-        param = nn.Parameter(torch.zeros(10))
-        param.requires_grad = True
-        mock_peft_model.parameters = MagicMock(return_value=[param])
+        mock_peft_model = _peft_model_with_one_param()
         mock_get_peft_model.return_value = mock_peft_model
 
-        mock_handler = MagicMock()
-        pl_module = MagicMock()
-
-        result = strategy.setup(mock_model, mock_handler, pl_module)
+        result = strategy.setup(mock_model, MagicMock(), MagicMock())
         mock_lora_config.assert_called_once()
         mock_get_peft_model.assert_called_once()
         assert result is mock_peft_model
+
+    @patch("information_safety.algorithms.strategies.lora.get_peft_model")
+    @patch("information_safety.algorithms.strategies.lora.LoraConfig")
+    def test_setup_default_skips_gradient_checkpointing(
+        self, mock_lora_config: MagicMock, mock_get_peft_model: MagicMock
+    ) -> None:
+        strategy = LoRAStrategy(lr=1e-3, r=1, lora_alpha=8)
+        mock_model = MagicMock()
+        mock_get_peft_model.return_value = _peft_model_with_one_param()
+
+        strategy.setup(mock_model, MagicMock(), MagicMock())
+
+        mock_model.gradient_checkpointing_enable.assert_not_called()
+        mock_model.enable_input_require_grads.assert_not_called()
+
+    @patch("information_safety.algorithms.strategies.lora.get_peft_model")
+    @patch("information_safety.algorithms.strategies.lora.LoraConfig")
+    def test_setup_enables_gradient_checkpointing(
+        self, mock_lora_config: MagicMock, mock_get_peft_model: MagicMock
+    ) -> None:
+        strategy = LoRAStrategy(
+            lr=1e-3, r=1, lora_alpha=8, gradient_checkpointing=True,
+        )
+        mock_model = MagicMock()
+        mock_get_peft_model.return_value = _peft_model_with_one_param()
+
+        strategy.setup(mock_model, MagicMock(), MagicMock())
+
+        mock_model.gradient_checkpointing_enable.assert_called_once()
+        mock_model.enable_input_require_grads.assert_called_once()
 
     def test_compute_bits_counts_trainable_params(self) -> None:
         strategy = LoRAStrategy(lr=1e-3, r=1, lora_alpha=8)
