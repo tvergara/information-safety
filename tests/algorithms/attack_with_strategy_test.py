@@ -191,6 +191,43 @@ class TestAttackWithStrategy:
         module.strategy.train_dataloader.assert_called_once()
         assert result is sentinel
 
+    def test_val_dataloader_uses_val_batch_size_when_set(self) -> None:
+        module = self._make_module()
+        module._tokenizer = MagicMock()
+        module.dataset_handler.batch_size = 8
+        module.dataset_handler.val_batch_size = 16
+        module.strategy.val_dataloader = MagicMock()
+
+        module.val_dataloader()
+
+        _, kwargs = module.strategy.val_dataloader.call_args
+        assert kwargs["batch_size"] == 16
+
+    def test_val_dataloader_falls_back_to_batch_size_when_val_unset(self) -> None:
+        module = self._make_module()
+        module._tokenizer = MagicMock()
+        module.dataset_handler.batch_size = 8
+        module.dataset_handler.val_batch_size = None
+        module.strategy.val_dataloader = MagicMock()
+
+        module.val_dataloader()
+
+        _, kwargs = module.strategy.val_dataloader.call_args
+        assert kwargs["batch_size"] == 8
+
+    def test_train_dataloader_ignores_val_batch_size(self) -> None:
+        module = self._make_module()
+        module.strategy.requires_training_data = True  # type: ignore[misc]
+        module._tokenizer = MagicMock()
+        module.dataset_handler.batch_size = 8
+        module.dataset_handler.val_batch_size = 16
+        module.strategy.train_dataloader = MagicMock()
+
+        module.train_dataloader()
+
+        _, kwargs = module.strategy.train_dataloader.call_args
+        assert kwargs["batch_size"] == 8
+
     def test_extract_strategy_hparams_omits_class_level_flag(self) -> None:
         from dataclasses import dataclass
 

@@ -70,6 +70,7 @@ class WMDPHandler(BaseDatasetHandler):
 
     max_length: int = 500
     batch_size: int = 8
+    val_batch_size: int | None = None
     max_new_tokens: int = 1024
     generations_dir: str = ""
     dataset_name: str = "wmdp"

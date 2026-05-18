@@ -223,8 +223,11 @@ class AttackWithStrategy(LightningModule):
             answer_start_token=self.dataset_handler.get_answer_start_token(self.tokenizer),
         )
 
-    def val_dataloader(self):
+    def val_dataloader(self) -> DataLoader[Any]:
+        val_bs = self.dataset_handler.val_batch_size
+        if val_bs is None:
+            val_bs = self.dataset_handler.batch_size
         return self.strategy.val_dataloader(
             self.tokenizer,
-            batch_size=self.dataset_handler.batch_size,
+            batch_size=val_bs,
         )
