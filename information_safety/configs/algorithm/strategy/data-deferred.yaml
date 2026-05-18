@@ -3,6 +3,7 @@ lr: 0.001
 r: 1
 lora_alpha: 8
 lora_dropout: 0.0
+gradient_checkpointing: false
 adapter_root: ${oc.env:ADAPTER_ROOT,???}
 eval_queue_root: ${oc.env:EVAL_QUEUE_ROOT,???}
 base_model: ${algorithm.model.pretrained_model_name_or_path}
