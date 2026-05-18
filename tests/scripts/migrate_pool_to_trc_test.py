@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from scripts.migrate_pool_to_trc import (
+    _build_container_cmd,
     _build_sync_container_cmd,
     _ensure_trc_synced,
     _wait_for_eai_job,
@@ -85,6 +86,21 @@ def test_is_hf_hosted_spec_rejects_network_scratch_args() -> None:
     assert not is_hf_hosted_spec(spec)
 
 
+def test_build_container_cmd_exports_hf_offline_flags() -> None:
+    spec = {
+        "id": "abc123",
+        "command": [
+            "python",
+            "information_safety/main.py",
+            "experiment=finetune-with-strategy",
+            "algorithm.model.pretrained_model_name_or_path=Qwen/Qwen3-4B",
+        ],
+    }
+    cmd = _build_container_cmd(spec)
+    assert "export HF_HUB_OFFLINE=1" in cmd
+    assert "export HF_DATASETS_OFFLINE=1" in cmd
+
+
 def test_pool_job_name_includes_spec_id_and_epoch() -> None:
     assert (
         pool_job_name("004d4a94a0fd476c", epoch=1778991031)
@@ -92,10 +108,16 @@ def test_pool_job_name_includes_spec_id_and_epoch() -> None:
     )
 
 
-def test_is_hf_hosted_spec_raises_when_model_override_missing() -> None:
-    spec = {"id": "broken", "command": ["python", "main.py"]}
-    with pytest.raises(ValueError, match="pretrained_model_name_or_path"):
-        is_hf_hosted_spec(spec)
+def test_is_hf_hosted_spec_returns_false_for_attack_opt_spec() -> None:
+    spec = {
+        "id": "atk",
+        "command": [
+            "bash", "slurm/attack-adversariallm.sh",
+            "--target-model", "Meta-Llama-3-8B-Instruct",
+            "--attack", "gcg",
+        ],
+    }
+    assert is_hf_hosted_spec(spec) is False
 
 
 def test_main_filters_to_hf_hosted_only(tmp_path: Path) -> None:
@@ -333,6 +355,27 @@ def test_rewrite_defense_paths_swaps_local_defense_for_hf_repo() -> None:
     )
     for token in rewritten["command"]:
         assert "/scratch/" not in token
+
+
+def test_rewrite_defense_paths_swaps_mila_scratch_defense_for_hf_repo() -> None:
+    spec = {
+        "command": [
+            "python",
+            "main.py",
+            "algorithm.model.pretrained_model_name_or_path="
+            "/network/scratch/b/brownet/information-safety/defenses/"
+            "cb-wmdp-Llama-3.1-8B-Instruct-bfbf3e38793c",
+            "algorithm/dataset_handler=wmdp",
+        ],
+    }
+    rewritten = rewrite_defense_paths(spec)
+    assert (
+        "algorithm.model.pretrained_model_name_or_path="
+        "tvergara/cb-wmdp-Llama-3.1-8B-Instruct-bfbf3e38793c"
+        in rewritten["command"]
+    )
+    for token in rewritten["command"]:
+        assert "/network/scratch/" not in token
 
 
 def test_rewrite_defense_paths_leaves_hf_models_alone() -> None:

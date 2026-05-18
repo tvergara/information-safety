@@ -46,7 +46,10 @@ __all__ = [
 ]
 
 TRC_INFORMATION_SAFETY_VENV = "/work/envs/information-safety/.venv"
-DEFENSE_LOCAL_PREFIX = "/scratch/t/tvergara/information-safety/defenses/"
+DEFENSE_LOCAL_PREFIXES = (
+    "/scratch/t/tvergara/information-safety/defenses/",
+    "/network/scratch/b/brownet/information-safety/defenses/",
+)
 DEFENSE_HF_NAMESPACE = "tvergara"
 DATASET_HANDLER_PREFIX = "algorithm/dataset_handler="
 TRC_RESULTS_FILE = f"{TRC_BASE_DIR}/main/final-results.jsonl"
@@ -79,9 +82,11 @@ def rewrite_defense_paths(spec: dict[str, Any]) -> dict[str, Any]:
     for token in spec["command"]:
         if token.startswith(_HF_MODEL_PREFIX):
             value = token[len(_HF_MODEL_PREFIX):]
-            if value.startswith(DEFENSE_LOCAL_PREFIX):
-                defense_name = value[len(DEFENSE_LOCAL_PREFIX):].rstrip("/")
-                token = f"{_HF_MODEL_PREFIX}{DEFENSE_HF_NAMESPACE}/{defense_name}"
+            for prefix in DEFENSE_LOCAL_PREFIXES:
+                if value.startswith(prefix):
+                    defense_name = value[len(prefix):].rstrip("/")
+                    token = f"{_HF_MODEL_PREFIX}{DEFENSE_HF_NAMESPACE}/{defense_name}"
+                    break
         new_command.append(token)
     return {**spec, "command": new_command}
 
@@ -96,9 +101,7 @@ def is_hf_hosted_spec(spec: dict[str, Any]) -> bool:
         elif "=/scratch/" in token or "=/network/" in token:
             return False
     if not saw_model_override:
-        raise ValueError(
-            f"spec {spec.get('id', '?')} has no {_HF_MODEL_PREFIX} override"
-        )
+        return False
     return True
 
 
@@ -140,6 +143,8 @@ def _build_container_cmd(spec: dict[str, Any]) -> str:
         f"export GENERATIONS_DIR={TRC_GENERATIONS_DIR}",
         f"export HF_HOME={TRC_HF_HOME}",
         f"export HF_HUB_CACHE={TRC_HF_HOME}/hub",
+        "export HF_HUB_OFFLINE=1",
+        "export HF_DATASETS_OFFLINE=1",
         f"source {TRC_INFORMATION_SAFETY_VENV}/bin/activate",
         spec_cmd,
     ])
