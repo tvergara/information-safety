@@ -7,6 +7,7 @@ schema, and completions writing.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -297,6 +298,46 @@ class TestParseAnswerLetterIntegration:
         from information_safety.algorithms.dataset_handlers.wmdp import parse_answer_letter
         assert parse_answer_letter("final A") == "A"
         assert parse_answer_letter("B is the answer") == "B"
+
+
+class TestVLLMMxfp4Workaround:
+    """Gpt-oss-20b ships PTX that TRC's CUDA 12.4 driver can't JIT in the MARLIN MXFP4 path.
+
+    Why: TRC H100 nodes run driver 550.127.05 (CUDA 12.4); vLLM 0.19.1's Marlin FP4 MoE
+    kernel was compiled with a newer toolchain. Setting VLLM_MXFP4_USE_MARLIN=0 routes the
+    LoRA-enabled engine to the Triton MoE backend on sm_90 (verified by probe job).
+    """
+
+    def test_configure_vllm_env_for_gpt_oss_sets_marlin_off(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("VLLM_MXFP4_USE_MARLIN", raising=False)
+        run_eval_pool._configure_vllm_env("openai/gpt-oss-20b")
+        assert os.environ["VLLM_MXFP4_USE_MARLIN"] == "0"
+
+    def test_configure_vllm_env_leaves_non_mxfp4_models_alone(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("VLLM_MXFP4_USE_MARLIN", raising=False)
+        run_eval_pool._configure_vllm_env("meta-llama/Meta-Llama-3-8B-Instruct")
+        assert "VLLM_MXFP4_USE_MARLIN" not in os.environ
+
+    def test_run_worker_invokes_configure_for_gpt_oss(
+        self, tmp_path: Path, mock_vllm: dict[str, MagicMock], mock_prompts: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("VLLM_MXFP4_USE_MARLIN", raising=False)
+        _make_pending_spec(tmp_path, base_model="openai/gpt-oss-20b")
+        queue_root = tmp_path / "eval-pool"
+        run_eval_pool.run_worker(
+            queue_root=queue_root,
+            base_model="openai/gpt-oss-20b",
+            adapter_root=tmp_path / "adapters",
+            results_file=tmp_path / "results" / "final-results.jsonl",
+            generations_dir=tmp_path / "generations",
+            keep_adapters=True,
+        )
+        assert os.environ["VLLM_MXFP4_USE_MARLIN"] == "0"
 
 
 class TestRunWorkerNoPending:

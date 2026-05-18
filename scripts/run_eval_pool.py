@@ -17,6 +17,19 @@ from information_safety.algorithms.dataset_handlers.wmdp import (
     parse_answer_letter,
 )
 
+_MXFP4_BASE_MODELS = frozenset({"openai/gpt-oss-20b"})
+
+
+def _configure_vllm_env(base_model: str) -> None:
+    """Route mxfp4 LoRA loads through Triton instead of MARLIN.
+
+    TRC H100 nodes run CUDA driver 550 (12.4); vLLM 0.19.1's Marlin FP4 MoE kernel
+    ships PTX from a newer toolchain that the driver cannot JIT, crashing during
+    `prepare_moe_mxfp4_layer_for_marlin`. Triton on sm_90 has no such constraint.
+    """
+    if base_model in _MXFP4_BASE_MODELS:
+        os.environ["VLLM_MXFP4_USE_MARLIN"] = "0"
+
 
 def _load_vllm() -> tuple[Any, Any, Any]:
     from vllm import LLM, SamplingParams
@@ -237,6 +250,7 @@ def run_worker(
     if not any(_spec_base_model(p) == base_model for p in pending_dir.glob("*.json")):
         return
 
+    _configure_vllm_env(base_model)
     llm_cls, sampling_params_cls, lora_request_cls = _load_vllm()
     llm = llm_cls(
         model=base_model,
