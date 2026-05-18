@@ -96,9 +96,7 @@ def is_hf_hosted_spec(spec: dict[str, Any]) -> bool:
         elif "=/scratch/" in token or "=/network/" in token:
             return False
     if not saw_model_override:
-        raise ValueError(
-            f"spec {spec.get('id', '?')} has no {_HF_MODEL_PREFIX} override"
-        )
+        return False
     return True
 
 

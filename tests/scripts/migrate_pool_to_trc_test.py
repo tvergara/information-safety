@@ -108,10 +108,16 @@ def test_pool_job_name_includes_spec_id_and_epoch() -> None:
     )
 
 
-def test_is_hf_hosted_spec_raises_when_model_override_missing() -> None:
-    spec = {"id": "broken", "command": ["python", "main.py"]}
-    with pytest.raises(ValueError, match="pretrained_model_name_or_path"):
-        is_hf_hosted_spec(spec)
+def test_is_hf_hosted_spec_returns_false_for_attack_opt_spec() -> None:
+    spec = {
+        "id": "atk",
+        "command": [
+            "bash", "slurm/attack-adversariallm.sh",
+            "--target-model", "Meta-Llama-3-8B-Instruct",
+            "--attack", "gcg",
+        ],
+    }
+    assert is_hf_hosted_spec(spec) is False
 
 
 def test_main_filters_to_hf_hosted_only(tmp_path: Path) -> None:
