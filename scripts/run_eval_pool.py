@@ -12,13 +12,16 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from vllm import LLM, SamplingParams
-from vllm.lora.request import LoRARequest
-
 from information_safety.algorithms.dataset_handlers.wmdp import (
     WMDPHandler,
     parse_answer_letter,
 )
+
+
+def _load_vllm() -> tuple[Any, Any, Any]:
+    from vllm import LLM, SamplingParams
+    from vllm.lora.request import LoRARequest
+    return LLM, SamplingParams, LoRARequest
 
 
 def ensure_eval_queue_dirs(queue_root: Path) -> None:
@@ -135,10 +138,11 @@ def _eval_one(
     prompts: list[str],
     label_jsons: list[str],
     sampling_params: Any,
+    lora_request_cls: Any,
     lora_int_id: int,
     max_new_tokens: int,
 ) -> tuple[float, list[str], list[str | None], list[bool], list[dict[str, Any]]]:
-    lora_request = LoRARequest(
+    lora_request = lora_request_cls(
         lora_name=f"{spec['spec_id']}_ep{spec['epoch']}",
         lora_int_id=lora_int_id,
         lora_path=spec["adapter_path"],
@@ -160,6 +164,7 @@ def _process_one_spec(
     queue_root: Path,
     llm: Any,
     sampling_params: Any,
+    lora_request_cls: Any,
     prompts: list[str],
     label_jsons: list[str],
     results_file: Path,
@@ -174,6 +179,7 @@ def _process_one_spec(
             llm, spec,
             prompts=prompts, label_jsons=label_jsons,
             sampling_params=sampling_params,
+            lora_request_cls=lora_request_cls,
             lora_int_id=lora_int_id,
             max_new_tokens=max_new_tokens,
         )
@@ -218,13 +224,14 @@ def run_worker(
     if not any(pending_dir.glob("*.json")):
         return
 
-    llm = LLM(
+    llm_cls, sampling_params_cls, lora_request_cls = _load_vllm()
+    llm = llm_cls(
         model=base_model,
         enable_lora=True,
         max_lora_rank=max_lora_rank,
         gpu_memory_utilization=gpu_memory_utilization,
     )
-    sampling_params = SamplingParams(temperature=0.0, max_tokens=max_new_tokens)
+    sampling_params = sampling_params_cls(temperature=0.0, max_tokens=max_new_tokens)
     prompts, label_jsons = load_wmdp_val_prompts(base_model)
 
     pool_id = os.environ.get("SLURM_JOB_ID") or f"local-{os.getpid()}"
@@ -248,6 +255,7 @@ def run_worker(
             queue_root=queue_root,
             llm=llm,
             sampling_params=sampling_params,
+            lora_request_cls=lora_request_cls,
             prompts=prompts,
             label_jsons=label_jsons,
             results_file=results_file,
