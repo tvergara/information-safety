@@ -140,6 +140,8 @@ def _build_container_cmd(spec: dict[str, Any]) -> str:
         f"export GENERATIONS_DIR={TRC_GENERATIONS_DIR}",
         f"export HF_HOME={TRC_HF_HOME}",
         f"export HF_HUB_CACHE={TRC_HF_HOME}/hub",
+        "export HF_HUB_OFFLINE=1",
+        "export HF_DATASETS_OFFLINE=1",
         f"source {TRC_INFORMATION_SAFETY_VENV}/bin/activate",
         spec_cmd,
     ])

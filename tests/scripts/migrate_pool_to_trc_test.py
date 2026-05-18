@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from scripts.migrate_pool_to_trc import (
+    _build_container_cmd,
     _build_sync_container_cmd,
     _ensure_trc_synced,
     _wait_for_eai_job,
@@ -83,6 +84,21 @@ def test_is_hf_hosted_spec_rejects_network_scratch_args() -> None:
         ]
     }
     assert not is_hf_hosted_spec(spec)
+
+
+def test_build_container_cmd_exports_hf_offline_flags() -> None:
+    spec = {
+        "id": "abc123",
+        "command": [
+            "python",
+            "information_safety/main.py",
+            "experiment=finetune-with-strategy",
+            "algorithm.model.pretrained_model_name_or_path=Qwen/Qwen3-4B",
+        ],
+    }
+    cmd = _build_container_cmd(spec)
+    assert "export HF_HUB_OFFLINE=1" in cmd
+    assert "export HF_DATASETS_OFFLINE=1" in cmd
 
 
 def test_pool_job_name_includes_spec_id_and_epoch() -> None:
