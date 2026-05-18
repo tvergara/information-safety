@@ -46,7 +46,10 @@ __all__ = [
 ]
 
 TRC_INFORMATION_SAFETY_VENV = "/work/envs/information-safety/.venv"
-DEFENSE_LOCAL_PREFIX = "/scratch/t/tvergara/information-safety/defenses/"
+DEFENSE_LOCAL_PREFIXES = (
+    "/scratch/t/tvergara/information-safety/defenses/",
+    "/network/scratch/b/brownet/information-safety/defenses/",
+)
 DEFENSE_HF_NAMESPACE = "tvergara"
 DATASET_HANDLER_PREFIX = "algorithm/dataset_handler="
 TRC_RESULTS_FILE = f"{TRC_BASE_DIR}/main/final-results.jsonl"
@@ -79,9 +82,11 @@ def rewrite_defense_paths(spec: dict[str, Any]) -> dict[str, Any]:
     for token in spec["command"]:
         if token.startswith(_HF_MODEL_PREFIX):
             value = token[len(_HF_MODEL_PREFIX):]
-            if value.startswith(DEFENSE_LOCAL_PREFIX):
-                defense_name = value[len(DEFENSE_LOCAL_PREFIX):].rstrip("/")
-                token = f"{_HF_MODEL_PREFIX}{DEFENSE_HF_NAMESPACE}/{defense_name}"
+            for prefix in DEFENSE_LOCAL_PREFIXES:
+                if value.startswith(prefix):
+                    defense_name = value[len(prefix):].rstrip("/")
+                    token = f"{_HF_MODEL_PREFIX}{DEFENSE_HF_NAMESPACE}/{defense_name}"
+                    break
         new_command.append(token)
     return {**spec, "command": new_command}
 

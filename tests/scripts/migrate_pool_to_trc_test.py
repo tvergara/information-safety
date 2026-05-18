@@ -357,6 +357,27 @@ def test_rewrite_defense_paths_swaps_local_defense_for_hf_repo() -> None:
         assert "/scratch/" not in token
 
 
+def test_rewrite_defense_paths_swaps_mila_scratch_defense_for_hf_repo() -> None:
+    spec = {
+        "command": [
+            "python",
+            "main.py",
+            "algorithm.model.pretrained_model_name_or_path="
+            "/network/scratch/b/brownet/information-safety/defenses/"
+            "cb-wmdp-Llama-3.1-8B-Instruct-bfbf3e38793c",
+            "algorithm/dataset_handler=wmdp",
+        ],
+    }
+    rewritten = rewrite_defense_paths(spec)
+    assert (
+        "algorithm.model.pretrained_model_name_or_path="
+        "tvergara/cb-wmdp-Llama-3.1-8B-Instruct-bfbf3e38793c"
+        in rewritten["command"]
+    )
+    for token in rewritten["command"]:
+        assert "/network/scratch/" not in token
+
+
 def test_rewrite_defense_paths_leaves_hf_models_alone() -> None:
     spec = {
         "command": [
