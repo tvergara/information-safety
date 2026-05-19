@@ -49,6 +49,14 @@ class BaseStrategy(ABC):
     def configure_optimizers(self, model: Any) -> torch.optim.Optimizer:
         """Return the optimizer for the trainable parameters."""
 
+    def attack_flops_for(self, meta: dict[str, Any]) -> int:
+        """Per-example attack FLOPs incurred before eval-time generation."""
+        return 0
+
+    def eval_forward_flops(self, num_params: int, n_input: int, n_output: int) -> int:
+        """Per-example eval-time forward-pass FLOPs (2 * N * (n_in + n_out))."""
+        return 2 * num_params * (n_input + n_output)
+
     def training_step(self, model: Any, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         """Default training step: forward pass, return loss."""
         outputs = model(**{k: v for k, v in batch.items() if k != "labels"}, labels=batch["labels"])
@@ -61,8 +69,8 @@ class BaseStrategy(ABC):
         batch: dict,
         handler: BaseDatasetHandler,
     ) -> tuple[int, int]:
-        """Default validation step: delegate to handler."""
-        return handler.validate_batch(model, tokenizer, batch)
+        """Default validation step: delegate to handler, passing ``self`` for FLOPs hooks."""
+        return handler.validate_batch(model, tokenizer, batch, self)
 
     def on_validation_epoch_end(
         self,

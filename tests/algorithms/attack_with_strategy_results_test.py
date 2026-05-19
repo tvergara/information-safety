@@ -166,7 +166,7 @@ class TestResultsTracking:
     ) -> None:
         result_file = str(tmp_path / "results.jsonl")
         module = self._make_module(tmp_path, result_file=result_file)
-        module.strategy.defers_eval = True
+        cast(MagicMock, module.strategy).defers_eval = True
 
         mock_trainer = MagicMock()
         mock_trainer.logger = None

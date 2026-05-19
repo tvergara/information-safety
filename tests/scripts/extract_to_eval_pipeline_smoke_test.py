@@ -113,7 +113,7 @@ def test_extract_to_eval_pipeline_smoke(tmp_path: Path) -> None:
     correct, total = strategy.validation_step(model, tokenizer, batch, handler)
     assert total == 2
 
-    recorded_labels, recorded_completions = (
+    recorded_labels, recorded_completions, _ = (
         handler.record_precomputed_completions.call_args[0]
     )
     assert len(recorded_labels) == 2

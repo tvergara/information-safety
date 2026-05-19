@@ -114,6 +114,7 @@ class EvilMathHandler(BaseDatasetHandler):
         model: Any,
         tokenizer: PreTrainedTokenizerBase,
         batch: dict,
+        strategy: Any,
     ) -> tuple[int, int]:
         """Generate responses, extract final integer answer, compare to ground truth."""
         input_ids = batch["input_ids"]
@@ -145,7 +146,6 @@ class EvilMathHandler(BaseDatasetHandler):
                 correct += 1
             n_input = attention_mask[i].sum().item()
             n_output = (new_token_ids[i] != pad_token_id).sum().item()
-            eval_flops = 2 * num_params * (n_input + n_output)
             self._completions.append({
                 "question": meta["question"],
                 "correct_answer": correct_answer,
@@ -153,11 +153,37 @@ class EvilMathHandler(BaseDatasetHandler):
                 "response": gen_text,
                 "predicted_answer": predicted,
                 "correct": is_correct,
-                "eval_flops": eval_flops,
+                "eval_flops": strategy.eval_forward_flops(num_params, n_input, n_output),
+                "attack_flops": strategy.attack_flops_for(meta),
                 "pareto_step_idx": meta.get("pareto_step_idx", 0),
             })
 
         return correct, len(generated_texts)
+
+    def record_precomputed_completions(
+        self, metadata_strs: list[str], completions: list[str], strategy: Any,
+    ) -> tuple[int, int]:
+        """Record stored attack completions; eval-time FLOPs are 0 since no generate is called."""
+        correct = 0
+        for meta_str, completion in zip(metadata_strs, completions):
+            meta = json.loads(meta_str)
+            correct_answer = meta["correct_answer"]
+            predicted = extract_numerical_answer(completion)
+            is_correct = predicted is not None and predicted == correct_answer
+            if is_correct:
+                correct += 1
+            self._completions.append({
+                "question": meta["question"],
+                "correct_answer": correct_answer,
+                "original_question": meta["original_question"],
+                "response": completion,
+                "predicted_answer": predicted,
+                "correct": is_correct,
+                "eval_flops": 0,
+                "attack_flops": strategy.attack_flops_for(meta),
+                "pareto_step_idx": meta.get("pareto_step_idx", 0),
+            })
+        return correct, len(completions)
 
     def save_completions(self, eval_run_id: str) -> None:
         """Write accumulated completions to disk as JSONL files."""
@@ -176,13 +202,15 @@ class EvilMathHandler(BaseDatasetHandler):
 
         with open(run_dir / "responses.jsonl", "w") as f:
             for entry in self._completions:
+                dependent_flops = entry["attack_flops"] + entry["eval_flops"]
                 row = {
                     "question": entry["question"],
                     "response": entry["response"],
                     "predicted_answer": entry["predicted_answer"],
                     "correct": entry["correct"],
-                    "dependent_flops": entry["eval_flops"],
+                    "dependent_flops": dependent_flops,
                     "pareto_step_idx": entry["pareto_step_idx"],
+                    "attack_flops": entry["attack_flops"],
                 }
                 f.write(json.dumps(row) + "\n")
 

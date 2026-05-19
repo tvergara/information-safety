@@ -39,6 +39,7 @@ class BaseDatasetHandler(ABC):
         model: Any,
         tokenizer: PreTrainedTokenizerBase,
         batch: dict,
+        strategy: Any,
     ) -> tuple[int, int]:
         """Validate a batch and return (num_correct, num_total)."""
 
@@ -60,12 +61,11 @@ class BaseDatasetHandler(ABC):
         return {}
 
     def record_precomputed_completions(
-        self, metadata_strs: list[str], completions: list[str]
+        self, metadata_strs: list[str], completions: list[str], strategy: Any,
     ) -> tuple[int, int]:
         """Record stored attack completions without running ``model.generate``.
 
-        Handlers that support precomputed-prompt strategies must override this. The default raises
-        so misuse fails loudly instead of silently dropping data.
+        Handlers that support precomputed-prompt strategies must override this.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not support precomputed completions"
