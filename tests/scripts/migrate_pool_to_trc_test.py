@@ -1,4 +1,4 @@
-"""Tests for migrate_pool_to_trc.py — Tamia pending → TRC eai jobs."""
+"""Tests for migrate_pool_to_trc.py — Mila-local pending → TRC eai jobs."""
 
 from __future__ import annotations
 
@@ -161,9 +161,7 @@ def test_main_filters_to_hf_hosted_only(tmp_path: Path) -> None:
     _write_spec(local / "ccc.json", "ccc", "allenai/Olmo-3-7B-Instruct")
     state_file = tmp_path / "state.jsonl"
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="11111111-1111-1111-1111-111111111111\n",
@@ -171,6 +169,7 @@ def test_main_filters_to_hf_hosted_only(tmp_path: Path) -> None:
         )
         main([
             "--queue-root", "run-wmdp-rerun",
+            "--pending-dir", str(local),
             "--count", "5",
             "--state-file", str(state_file),
         ])
@@ -187,12 +186,10 @@ def test_main_honors_count_cap(tmp_path: Path) -> None:
     local = tmp_path / "pending"
     local.mkdir()
     for i in range(5):
-        _write_spec(local / f"{i:02d}.json", f"id{i:02d}", "Qwen/Qwen3-4B")
+        _write_spec(local / f"id{i:02d}.json", f"id{i:02d}", "Qwen/Qwen3-4B")
     state_file = tmp_path / "state.jsonl"
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="11111111-1111-1111-1111-111111111111\n",
@@ -200,6 +197,7 @@ def test_main_honors_count_cap(tmp_path: Path) -> None:
         )
         main([
             "--queue-root", "q",
+            "--pending-dir", str(local),
             "--count", "3",
             "--state-file", str(state_file),
         ])
@@ -213,9 +211,7 @@ def test_main_writes_state_file(tmp_path: Path) -> None:
     _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
     state_file = tmp_path / "state.jsonl"
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="22222222-2222-2222-2222-222222222222\n",
@@ -223,6 +219,7 @@ def test_main_writes_state_file(tmp_path: Path) -> None:
         )
         main([
             "--queue-root", "q",
+            "--pending-dir", str(local),
             "--count", "3",
             "--state-file", str(state_file),
         ])
@@ -253,15 +250,13 @@ def test_main_resubmits_spec_already_in_state_file_with_fresh_epoch(
     }) + "\n")
     monkeypatch.setattr("scripts.migrate_pool_to_trc.time.time", lambda: 2000000000)
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="33333333-3333-3333-3333-333333333333\n",
             stderr="",
         )
-        main(["--queue-root", "q", "--count", "10", "--state-file", str(state_file)])
+        main(["--queue-root", "q", "--pending-dir", str(local), "--count", "10", "--state-file", str(state_file)])
         submit_calls = [
             c for c in run.call_args_list if "eai job submit" in " ".join(c.args[0])
         ]
@@ -281,15 +276,13 @@ def test_main_uses_one_epoch_for_all_submissions_in_one_run(
     times = iter([5555555555, 5555555556, 5555555557, 5555555558])
     monkeypatch.setattr("scripts.migrate_pool_to_trc.time.time", lambda: next(times))
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="33333333-3333-3333-3333-333333333333\n",
             stderr="",
         )
-        main(["--queue-root", "q", "--count", "10", "--state-file", str(state_file)])
+        main(["--queue-root", "q", "--pending-dir", str(local), "--count", "10", "--state-file", str(state_file)])
         submit_calls = [
             c for c in run.call_args_list if "eai job submit" in " ".join(c.args[0])
         ]
@@ -298,76 +291,66 @@ def test_main_uses_one_epoch_for_all_submissions_in_one_run(
         assert "is_pool_bbb_5555555555" in joined_all
 
 
-def test_main_deletes_tamia_pending_after_successful_submit(tmp_path: Path) -> None:
+def test_main_deletes_pending_spec_file_after_successful_submit(tmp_path: Path) -> None:
     local = tmp_path / "pending"
     local.mkdir()
-    _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
+    spec_path = local / "aaa.json"
+    _write_spec(spec_path, "aaa", "Qwen/Qwen3-4B")
     state_file = tmp_path / "state.jsonl"
-    deleted_ids: list[str] = []
 
-    def fake_delete(spec_id: str, queue_root: str) -> None:
-        deleted_ids.append(spec_id)
-
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch(
-        "scripts.migrate_pool_to_trc._delete_tamia_pending", side_effect=fake_delete
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="44444444-4444-4444-4444-444444444444\n",
             stderr="",
         )
-        main(["--queue-root", "q", "--count", "5", "--state-file", str(state_file)])
-        assert deleted_ids == ["aaa"]
+        main([
+            "--queue-root", "q",
+            "--pending-dir", str(local),
+            "--count", "5",
+            "--state-file", str(state_file),
+        ])
+        assert not spec_path.exists()
 
 
-def test_main_skips_tamia_delete_when_eai_submit_fails(tmp_path: Path) -> None:
+def test_main_keeps_pending_spec_file_when_eai_submit_fails(tmp_path: Path) -> None:
     local = tmp_path / "pending"
     local.mkdir()
-    _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
+    spec_path = local / "aaa.json"
+    _write_spec(spec_path, "aaa", "Qwen/Qwen3-4B")
     state_file = tmp_path / "state.jsonl"
-    deleted_ids: list[str] = []
-
-    def fake_delete(spec_id: str, queue_root: str) -> None:
-        deleted_ids.append(spec_id)
 
     with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch(
-        "scripts.migrate_pool_to_trc._delete_tamia_pending", side_effect=fake_delete
-    ), patch(
         "scripts.migrate_pool_to_trc.subprocess.run",
         side_effect=subprocess.CalledProcessError(1, ["ssh", "trc"], "", "boom"),
     ):
         with pytest.raises(subprocess.CalledProcessError):
-            main(["--queue-root", "q", "--count", "5", "--state-file", str(state_file)])
-        assert deleted_ids == []
+            main([
+                "--queue-root", "q",
+                "--pending-dir", str(local),
+                "--count", "5",
+                "--state-file", str(state_file),
+            ])
+        assert spec_path.exists()
 
 
 def test_main_dry_run_does_not_submit_or_delete(tmp_path: Path) -> None:
     local = tmp_path / "pending"
     local.mkdir()
-    _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
+    spec_path = local / "aaa.json"
+    _write_spec(spec_path, "aaa", "Qwen/Qwen3-4B")
     state_file = tmp_path / "state.jsonl"
-    deleted_ids: list[str] = []
 
-    def fake_delete(spec_id: str, queue_root: str) -> None:
-        deleted_ids.append(spec_id)
-
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch(
-        "scripts.migrate_pool_to_trc._delete_tamia_pending", side_effect=fake_delete
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         main([
             "--queue-root", "q",
+            "--pending-dir", str(local),
             "--count", "5",
             "--state-file", str(state_file),
             "--dry-run",
         ])
         run.assert_not_called()
-        assert deleted_ids == []
+        assert spec_path.exists()
         assert not state_file.exists()
 
 
@@ -442,15 +425,13 @@ def test_main_submits_with_non_preemptable(tmp_path: Path) -> None:
     _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
     state_file = tmp_path / "state.jsonl"
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="66666666-6666-6666-6666-666666666666\n",
             stderr="",
         )
-        main(["--queue-root", "q", "--count", "1", "--state-file", str(state_file)])
+        main(["--queue-root", "q", "--pending-dir", str(local), "--count", "1", "--state-file", str(state_file)])
         joined = " ".join(run.call_args_list[0].args[0])
         assert "--non-preemptable" in joined
         assert "--preemptable" not in joined
@@ -466,15 +447,13 @@ def test_main_rewrites_defense_path_and_submits_it(tmp_path: Path) -> None:
     )
     state_file = tmp_path / "state.jsonl"
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="77777777-7777-7777-7777-777777777777\n",
             stderr="",
         )
-        main(["--queue-root", "q", "--count", "5", "--state-file", str(state_file)])
+        main(["--queue-root", "q", "--pending-dir", str(local), "--count", "5", "--state-file", str(state_file)])
         submit_calls = [c for c in run.call_args_list if "eai job submit" in " ".join(c.args[0])]
         assert len(submit_calls) == 1
         joined = " ".join(submit_calls[0].args[0])
@@ -499,9 +478,7 @@ def test_main_include_dataset_filters_other_handlers(tmp_path: Path) -> None:
     }))
     state_file = tmp_path / "state.jsonl"
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="88888888-8888-8888-8888-888888888888\n",
@@ -509,6 +486,7 @@ def test_main_include_dataset_filters_other_handlers(tmp_path: Path) -> None:
         )
         main([
             "--queue-root", "q",
+            "--pending-dir", str(local),
             "--count", "5",
             "--state-file", str(state_file),
             "--include-dataset", "wmdp",
@@ -526,9 +504,7 @@ def test_main_exclude_model_filters_by_model_path(tmp_path: Path) -> None:
     _write_spec(local / "oss.json", "oss", "openai/gpt-oss-20b")
     state_file = tmp_path / "state.jsonl"
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="99999999-9999-9999-9999-999999999999\n",
@@ -536,6 +512,7 @@ def test_main_exclude_model_filters_by_model_path(tmp_path: Path) -> None:
         )
         main([
             "--queue-root", "q",
+            "--pending-dir", str(local),
             "--count", "5",
             "--state-file", str(state_file),
             "--exclude-model", "openai/gpt-oss-20b",
@@ -683,10 +660,8 @@ def test_main_calls_ensure_trc_synced_before_submitting(
             stderr="",
         )
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run", side_effect=record_submit):
-        main(["--queue-root", "q", "--count", "1", "--state-file", str(state_file)])
+    with patch("scripts.migrate_pool_to_trc.subprocess.run", side_effect=record_submit):
+        main(["--queue-root", "q", "--pending-dir", str(local), "--count", "1", "--state-file", str(state_file)])
         assert call_order[0] == "sync"
         assert "submit" in call_order
 
@@ -699,11 +674,10 @@ def test_main_dry_run_skips_sync(
     _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
     state_file = tmp_path / "state.jsonl"
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run"):
+    with patch("scripts.migrate_pool_to_trc.subprocess.run"):
         main([
             "--queue-root", "q",
+            "--pending-dir", str(local),
             "--count", "1",
             "--state-file", str(state_file),
             "--dry-run",
@@ -717,15 +691,13 @@ def test_main_submission_includes_spec_command_and_offline_env(tmp_path: Path) -
     _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
     state_file = tmp_path / "state.jsonl"
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="55555555-5555-5555-5555-555555555555\n",
             stderr="",
         )
-        main(["--queue-root", "q", "--count", "1", "--state-file", str(state_file)])
+        main(["--queue-root", "q", "--pending-dir", str(local), "--count", "1", "--state-file", str(state_file)])
         joined = " ".join(run.call_args_list[0].args[0])
         assert "export SCRATCH=/work/information-safety-results" in joined
         assert "/work/envs/information-safety/.venv/bin/activate" in joined
@@ -742,9 +714,7 @@ def test_main_submission_derives_eval_queue_root_from_queue_root_arg(
     _write_spec(local / "aaa.json", "aaa", "Qwen/Qwen3-4B")
     state_file = tmp_path / "state.jsonl"
 
-    with patch(
-        "scripts.migrate_pool_to_trc._rsync_pending_to_local", return_value=local
-    ), patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
+    with patch("scripts.migrate_pool_to_trc.subprocess.run") as run:
         run.return_value = MagicMock(
             returncode=0,
             stdout="55555555-5555-5555-5555-555555555555\n",
@@ -752,6 +722,7 @@ def test_main_submission_derives_eval_queue_root_from_queue_root_arg(
         )
         main([
             "--queue-root", "run-wmdp-rerun",
+            "--pending-dir", str(local),
             "--count", "1",
             "--state-file", str(state_file),
         ])

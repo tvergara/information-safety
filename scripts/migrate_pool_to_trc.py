@@ -1,23 +1,21 @@
-"""Migrate HF-hosted DataStrategy specs from Tamia's job pool to TRC eai jobs.
+"""Migrate HF-hosted DataStrategy specs from a Mila-local pending dir to TRC eai jobs.
 
-Pulls pending spec files from Tamia (``run-wmdp-rerun/pending/``), filters to
-HF-hosted models (skipping any spec whose model path starts with ``/``), and
-submits each one as an ``eai job submit`` on TRC. Job names are
-``is_pool_<spec_id>_<epoch>`` so re-runs never collide with TRC's
+Reads spec JSONs from a directory on the Mila filesystem (passed via
+``--pending-dir``), filters to HF-hosted models (skipping any spec whose model
+path starts with ``/``), and submits each as an ``eai job submit`` on TRC. Job
+names are ``is_pool_<spec_id>_<epoch>`` so re-runs never collide with TRC's
 ``--enforce-name`` on already-terminated jobs of the same spec.
 
-Idempotent via Tamia pending: specs are deleted from ``pending/`` after a
-successful submit, so re-runs only see specs that still need to ship. The
-local JSONL state file is an append-only audit log
-(``job_id``, ``spec_id``, ``eai_uuid``, ``submitted_at``) and is no longer
-consulted for dedup.
+Idempotent via the pending dir: spec files are deleted after a successful
+submit, so re-runs only see specs that still need to ship. The local JSONL
+state file is an append-only audit log (``job_id``, ``spec_id``, ``eai_uuid``,
+``submitted_at``) and is no longer consulted for dedup.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import shlex
 import subprocess
 import sys
@@ -56,15 +54,6 @@ DEFENSE_HF_NAMESPACE = "tvergara"
 DATASET_HANDLER_PREFIX = "algorithm/dataset_handler="
 TRC_RESULTS_FILE = f"{TRC_BASE_DIR}/main/final-results.jsonl"
 TRC_GENERATIONS_DIR = f"{TRC_BASE_DIR}/main/generations"
-
-TAMIA_ROBOT = "robot.tamia.ecpia.ca"
-TAMIA_QUEUE_ROOT_BASE = "/scratch/t/tvergara/information-safety/job-pool"
-
-LOCAL_PENDING_CACHE = (
-    Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
-    / "information-safety"
-    / "trc-pool-pending"
-)
 
 DEFAULT_STATE_FILE = default_state_file("trc-pool-submitted.jsonl")
 TRC_SYNC_STATE_FILE = default_state_file("trc-synced-sha")
@@ -105,29 +94,6 @@ def is_hf_hosted_spec(spec: dict[str, Any]) -> bool:
     if not saw_model_override:
         return False
     return True
-
-
-def _rsync_pending_to_local(*, queue_root: str) -> Path:
-    target = LOCAL_PENDING_CACHE / queue_root
-    target.mkdir(parents=True, exist_ok=True)
-    remote = f"{TAMIA_ROBOT}:{TAMIA_QUEUE_ROOT_BASE}/{queue_root}/pending/"
-    subprocess.run(
-        ["rsync", "-a", "--delete", remote, f"{target}/"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return target
-
-
-def _delete_tamia_pending(spec_id: str, queue_root: str) -> None:
-    remote_path = f"{TAMIA_QUEUE_ROOT_BASE}/{queue_root}/pending/{spec_id}.json"
-    subprocess.run(
-        ["ssh", TAMIA_ROBOT, f"rm {remote_path}"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
 
 
 def _build_container_cmd(spec: dict[str, Any], *, eval_queue_root: str) -> str:
@@ -237,7 +203,17 @@ def _ensure_trc_synced(*, state_file: Path = TRC_SYNC_STATE_FILE) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--queue-root", required=True)
+    parser.add_argument(
+        "--queue-root",
+        required=True,
+        help="TRC eval-queue subdir name (suffixed with '-deferred').",
+    )
+    parser.add_argument(
+        "--pending-dir",
+        type=Path,
+        required=True,
+        help="Mila-local directory containing pending spec JSONs.",
+    )
     parser.add_argument("--count", type=int, required=True)
     parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE)
     parser.add_argument("--dry-run", action="store_true")
@@ -248,8 +224,7 @@ def main(argv: list[str] | None = None) -> None:
     if not args.dry_run:
         _ensure_trc_synced()
 
-    local = _rsync_pending_to_local(queue_root=args.queue_root)
-    pending_specs = [rewrite_defense_paths(s) for s in _load_pending_specs(local)]
+    pending_specs = [rewrite_defense_paths(s) for s in _load_pending_specs(args.pending_dir)]
     if args.include_dataset is not None:
         wanted = f"{DATASET_HANDLER_PREFIX}{args.include_dataset}"
         pending_specs = [s for s in pending_specs if wanted in s["command"]]
@@ -289,7 +264,7 @@ def main(argv: list[str] | None = None) -> None:
             "eai_uuid": eai_uuid,
             "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         })
-        _delete_tamia_pending(spec_id, args.queue_root)
+        (args.pending_dir / f"{spec_id}.json").unlink()
         print(f"submitted {job_id} -> {eai_uuid}")
         submitted += 1
 
