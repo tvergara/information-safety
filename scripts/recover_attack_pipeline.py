@@ -34,6 +34,7 @@ from scripts.build_job_queue import (
     PRECOMPUTED_TO_ATTACK,
     build_command,
     default_attacks_dir,
+    resolve_suffix_file,
 )
 from scripts.extract_adversariallm_attacks import convert_run_dir
 from scripts.rebuild_merged_jsonl import rebuild_merged_jsonl
@@ -129,9 +130,8 @@ def repend_recoverable_failures(
 ) -> dict[str, int]:
     """Move failed precomputed-strategy jobs back to pending when recoverable.
 
-    Recoverability is decided by ``build_command``: if it can resolve the
-    suffix file (via ``resolve_suffix_file``), the job is re-pendable.
-    Sharing this check with the producer avoids drift between the two paths.
+    A failure is recoverable once the merged suffix file exists at the
+    canonical path under ``attacks_dir``.
 
     ``attempts`` is preserved (not reset) so a job that keeps failing after the
     merged JSONL is in place — e.g., malformed merge content — eventually hits
@@ -149,11 +149,17 @@ def repend_recoverable_failures(
         if experiment not in PRECOMPUTED_TO_ATTACK:
             continue
 
-        try:
-            rebuilt = build_command(config, attacks_dir=attacks_dir)
-        except FileNotFoundError:
+        suffix = resolve_suffix_file(
+            attack=PRECOMPUTED_TO_ATTACK[experiment],
+            model_name=config["model_name"],
+            attacks_dir=attacks_dir,
+            dataset=config["dataset_name"],
+        )
+        if not suffix.exists():
             counts["skipped_no_suffix"] += 1
             continue
+
+        rebuilt = build_command(config, attacks_dir=attacks_dir)
 
         new_payload = {
             "id": payload["id"],

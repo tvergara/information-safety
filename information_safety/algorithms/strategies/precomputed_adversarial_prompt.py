@@ -54,6 +54,7 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
     requires_training_data: ClassVar[bool] = False
     allow_multirow_per_behavior: ClassVar[bool] = False
     suffix_file: str
+    label_behavior_key: str = "behavior"
     _lookup: dict[str, list[dict[str, Any]]] = field(
         default_factory=dict, repr=False
     )
@@ -111,7 +112,7 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
         missing = 0
         for item in val_dataset:
             meta = json.loads(item["labels"])
-            if _normalize_behavior(meta["behavior"]) not in self._lookup:
+            if _normalize_behavior(meta[self.label_behavior_key]) not in self._lookup:
                 missing += 1
 
         if missing:
@@ -143,7 +144,7 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
         stored_completions: list[str] = []
         for meta_str in metadata_strs:
             meta = json.loads(meta_str)
-            key = _normalize_behavior(meta["behavior"])
+            key = _normalize_behavior(meta[self.label_behavior_key])
 
             rows = self._lookup[key]
             for row in rows:

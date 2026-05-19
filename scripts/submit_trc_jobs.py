@@ -24,7 +24,6 @@ from scripts._trc_common import (
 )
 from scripts.build_job_queue import (
     build_command,
-    default_attacks_dir,
     default_results_file,
     iter_missing_configs,
 )
@@ -83,7 +82,6 @@ def build_eai_submit_argv(
         config,
         attacks_dir=Path(f"{TRC_BASE_DIR}/attacks"),
         base_dir=Path(TRC_BASE_DIR),
-        existence_check_attacks_dir=default_attacks_dir(),
         defense_hf_namespace=TRC_DEFENSE_HF_NAMESPACE,
     )
     hydra_str = " ".join(shell_quote(tok) for tok in hydra_cmd)

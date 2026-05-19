@@ -1,2 +1,3 @@
 _target_: information_safety.algorithms.strategies.precomputed_adversarial_prompt.PrecomputedGCGStrategy
 suffix_file: ???
+label_behavior_key: behavior

@@ -259,15 +259,18 @@ On Narval, module names can differ. Before loading CUDA, run `module avail cuda`
 
 ## Cluster Policy
 
-**Full-run experiments must go to Tamia or Nibi, not Mila.**
+**Full-run experiments must go to TRC, not Mila or Tamia/Nibi.**
 
-A "full run" is anything that invokes `python information_safety/main.py` to produce a real result row in the centralized `final-results.jsonl`. These belong on the Compute Canada clusters (Tamia or Nibi).
+A "full run" is anything that invokes `python information_safety/main.py` to produce a real result row in the centralized `final-results.jsonl`. These belong on TRC (the EAI-managed H100 cluster) — both training and eval.
+
+The canonical training-submission flow is: build the deferred-eval queue locally with `scripts/build_job_queue.py --queue-root <local-path> --defer-eval` (writes pending spec JSONs into a Mila-local directory), then run `python scripts/migrate_pool_to_trc.py --queue-root <name> --pending-dir <local-path>/pending --count <N>` to ship them as `eai job submit` jobs. `--queue-root` is only the TRC eval-queue subdir name (suffixed `-deferred`); `--pending-dir` is the Mila filesystem source. Successful submits delete the local spec file, so re-runs are idempotent.
 
 **Mila is still allowed for:**
 
 - `pytest`, `ruff`, `pyright`, `pre-commit`
 - Debug runs with 1–2 examples (e.g., `debug=true` or `algorithm.dataset_handler.max_examples=2`)
 - `slurm/eval-sweep-results.sh` (HarmBench classifier scoring of existing generations — only when no eval jobs are queued/running, since its rewrite clobbers concurrent appends)
+- Building and staging the pending-spec queue locally for the migrator to ship.
 
 **SSH ControlMaster flow.** Tamia and Nibi require keyboard-interactive 2FA via the Compute Canada mobile app. Non-interactive submission only works while a ControlMaster socket is live in `~/.ssh/cm-%r@%h:%p`. Before any Tamia/Nibi work, run:
 

@@ -149,122 +149,26 @@ def test_iter_missing_dedups_data_strategy_distinguishes_max_epochs() -> None:
     assert len(missing) == 2
 
 
-def test_resolve_suffix_file_canonical(tmp_path: Path) -> None:
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
-    canonical = attacks_dir / "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl"
-    canonical.write_text("")
-    resolved = resolve_suffix_file(
-        attack="gcg",
-        model_name="meta-llama/Llama-2-7b-chat-hf",
-        attacks_dir=attacks_dir,
-        dataset="advbench_harmbench",
-    )
-    assert resolved == canonical
-
-
-def test_resolve_suffix_file_picks_dataset_specific_merged(tmp_path: Path) -> None:
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
-    merged = attacks_dir / "gcg-meta-llama_M1-strongreject-merged.jsonl"
-    merged.write_text("")
+def test_resolve_suffix_file_emits_dataset_specific_merged_path() -> None:
+    attacks_dir = Path("/work/information-safety-results/attacks")
     resolved = resolve_suffix_file(
         attack="gcg",
         model_name="meta-llama/M1",
         attacks_dir=attacks_dir,
         dataset="strongreject",
     )
-    assert resolved == merged
+    assert resolved == attacks_dir / "gcg-meta-llama_M1-strongreject-merged.jsonl"
 
 
-def test_resolve_suffix_file_maps_advbench_harmbench_to_harmbench(
-    tmp_path: Path,
-) -> None:
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
-    merged = attacks_dir / "gcg-meta-llama_M1-harmbench-merged.jsonl"
-    merged.write_text("")
+def test_resolve_suffix_file_maps_advbench_harmbench_to_harmbench() -> None:
+    attacks_dir = Path("/work/information-safety-results/attacks")
     resolved = resolve_suffix_file(
         attack="gcg",
         model_name="meta-llama/M1",
         attacks_dir=attacks_dir,
         dataset="advbench_harmbench",
     )
-    assert resolved == merged
-
-
-def test_resolve_suffix_file_does_not_misroute_strongreject_to_harmbench(
-    tmp_path: Path,
-) -> None:
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
-    (attacks_dir / "gcg-meta-llama_M1-harmbench-merged.jsonl").write_text("")
-    resolved = resolve_suffix_file(
-        attack="gcg",
-        model_name="meta-llama/M1",
-        attacks_dir=attacks_dir,
-        dataset="strongreject",
-    )
-    assert resolved is None
-
-
-def test_resolve_suffix_file_legacy_fallback_for_harmbench(tmp_path: Path) -> None:
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
-    legacy = attacks_dir / "gcg-meta-llama_M1-merged.jsonl"
-    legacy.write_text("")
-    resolved = resolve_suffix_file(
-        attack="gcg",
-        model_name="meta-llama/M1",
-        attacks_dir=attacks_dir,
-        dataset="advbench_harmbench",
-    )
-    assert resolved == legacy
-
-
-def test_resolve_suffix_file_legacy_not_used_for_strongreject(
-    tmp_path: Path,
-) -> None:
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
-    (attacks_dir / "gcg-meta-llama_M1-merged.jsonl").write_text("")
-    resolved = resolve_suffix_file(
-        attack="gcg",
-        model_name="meta-llama/M1",
-        attacks_dir=attacks_dir,
-        dataset="strongreject",
-    )
-    assert resolved is None
-
-
-def test_resolve_suffix_file_dataset_specific_wins_over_legacy(
-    tmp_path: Path,
-) -> None:
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
-    legacy = attacks_dir / "gcg-meta-llama_M1-merged.jsonl"
-    new = attacks_dir / "gcg-meta-llama_M1-harmbench-merged.jsonl"
-    legacy.write_text("")
-    new.write_text("")
-    resolved = resolve_suffix_file(
-        attack="gcg",
-        model_name="meta-llama/M1",
-        attacks_dir=attacks_dir,
-        dataset="advbench_harmbench",
-    )
-    assert resolved == new
-
-
-def test_resolve_suffix_file_returns_none_when_missing(tmp_path: Path) -> None:
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
-    resolved = resolve_suffix_file(
-        attack="gcg",
-        model_name="meta-llama/Llama-2-7b-chat-hf",
-        attacks_dir=attacks_dir,
-        dataset="advbench_harmbench",
-    )
-    assert resolved is None
+    assert resolved == attacks_dir / "gcg-meta-llama_M1-harmbench-merged.jsonl"
 
 
 def test_build_command_baseline_emits_expected_overrides() -> None:
@@ -334,16 +238,14 @@ def test_build_command_prompt_attack_skips_grad_ckpt_even_for_gpt_oss_20b() -> N
     )
 
 
-def test_build_command_precomputed_gcg(tmp_path: Path) -> None:
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
-    canonical = attacks_dir / "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl"
-    canonical.write_text("")
+def test_build_command_precomputed_gcg() -> None:
+    attacks_dir = Path("/work/information-safety-results/attacks")
     config = _gcg_config("meta-llama/Llama-2-7b-chat-hf")
     cmd = build_command(config, attacks_dir=attacks_dir)
     assert "experiment=prompt-attack" in cmd
     assert "algorithm/strategy=precomputed_gcg" in cmd
-    assert f"algorithm.strategy.suffix_file={canonical}" in cmd
+    expected = attacks_dir / "gcg-meta-llama_Llama-2-7b-chat-hf-harmbench-merged.jsonl"
+    assert f"algorithm.strategy.suffix_file={expected}" in cmd
 
 
 def test_build_command_trust_remote_code_always_true(tmp_path: Path) -> None:
@@ -433,17 +335,23 @@ def test_write_pending_jobs_is_idempotent(tmp_path: Path) -> None:
     assert [p.name for p in first] == [p.name for p in second]
 
 
-def test_write_pending_jobs_skips_precomputed_when_suffix_missing(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_write_pending_jobs_bakes_remote_suffix_file_path(tmp_path: Path) -> None:
+    """Suffix path comes from --attacks-dir verbatim; no local existence check."""
     queue_root = tmp_path / "queue"
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
+    remote_attacks_dir = Path("/work/information-safety-results/attacks")
     configs = [_gcg_config("meta-llama/Llama-2-7b-chat-hf")]
-    written = write_pending_jobs(configs, queue_root=queue_root, attacks_dir=attacks_dir)
-    assert written == []
-    captured = capsys.readouterr()
-    assert "skip" in captured.out.lower() or "warning" in captured.out.lower()
+    written = write_pending_jobs(
+        configs, queue_root=queue_root, attacks_dir=remote_attacks_dir,
+    )
+    assert len(written) == 1
+    payload = json.loads(written[0].read_text())
+    suffix_token = next(
+        t for t in payload["command"] if t.startswith("algorithm.strategy.suffix_file=")
+    )
+    assert suffix_token == (
+        "algorithm.strategy.suffix_file=/work/information-safety-results/attacks/"
+        "gcg-meta-llama_Llama-2-7b-chat-hf-harmbench-merged.jsonl"
+    )
 
 
 def test_pending_payload_has_attempts_zero(tmp_path: Path) -> None:
@@ -733,36 +641,52 @@ def test_build_command_evilmath_defense_precomputed_uses_evilmath_merged(
     }
     cmd = build_command(config, attacks_dir=attacks_dir)
     assert f"algorithm.strategy.suffix_file={merged}" in cmd
+    assert "algorithm.strategy.label_behavior_key=question" in cmd
 
 
-def test_resolve_suffix_file_wmdp_dataset_identity(tmp_path: Path) -> None:
+def test_build_command_non_evilmath_precomputed_omits_label_key_override(
+    tmp_path: Path,
+) -> None:
+    defense = "sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0"
     attacks_dir = tmp_path / "attacks"
     attacks_dir.mkdir()
-    merged = attacks_dir / "gcg-sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0-wmdp-merged.jsonl"
+    merged = attacks_dir / f"gcg-{defense}-wmdp-merged.jsonl"
     merged.write_text("")
+    config = {
+        "experiment_name": "PrecomputedGCGStrategy",
+        "dataset_name": "wmdp",
+        "model_name": defense,
+        "max_examples": None,
+        "epoch": 0,
+    }
+    cmd = build_command(config, attacks_dir=attacks_dir)
+    assert not any(t.startswith("algorithm.strategy.label_behavior_key=") for t in cmd)
+
+
+def test_resolve_suffix_file_wmdp_dataset_identity() -> None:
+    attacks_dir = Path("/work/information-safety-results/attacks")
     resolved = resolve_suffix_file(
         attack="gcg",
         model_name="sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0",
         attacks_dir=attacks_dir,
         dataset="wmdp",
     )
-    assert resolved == merged
-
-
-def test_resolve_suffix_file_evilmath_dataset_identity(tmp_path: Path) -> None:
-    attacks_dir = tmp_path / "attacks"
-    attacks_dir.mkdir()
-    merged = (
-        attacks_dir / "pair-sft-evilmath-Llama-3.1-8B-Instruct-d650794f965d-evilmath-merged.jsonl"
+    assert resolved == (
+        attacks_dir / "gcg-sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0-wmdp-merged.jsonl"
     )
-    merged.write_text("")
+
+
+def test_resolve_suffix_file_evilmath_dataset_identity() -> None:
+    attacks_dir = Path("/work/information-safety-results/attacks")
     resolved = resolve_suffix_file(
         attack="pair",
         model_name="sft-evilmath-Llama-3.1-8B-Instruct-d650794f965d",
         attacks_dir=attacks_dir,
         dataset="evilmath",
     )
-    assert resolved == merged
+    assert resolved == (
+        attacks_dir / "pair-sft-evilmath-Llama-3.1-8B-Instruct-d650794f965d-evilmath-merged.jsonl"
+    )
 
 
 def test_build_command_base_dir_overrides_train_data_root() -> None:
@@ -838,43 +762,6 @@ def test_build_command_defense_hf_namespace_does_not_affect_base_model() -> None
     )
     assert f"algorithm.model.pretrained_model_name_or_path={model}" in cmd
     assert "algorithm.model.pretrained_model_name_or_path=tvergara/" + model not in cmd
-
-
-def test_build_command_existence_check_attacks_dir_lets_local_validation(
-    tmp_path: Path,
-) -> None:
-    local_attacks_dir = tmp_path / "attacks"
-    local_attacks_dir.mkdir()
-    canonical = local_attacks_dir / "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl"
-    canonical.write_text("")
-    remote_attacks_dir = Path("/work/information-safety-results/attacks")
-    config = _gcg_config("meta-llama/Llama-2-7b-chat-hf")
-    cmd = build_command(
-        config,
-        attacks_dir=remote_attacks_dir,
-        existence_check_attacks_dir=local_attacks_dir,
-    )
-    expected_suffix = (
-        f"algorithm.strategy.suffix_file={remote_attacks_dir}/"
-        "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl"
-    )
-    assert expected_suffix in cmd
-
-
-def test_resolve_suffix_file_uses_existence_check_dir(tmp_path: Path) -> None:
-    local = tmp_path / "local"
-    local.mkdir()
-    remote = Path("/work/information-safety-results/attacks")
-    canonical = local / "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl"
-    canonical.write_text("")
-    resolved = resolve_suffix_file(
-        attack="gcg",
-        model_name="meta-llama/Llama-2-7b-chat-hf",
-        attacks_dir=remote,
-        dataset="advbench_harmbench",
-        existence_check_dir=local,
-    )
-    assert resolved == remote / "gcg-meta-llama_Llama-2-7b-chat-hf.jsonl"
 
 
 def test_defer_eval_specs_have_distinct_ids() -> None:
