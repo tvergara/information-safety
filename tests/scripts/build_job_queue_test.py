@@ -641,6 +641,26 @@ def test_build_command_evilmath_defense_precomputed_uses_evilmath_merged(
     }
     cmd = build_command(config, attacks_dir=attacks_dir)
     assert f"algorithm.strategy.suffix_file={merged}" in cmd
+    assert "algorithm.strategy.label_behavior_key=question" in cmd
+
+
+def test_build_command_non_evilmath_precomputed_omits_label_key_override(
+    tmp_path: Path,
+) -> None:
+    defense = "sft-wmdp-Llama-3.1-8B-Instruct-ec55867d84a0"
+    attacks_dir = tmp_path / "attacks"
+    attacks_dir.mkdir()
+    merged = attacks_dir / f"gcg-{defense}-wmdp-merged.jsonl"
+    merged.write_text("")
+    config = {
+        "experiment_name": "PrecomputedGCGStrategy",
+        "dataset_name": "wmdp",
+        "model_name": defense,
+        "max_examples": None,
+        "epoch": 0,
+    }
+    cmd = build_command(config, attacks_dir=attacks_dir)
+    assert not any(t.startswith("algorithm.strategy.label_behavior_key=") for t in cmd)
 
 
 def test_resolve_suffix_file_wmdp_dataset_identity() -> None:

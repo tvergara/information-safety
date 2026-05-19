@@ -237,6 +237,8 @@ def build_command(
             f"algorithm/strategy={strategy_override}",
             f"algorithm.strategy.suffix_file={suffix}",
         ]
+        if dataset_name == "evilmath":
+            cmd.append("algorithm.strategy.label_behavior_key=question")
     else:
         raise ValueError(f"Unknown experiment_name: {experiment_name}")
 

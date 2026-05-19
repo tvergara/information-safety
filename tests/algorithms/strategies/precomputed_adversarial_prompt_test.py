@@ -30,6 +30,10 @@ def _make_val_dataset(behaviors: list[str]) -> list[dict[str, str]]:
     return [{"labels": json.dumps({"behavior": b, "category": "c"})} for b in behaviors]
 
 
+def _make_evilmath_val_dataset(questions: list[str]) -> list[dict[str, str]]:
+    return [{"labels": json.dumps({"question": q})} for q in questions]
+
+
 class TestSetup:
     def test_setup_loads_suffix_file(self, tmp_path: Path) -> None:
         suffix_path = _make_suffix_file(
@@ -500,6 +504,100 @@ class TestStoredCompletions:
         assert (correct, total) == (0, 2)
         handler.record_precomputed_completions.assert_called_once()
         handler.validate_batch.assert_called_once()
+
+
+class TestLabelBehaviorKey:
+    def test_default_label_key_is_behavior(self, tmp_path: Path) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [{"behavior": "beh_A", "adversarial_prompt": "prompt_A"}],
+        )
+        strategy = PrecomputedAutoDANStrategy(suffix_file=str(suffix_path))
+        assert strategy.label_behavior_key == "behavior"
+
+    def test_setup_uses_label_key_to_match_evilmath_questions(
+        self, tmp_path: Path
+    ) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {"behavior": "evil_q_A", "adversarial_prompt": "prompt_A"},
+                {"behavior": "evil_q_B", "adversarial_prompt": "prompt_B"},
+            ],
+        )
+        strategy = PrecomputedAutoDANStrategy(
+            suffix_file=str(suffix_path), label_behavior_key="question"
+        )
+
+        model = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = MagicMock()
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_evilmath_val_dataset(
+            ["evil_q_A", "evil_q_B"]
+        )
+
+        strategy.setup(model, handler, pl_module)
+        assert set(strategy._lookup) == {"evil_q_a", "evil_q_b"}
+
+    def test_setup_raises_when_label_key_missing_from_label(
+        self, tmp_path: Path
+    ) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [{"behavior": "evil_q_A", "adversarial_prompt": "prompt_A"}],
+        )
+        strategy = PrecomputedAutoDANStrategy(
+            suffix_file=str(suffix_path), label_behavior_key="question"
+        )
+
+        model = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = MagicMock()
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_val_dataset(["evil_q_A"])
+
+        with pytest.raises(KeyError, match="question"):
+            strategy.setup(model, handler, pl_module)
+
+    def test_validation_step_uses_label_key_to_look_up(self, tmp_path: Path) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [
+                {
+                    "behavior": "evil_q_A",
+                    "adversarial_prompt": "prompt_A",
+                    "model_completion": "stored_A",
+                },
+            ],
+        )
+        strategy = PrecomputedAutoDANStrategy(
+            suffix_file=str(suffix_path), label_behavior_key="question"
+        )
+
+        model = MagicMock()
+        tokenizer = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = tokenizer
+        handler_setup = MagicMock()
+        handler_setup.get_val_dataset.return_value = _make_evilmath_val_dataset(
+            ["evil_q_A"]
+        )
+        strategy.setup(model, handler_setup, pl_module)
+
+        batch = {
+            "input_ids": torch.tensor([[1, 2, 3]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+            "labels": [json.dumps({"question": "evil_q_A"})],
+        }
+
+        handler = MagicMock()
+        handler.record_precomputed_completions.return_value = (0, 1)
+        handler.max_length = 500
+
+        correct, total = strategy.validation_step(model, tokenizer, batch, handler)
+        assert (correct, total) == (0, 1)
+        handler.record_precomputed_completions.assert_called_once()
 
 
 class TestSubclassing:
