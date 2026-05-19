@@ -144,37 +144,11 @@ def resolve_suffix_file(
     model_name: str,
     attacks_dir: Path,
     dataset: str,
-    existence_check_dir: Path | None = None,
-) -> Path | None:
-    """Resolve a precomputed-attack suffix file path.
-
-    Order of preference:
-      1. Canonical ``{attack}-{slug}.jsonl`` (dataset-agnostic legacy form).
-      2. Dataset-specific ``{attack}-{slug}-{attack_opt_dataset}-merged.jsonl``,
-         where ``attack_opt_dataset`` is mapped from the eval ``dataset``
-         via ``EVAL_TO_ATTACK_OPT_DATASET`` (identity if unmapped).
-      3. Pre-dataset-suffix legacy ``{attack}-{slug}-merged.jsonl``, but only
-         when ``attack_opt_dataset == "harmbench"`` — those legacy files were
-         optimized against harmbench behaviors. Strongreject must never fall
-         back to this path (it triggers silent 313-missing-behavior failures).
-
-    ``existence_check_dir`` validates presence in a different directory than the
-    one written into the returned path (trc: check Mila SCRATCH, emit /work path).
-    """
+) -> Path:
+    """Return the canonical precomputed-attack suffix file path."""
     slug = _model_slug(model_name)
-    check_dir = existence_check_dir if existence_check_dir is not None else attacks_dir
-    canonical_name = f"{attack}-{slug}.jsonl"
-    if (check_dir / canonical_name).exists():
-        return attacks_dir / canonical_name
     attack_opt_dataset = EVAL_TO_ATTACK_OPT_DATASET.get(dataset, dataset)
-    merged_name = f"{attack}-{slug}-{attack_opt_dataset}-merged.jsonl"
-    if (check_dir / merged_name).exists():
-        return attacks_dir / merged_name
-    if attack_opt_dataset == "harmbench":
-        legacy_name = f"{attack}-{slug}-merged.jsonl"
-        if (check_dir / legacy_name).exists():
-            return attacks_dir / legacy_name
-    return None
+    return attacks_dir / f"{attack}-{slug}-{attack_opt_dataset}-merged.jsonl"
 
 
 def _hydra_value(value: Any) -> str:
@@ -190,7 +164,6 @@ def build_command(
     *,
     attacks_dir: Path,
     base_dir: Path | None = None,
-    existence_check_attacks_dir: Path | None = None,
     defense_hf_namespace: str | None = None,
     defer_eval: bool = False,
 ) -> list[str]:
@@ -198,17 +171,13 @@ def build_command(
 
     ``base_dir`` is the cluster-specific results root ($SCRATCH on Mila/Tamia,
     /work/information-safety-results on trc); it scopes train_data and defense
-    weight paths. ``existence_check_attacks_dir`` lets the Mila-side trc
-    submitter validate suffix files locally while emitting /work paths.
+    weight paths.
 
     ``defense_hf_namespace`` routes defense weights through the HuggingFace Hub
     instead of a local path — when set, defense ``model_name``s in
     ``DEFENSE_IDS`` are emitted as ``f"{namespace}/{model_name}"``. Used by the
     trc submitter so defense weights are pulled from HF rather than from
     ``/work`` (which isn't pre-populated).
-
-    Raises ``FileNotFoundError`` if a precomputed-attack suffix file cannot
-    be resolved.
     """
     experiment_name = config["experiment_name"]
     model_name = config["model_name"]
@@ -262,13 +231,7 @@ def build_command(
             model_name=model_name,
             attacks_dir=attacks_dir,
             dataset=dataset_name,
-            existence_check_dir=existence_check_attacks_dir,
         )
-        if suffix is None:
-            raise FileNotFoundError(
-                f"No suffix file for attack={attack} model={model_name} "
-                f"under {attacks_dir}"
-            )
         cmd += [
             "experiment=prompt-attack",
             f"algorithm/strategy={strategy_override}",
@@ -333,8 +296,7 @@ def write_pending_jobs(
     """Write one ``<id>.json`` per config into ``<queue_root>/pending/``.
 
     Returns the list of files written. Re-running with the same configs is a no-op (deterministic
-    ids → same filenames). Configs whose suffix file cannot be resolved are skipped with a printed
-    warning.
+    ids → same filenames).
 
     When ``defer_eval`` is True, DataStrategy configs are emitted under
     ``algorithm/strategy=data-deferred`` and their spec ID hash includes the
@@ -347,15 +309,10 @@ def write_pending_jobs(
 
     written: list[Path] = []
     for config in configs:
-        try:
-            command = build_command(
-                config, attacks_dir=attacks_dir, base_dir=base_dir,
-                defer_eval=defer_eval,
-            )
-        except FileNotFoundError as exc:
-            print(f"WARNING: skipping config — {exc}")
-            continue
-
+        command = build_command(
+            config, attacks_dir=attacks_dir, base_dir=base_dir,
+            defer_eval=defer_eval,
+        )
         id_payload = dict(config)
         if defer_eval:
             id_payload["defer_eval"] = True

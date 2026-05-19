@@ -34,10 +34,9 @@ def _state_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def _local_attacks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def _local_attacks_dir(tmp_path: Path) -> Path:
     path = tmp_path / "local_attacks"
     path.mkdir()
-    monkeypatch.setattr("scripts.submit_trc_jobs.default_attacks_dir", lambda: path)
     return path
 
 
@@ -376,30 +375,6 @@ def test_iter_pending_includes_precomputed_config_regardless_of_suffix_file(
         state_file=_state_file,
     )
     assert config in pending
-
-
-def test_main_warns_and_skips_when_precomputed_suffix_missing(
-    tmp_path: Path,
-    _state_file: Path,
-    _local_attacks_dir: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    config = {
-        "experiment_name": "PrecomputedGCGStrategy",
-        "dataset_name": "advbench_harmbench",
-        "model_name": "meta-llama/Llama-2-7b-chat-hf",
-        "max_examples": None,
-        "epoch": 0,
-    }
-    empty = tmp_path / "empty.jsonl"
-    empty.write_text("")
-    with patch("scripts.submit_trc_jobs.subprocess.run"):
-        main(
-            ["--dry-run", "--results-file", str(empty)],
-            configs=[config],
-        )
-    captured = capsys.readouterr()
-    assert "skip" in captured.out.lower() or "warning" in captured.out.lower()
 
 
 def test_state_records_eai_uuid(
