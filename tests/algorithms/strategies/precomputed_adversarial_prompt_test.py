@@ -280,7 +280,7 @@ class TestValidationStep:
         ]
         assert content == "prompt_A"
 
-    def test_validation_step_injects_attack_flops_per_behavior(
+    def test_attack_flops_for_returns_per_behavior_value(
         self, tmp_path: Path
     ) -> None:
         suffix_path = _make_suffix_file(
@@ -301,42 +301,14 @@ class TestValidationStep:
         strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
 
         model = MagicMock()
-        tokenizer = MagicMock()
         pl_module = MagicMock()
-        pl_module.tokenizer = tokenizer
-        handler_setup = MagicMock()
-        handler_setup.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
-        strategy.setup(model, handler_setup, pl_module)
-
-        batch = {
-            "input_ids": torch.tensor([[1, 2, 3], [4, 5, 6]]),
-            "attention_mask": torch.tensor([[1, 1, 1], [1, 1, 1]]),
-            "labels": [
-                json.dumps({"behavior": "beh_A", "category": "c"}),
-                json.dumps({"behavior": "beh_B", "category": "c"}),
-            ],
-        }
-        tokenizer.apply_chat_template.return_value = "formatted"
-        tokenizer.return_value = {
-            "input_ids": torch.tensor([[10, 20], [30, 40]]),
-            "attention_mask": torch.tensor([[1, 1], [1, 1]]),
-        }
-        tokenizer.pad_token_id = 0
-
+        pl_module.tokenizer = MagicMock()
         handler = MagicMock()
-        handler.validate_batch.return_value = (0, 2)
-        handler.max_length = 500
+        handler.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_B"])
+        strategy.setup(model, handler, pl_module)
 
-        strategy.validation_step(model, tokenizer, batch, handler)
-
-        modified_batch = handler.validate_batch.call_args[0][2]
-        labels = modified_batch["labels"]
-        attack_flops_by_behavior = {
-            json.loads(label)["behavior"]: json.loads(label)["attack_flops"]
-            for label in labels
-        }
-        assert attack_flops_by_behavior["beh_A"] == 111
-        assert attack_flops_by_behavior["beh_B"] == 222
+        assert strategy.attack_flops_for({"behavior": "beh_A"}) == 111
+        assert strategy.attack_flops_for({"behavior": "beh_B"}) == 222
 
 
 class TestStoredCompletions:
@@ -412,9 +384,12 @@ class TestStoredCompletions:
         assert (correct, total) == (0, 2)
         handler.record_precomputed_completions.assert_called_once()
         handler.validate_batch.assert_not_called()
-        recorded_labels, recorded_completions = handler.record_precomputed_completions.call_args[0]
+        recorded_labels, recorded_completions, recorded_strategy = (
+            handler.record_precomputed_completions.call_args[0]
+        )
         assert sorted(recorded_completions) == ["stored_A", "stored_B"]
         assert len(recorded_labels) == 2
+        assert recorded_strategy is strategy
 
     def test_validation_step_falls_back_to_generate_when_no_completions(
         self, tmp_path: Path
@@ -668,7 +643,7 @@ class TestGCGParetoMultiRow:
         assert (correct, total) == (0, 3)
         handler.record_precomputed_completions.assert_called_once()
         handler.validate_batch.assert_not_called()
-        recorded_labels, recorded_completions = (
+        recorded_labels, recorded_completions, _ = (
             handler.record_precomputed_completions.call_args[0]
         )
         assert sorted(recorded_completions) == [
@@ -677,12 +652,13 @@ class TestGCGParetoMultiRow:
             "stored_A_step2",
         ]
         assert len(recorded_labels) == 3
-        # Each label must carry attack_flops and pareto_step_idx matching its row.
+        # Each label must carry pareto_step_idx matching its row.
         parsed = [json.loads(label) for label in recorded_labels]
         by_idx = {p["pareto_step_idx"]: p for p in parsed}
-        assert by_idx[0]["attack_flops"] == 30
-        assert by_idx[1]["attack_flops"] == 20
-        assert by_idx[2]["attack_flops"] == 10
+        assert set(by_idx) == {0, 1, 2}
+        assert strategy.attack_flops_for(by_idx[0]) == 30
+        assert strategy.attack_flops_for(by_idx[1]) == 20
+        assert strategy.attack_flops_for(by_idx[2]) == 10
 
     def test_precomputed_gcg_strategy_raises_if_completion_missing_on_multirow(
         self, tmp_path: Path

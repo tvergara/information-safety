@@ -100,4 +100,4 @@ class RoleplayStrategy(BaseStrategy):
             "labels": batch["labels"],
         }
 
-        return handler.validate_batch(model, tokenizer, modified_batch)
+        return handler.validate_batch(model, tokenizer, modified_batch, self)

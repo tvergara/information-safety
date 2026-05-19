@@ -129,6 +129,16 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
         dummy = torch.nn.Parameter(torch.empty(0), requires_grad=True)
         return torch.optim.AdamW([dummy])
 
+    def attack_flops_for(self, meta: dict[str, Any]) -> int:
+        key = _normalize_behavior(meta[self.label_behavior_key])
+        pareto_step_idx = meta.get("pareto_step_idx", 0)
+        for row in self._lookup[key]:
+            if row.get("pareto_step_idx", 0) == pareto_step_idx:
+                return row["attack_flops"]
+        raise KeyError(
+            f"no row for behavior {key!r} at pareto_step_idx={pareto_step_idx}"
+        )
+
     def validation_step(
         self,
         model: Any,
@@ -149,15 +159,11 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
             rows = self._lookup[key]
             for row in rows:
                 pareto_step_idx = row.get("pareto_step_idx", 0)
-                meta_with_flops = {
-                    **meta,
-                    "attack_flops": row["attack_flops"],
-                    "pareto_step_idx": pareto_step_idx,
-                }
-                label_with_flops = json.dumps(meta_with_flops)
+                meta_with_idx = {**meta, "pareto_step_idx": pareto_step_idx}
+                label_with_idx = json.dumps(meta_with_idx)
 
                 if "model_completion" in row:
-                    stored_labels.append(label_with_flops)
+                    stored_labels.append(label_with_idx)
                     stored_completions.append(row["model_completion"])
                     continue
 
@@ -169,14 +175,14 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
                     enable_thinking=False,
                 )
                 new_prompts.append(prompt_text)
-                kept_labels.append(label_with_flops)
+                kept_labels.append(label_with_idx)
 
         correct_total = 0
         total_total = 0
 
         if stored_completions:
             correct, total = handler.record_precomputed_completions(
-                stored_labels, stored_completions
+                stored_labels, stored_completions, self,
             )
             correct_total += correct
             total_total += total
@@ -200,7 +206,9 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
                 "labels": kept_labels,
             }
 
-            correct, total = handler.validate_batch(model, tokenizer, modified_batch)
+            correct, total = handler.validate_batch(
+                model, tokenizer, modified_batch, self,
+            )
             correct_total += correct
             total_total += total
 

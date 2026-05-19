@@ -104,9 +104,7 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
                 padding=False,
             ))
             prompts.append(encoded)
-            labels.append(
-                json.dumps({"behavior": behavior, "category": category, "attack_flops": 0})
-            )
+            labels.append(json.dumps({"behavior": behavior, "category": category}))
 
         return GenerationValDataset(prompts, labels)
 
@@ -115,8 +113,9 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
         model: Any,
         tokenizer: PreTrainedTokenizerBase,
         batch: dict,
+        strategy: Any,
     ) -> tuple[int, int]:
-        """Generate completions with the finetuned model and record per-example eval FLOPs."""
+        """Generate completions and record per-example FLOPs via the strategy."""
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         metadata_strs: list[str] = batch["labels"]
@@ -140,20 +139,19 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
             meta = json.loads(meta_str)
             n_input = attention_mask[i].sum().item()
             n_output = (new_token_ids[i] != pad_token_id).sum().item()
-            eval_flops = 2 * num_params * (n_input + n_output)
             self._completions.append({
                 "behavior": meta["behavior"],
                 "category": meta["category"],
                 "response": gen_text,
-                "eval_flops": eval_flops,
-                "attack_flops": meta["attack_flops"],
+                "eval_flops": strategy.eval_forward_flops(num_params, n_input, n_output),
+                "attack_flops": strategy.attack_flops_for(meta),
                 "pareto_step_idx": meta.get("pareto_step_idx", 0),
             })
 
         return 0, len(generated_texts)
 
     def record_precomputed_completions(
-        self, metadata_strs: list[str], completions: list[str]
+        self, metadata_strs: list[str], completions: list[str], strategy: Any,
     ) -> tuple[int, int]:
         """Record stored attack completions; eval-time FLOPs are 0 since no generate is called."""
         for meta_str, completion in zip(metadata_strs, completions):
@@ -163,7 +161,7 @@ class AdvBenchHarmBenchHandler(BaseDatasetHandler):
                 "category": meta["category"],
                 "response": completion,
                 "eval_flops": 0,
-                "attack_flops": meta["attack_flops"],
+                "attack_flops": strategy.attack_flops_for(meta),
                 "pareto_step_idx": meta.get("pareto_step_idx", 0),
             })
         return 0, len(completions)

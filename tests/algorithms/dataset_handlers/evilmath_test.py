@@ -14,6 +14,7 @@ from information_safety.algorithms.dataset_handlers.evilmath import (
     EvilMathHandler,
     extract_numerical_answer,
 )
+from tests.algorithms._fakes import FakeStrategy
 
 
 def _make_tokenizer() -> MagicMock:
@@ -259,7 +260,9 @@ class TestValidateBatch:
         tokenizer.batch_decode = MagicMock(return_value=["the answer is 42 #### 42"])
 
         batch = self._make_batch(1)
-        correct, total = handler.validate_batch(model, tokenizer, batch)
+        correct, total = handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
         assert correct == 1
         assert total == 1
 
@@ -271,7 +274,9 @@ class TestValidateBatch:
         tokenizer.batch_decode = MagicMock(return_value=["I cannot answer that"])
 
         batch = self._make_batch(1)
-        correct, total = handler.validate_batch(model, tokenizer, batch)
+        correct, total = handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
         assert correct == 0
         assert total == 1
 
@@ -283,7 +288,9 @@ class TestValidateBatch:
         tokenizer.batch_decode = MagicMock(return_value=["so 12 plus 30 equals 42"])
 
         batch = self._make_batch(1)
-        correct, total = handler.validate_batch(model, tokenizer, batch)
+        correct, total = handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
         assert correct == 0
         assert total == 1
 
@@ -295,7 +302,9 @@ class TestValidateBatch:
         tokenizer.batch_decode = MagicMock(return_value=["#### 7"])
 
         batch = self._make_batch(1)
-        correct, total = handler.validate_batch(model, tokenizer, batch)
+        correct, total = handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
         assert correct == 0
         assert total == 1
 
@@ -307,7 +316,9 @@ class TestValidateBatch:
         tokenizer.batch_decode = MagicMock(return_value=["#### 42"])
 
         batch = self._make_batch(1)
-        handler.validate_batch(model, tokenizer, batch)
+        handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
 
         call_kwargs = model.generate.call_args[1]
         assert call_kwargs["max_new_tokens"] == 512
@@ -320,7 +331,9 @@ class TestValidateBatch:
         tokenizer.batch_decode = MagicMock(return_value=["#### 42"])
 
         batch = self._make_batch(1)
-        handler.validate_batch(model, tokenizer, batch)
+        handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
         assert len(handler._completions) == 1
 
     def test_validate_batch_records_per_example_eval_flops(self) -> None:
@@ -345,7 +358,9 @@ class TestValidateBatch:
             "labels": [_make_label(42), _make_label(7)],
         }
 
-        handler.validate_batch(model, tokenizer, batch)
+        handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
 
         model.num_parameters.assert_called_once_with(exclude_embeddings=True)
         n_input_expected = [5, 4]
@@ -354,6 +369,31 @@ class TestValidateBatch:
             expected = 2 * 1_000_000 * (n_input_expected[i] + n_output_expected[i])
             assert completion["eval_flops"] == expected
             assert isinstance(completion["eval_flops"], int)
+
+
+class TestRecordPrecomputedCompletions:
+    def test_returns_correct_count(self) -> None:
+        handler = EvilMathHandler(generations_dir="/tmp/gens")
+        labels = [_make_label(42, question="q1"), _make_label(7, question="q2")]
+        completions = ["#### 42", "#### 99"]
+        strategy = FakeStrategy({"q1": 100, "q2": 200}, label_key="question")
+
+        correct, total = handler.record_precomputed_completions(labels, completions, strategy)
+
+        assert correct == 1
+        assert total == 2
+
+    def test_sets_eval_flops_zero_and_records_attack_flops(self) -> None:
+        handler = EvilMathHandler(generations_dir="/tmp/gens")
+        labels = [_make_label(42, question="q1")]
+        strategy = FakeStrategy({"q1": 555}, label_key="question")
+
+        handler.record_precomputed_completions(labels, ["#### 42"], strategy)
+
+        assert handler._completions[0]["eval_flops"] == 0
+        assert handler._completions[0]["attack_flops"] == 555
+        assert handler._completions[0]["response"] == "#### 42"
+        assert handler._completions[0]["correct"] is True
 
 
 class TestSaveCompletions:
@@ -368,6 +408,7 @@ class TestSaveCompletions:
                 "predicted_answer": 42,
                 "correct": True,
                 "eval_flops": 0,
+                "attack_flops": 0,
                 "pareto_step_idx": 0,
             }
         ]
@@ -389,6 +430,7 @@ class TestSaveCompletions:
                 "predicted_answer": 42,
                 "correct": True,
                 "eval_flops": 0,
+                "attack_flops": 0,
                 "pareto_step_idx": 0,
             }
         ]
@@ -414,6 +456,7 @@ class TestSaveCompletions:
                 "predicted_answer": 42,
                 "correct": True,
                 "eval_flops": 0,
+                "attack_flops": 0,
                 "pareto_step_idx": 0,
             }
         ]
@@ -426,7 +469,7 @@ class TestSaveCompletions:
         assert len(rows) == 1
         assert set(rows[0].keys()) == {
             "question", "response", "predicted_answer", "correct", "dependent_flops",
-            "pareto_step_idx",
+            "pareto_step_idx", "attack_flops",
         }
 
     def test_save_completions_writes_dependent_flops(self, tmp_path: Path) -> None:
@@ -440,6 +483,7 @@ class TestSaveCompletions:
                 "predicted_answer": 42,
                 "correct": True,
                 "eval_flops": 1234,
+                "attack_flops": 100,
                 "pareto_step_idx": 0,
             },
             {
@@ -450,6 +494,7 @@ class TestSaveCompletions:
                 "predicted_answer": 8,
                 "correct": False,
                 "eval_flops": 5678,
+                "attack_flops": 0,
                 "pareto_step_idx": 0,
             },
         ]
@@ -461,7 +506,7 @@ class TestSaveCompletions:
             rows = [json.loads(line) for line in f]
 
         assert len(rows) == 2
-        assert rows[0]["dependent_flops"] == 1234
+        assert rows[0]["dependent_flops"] == 1334
         assert rows[1]["dependent_flops"] == 5678
         assert isinstance(rows[0]["dependent_flops"], int)
 
@@ -476,6 +521,7 @@ class TestSaveCompletions:
                 "predicted_answer": 42,
                 "correct": True,
                 "eval_flops": 0,
+                "attack_flops": 0,
                 "pareto_step_idx": 0,
             }
         ]

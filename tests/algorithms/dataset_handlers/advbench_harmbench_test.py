@@ -12,6 +12,7 @@ from information_safety.algorithms.dataset_handlers.advbench_harmbench import (
     AdvBenchHarmBenchHandler,
 )
 from information_safety.algorithms.dataset_handlers.base import GenerationValDataset
+from tests.algorithms._fakes import FakeStrategy
 
 
 class TestGetTrainDataset:
@@ -197,7 +198,7 @@ class TestGetValDataset:
         label = json.loads(item["labels"])
         assert label["behavior"] == "Do X"
         assert label["category"] == "cybercrime"
-        assert label["attack_flops"] == 0
+        assert "attack_flops" not in label
 
 
 class TestValidateBatch:
@@ -220,14 +221,12 @@ class TestValidateBatch:
             "input_ids": torch.tensor([[1, 2, 3], [4, 5, 6]]),
             "attention_mask": torch.tensor([[1, 1, 1], [1, 1, 1]]),
             "labels": [
-                json.dumps({"behavior": "Do X", "category": "cybercrime", "attack_flops": 0}),
-                json.dumps(
-                    {"behavior": "Do Y", "category": "chemical_biological", "attack_flops": 0}
-                ),
+                json.dumps({"behavior": "Do X", "category": "cybercrime"}),
+                json.dumps({"behavior": "Do Y", "category": "chemical_biological"}),
             ],
         }
 
-        correct, total = handler.validate_batch(model, tokenizer, batch)
+        correct, total = handler.validate_batch(model, tokenizer, batch, FakeStrategy({}))
         assert correct == 0
         assert total == 2
 
@@ -249,10 +248,10 @@ class TestValidateBatch:
         batch = {
             "input_ids": torch.tensor([[1, 2, 3]]),
             "attention_mask": torch.tensor([[1, 1, 1]]),
-            "labels": [json.dumps({"behavior": "Do X", "category": "cybercrime", "attack_flops": 0})],
+            "labels": [json.dumps({"behavior": "Do X", "category": "cybercrime"})],
         }
 
-        handler.validate_batch(model, tokenizer, batch)
+        handler.validate_batch(model, tokenizer, batch, FakeStrategy({}))
 
         assert len(handler._completions) == 1
         assert handler._completions[0]["behavior"] == "Do X"
@@ -279,10 +278,10 @@ class TestValidateBatch:
         batch = {
             "input_ids": prompt_ids,
             "attention_mask": torch.tensor([[1, 1, 1]]),
-            "labels": [json.dumps({"behavior": "Do X", "category": "cybercrime", "attack_flops": 0})],
+            "labels": [json.dumps({"behavior": "Do X", "category": "cybercrime"})],
         }
 
-        handler.validate_batch(model, tokenizer, batch)
+        handler.validate_batch(model, tokenizer, batch, FakeStrategy({}))
 
         model.generate.assert_called_once()
         call_kwargs = model.generate.call_args[1]
@@ -312,18 +311,18 @@ class TestValidateBatch:
             "input_ids": torch.tensor([[1, 2, 3], [4, 5, 6]]),
             "attention_mask": torch.tensor([[1, 1, 1], [1, 1, 1]]),
             "labels": [
-                json.dumps({"behavior": "Do X", "category": "c", "attack_flops": 0}),
-                json.dumps({"behavior": "Do Y", "category": "c", "attack_flops": 0}),
+                json.dumps({"behavior": "Do X", "category": "c"}),
+                json.dumps({"behavior": "Do Y", "category": "c"}),
             ],
         }
 
-        handler.validate_batch(model, tokenizer, batch)
+        handler.validate_batch(model, tokenizer, batch, FakeStrategy({}))
 
         assert handler._completions[0]["eval_flops"] == 2 * num_params * (3 + 2)
         assert handler._completions[1]["eval_flops"] == 2 * num_params * (3 + 4)
 
-    def test_validate_batch_carries_attack_flops_from_label(self) -> None:
-        """When label JSON contains attack_flops, it should be recorded on the completion."""
+    def test_validate_batch_carries_attack_flops_from_strategy(self) -> None:
+        """attack_flops on the completion should come from strategy.attack_flops_for(meta)."""
         handler = AdvBenchHarmBenchHandler(
             max_length=500, batch_size=8, generations_dir="/tmp/gens"
         )
@@ -340,11 +339,11 @@ class TestValidateBatch:
             "input_ids": torch.tensor([[1, 2, 3]]),
             "attention_mask": torch.tensor([[1, 1, 1]]),
             "labels": [
-                json.dumps({"behavior": "Do X", "category": "c", "attack_flops": 999}),
+                json.dumps({"behavior": "Do X", "category": "c"}),
             ],
         }
 
-        handler.validate_batch(model, tokenizer, batch)
+        handler.validate_batch(model, tokenizer, batch, FakeStrategy({"Do X": 999}))
 
         assert handler._completions[0]["attack_flops"] == 999
 
@@ -355,12 +354,13 @@ class TestRecordPrecomputedCompletions:
             max_length=500, batch_size=8, generations_dir="/tmp/gens"
         )
         labels = [
-            json.dumps({"behavior": "Do X", "category": "c", "attack_flops": 100}),
-            json.dumps({"behavior": "Do Y", "category": "c", "attack_flops": 200}),
+            json.dumps({"behavior": "Do X", "category": "c"}),
+            json.dumps({"behavior": "Do Y", "category": "c"}),
         ]
         completions = ["resp_a", "resp_b"]
+        strategy = FakeStrategy({"Do X": 100, "Do Y": 200})
 
-        correct, total = handler.record_precomputed_completions(labels, completions)
+        correct, total = handler.record_precomputed_completions(labels, completions, strategy)
 
         assert correct == 0
         assert total == 2
@@ -369,11 +369,10 @@ class TestRecordPrecomputedCompletions:
         handler = AdvBenchHarmBenchHandler(
             max_length=500, batch_size=8, generations_dir="/tmp/gens"
         )
-        labels = [
-            json.dumps({"behavior": "Do X", "category": "c", "attack_flops": 100}),
-        ]
+        labels = [json.dumps({"behavior": "Do X", "category": "c"})]
+        strategy = FakeStrategy({"Do X": 100})
 
-        handler.record_precomputed_completions(labels, ["resp"])
+        handler.record_precomputed_completions(labels, ["resp"], strategy)
 
         assert handler._completions[0]["eval_flops"] == 0
         assert handler._completions[0]["attack_flops"] == 100

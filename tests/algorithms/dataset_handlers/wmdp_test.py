@@ -18,6 +18,7 @@ from information_safety.algorithms.dataset_handlers.wmdp import (
     format_multiple_choice,
     parse_answer_letter,
 )
+from tests.algorithms._fakes import FakeStrategy
 
 SUBJECTS = ["wmdp-bio", "wmdp-chem", "wmdp-cyber"]
 
@@ -524,7 +525,9 @@ class TestValidateBatch:
         batch = self._make_batch(1)
         batch["labels"] = [_make_label("A", "wmdp-bio")]
 
-        correct, total = handler.validate_batch(model, tokenizer, batch)
+        correct, total = handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
         assert correct == 1
         assert total == 1
 
@@ -542,7 +545,9 @@ class TestValidateBatch:
         batch = self._make_batch(1)
         batch["labels"] = [_make_label("A", "wmdp-bio")]
 
-        correct, total = handler.validate_batch(model, tokenizer, batch)
+        correct, total = handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
         assert correct == 0
         assert total == 1
 
@@ -562,7 +567,9 @@ class TestValidateBatch:
         batch = self._make_batch(1)
         batch["labels"] = [_make_label("A", "wmdp-bio")]
 
-        correct, total = handler.validate_batch(model, tokenizer, batch)
+        correct, total = handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
         assert correct == 0
         assert total == 1
 
@@ -581,7 +588,9 @@ class TestValidateBatch:
 
         batch = self._make_batch(3)
 
-        correct, total = handler.validate_batch(model, tokenizer, batch)
+        correct, total = handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
         assert correct == 1
         assert total == 3
 
@@ -599,7 +608,9 @@ class TestValidateBatch:
         batch = self._make_batch(1)
         batch["labels"] = [_make_label("A", "wmdp-bio")]
 
-        handler.validate_batch(model, tokenizer, batch)
+        handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
 
         call_kwargs = model.generate.call_args[1]
         assert call_kwargs["max_new_tokens"] == 1024
@@ -618,7 +629,9 @@ class TestValidateBatch:
         batch = self._make_batch(1)
         batch["labels"] = [_make_label("A", "wmdp-bio")]
 
-        handler.validate_batch(model, tokenizer, batch)
+        handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
         assert len(handler._completions) == 1
 
     def test_validate_batch_records_per_example_eval_flops(self) -> None:
@@ -651,7 +664,9 @@ class TestValidateBatch:
             ],
         }
 
-        handler.validate_batch(model, tokenizer, batch)
+        handler.validate_batch(
+            model, tokenizer, batch, FakeStrategy({}, label_key="question"),
+        )
 
         model.num_parameters.assert_called_once_with(exclude_embeddings=True)
         n_input_expected = [5, 4, 4]
@@ -662,23 +677,38 @@ class TestValidateBatch:
             assert isinstance(completion["eval_flops"], int)
 
 
+def _wmdp_completion(
+    *,
+    question: str = "q1",
+    correct_answer: str = "A",
+    subject: str = "wmdp-bio",
+    response: str = "A",
+    predicted_answer: str | None = "A",
+    correct: bool = True,
+    eval_flops: int = 0,
+    attack_flops: int = 0,
+    pareto_step_idx: int = 0,
+) -> dict[str, Any]:
+    return {
+        "question": question,
+        "choices": ["c0", "c1", "c2", "c3"],
+        "correct_answer": correct_answer,
+        "subject": subject,
+        "response": response,
+        "predicted_answer": predicted_answer,
+        "correct": correct,
+        "eval_flops": eval_flops,
+        "attack_flops": attack_flops,
+        "pareto_step_idx": pareto_step_idx,
+    }
+
+
 class TestSaveCompletions:
     def test_writes_input_data_and_responses_jsonl(self, tmp_path: Path) -> None:
         handler = WMDPHandler(
             max_length=500, batch_size=8, generations_dir=str(tmp_path)
         )
-        handler._completions = [
-            {
-                "question": "q1",
-                "choices": ["c0", "c1", "c2", "c3"],
-                "correct_answer": "A",
-                "subject": "wmdp-bio",
-                "response": "A",
-                "predicted_answer": "A",
-                "correct": True,
-                "eval_flops": 0,
-            }
-        ]
+        handler._completions = [_wmdp_completion()]
 
         handler.save_completions("test-run-456")
 
@@ -690,18 +720,7 @@ class TestSaveCompletions:
         handler = WMDPHandler(
             max_length=500, batch_size=8, generations_dir=str(tmp_path)
         )
-        handler._completions = [
-            {
-                "question": "q1",
-                "choices": ["c0", "c1", "c2", "c3"],
-                "correct_answer": "A",
-                "subject": "wmdp-bio",
-                "response": "A",
-                "predicted_answer": "A",
-                "correct": True,
-                "eval_flops": 0,
-            }
-        ]
+        handler._completions = [_wmdp_completion()]
 
         handler.save_completions("test-run-input")
 
@@ -716,18 +735,7 @@ class TestSaveCompletions:
         handler = WMDPHandler(
             max_length=500, batch_size=8, generations_dir=str(tmp_path)
         )
-        handler._completions = [
-            {
-                "question": "q1",
-                "choices": ["c0", "c1", "c2", "c3"],
-                "correct_answer": "A",
-                "subject": "wmdp-bio",
-                "response": "A",
-                "predicted_answer": "A",
-                "correct": True,
-                "eval_flops": 0,
-            }
-        ]
+        handler._completions = [_wmdp_completion()]
 
         handler.save_completions("test-run-resp")
 
@@ -737,7 +745,8 @@ class TestSaveCompletions:
 
         assert len(rows) == 1
         assert set(rows[0].keys()) == {
-            "question", "response", "predicted_answer", "correct", "dependent_flops"
+            "question", "response", "predicted_answer", "correct", "dependent_flops",
+            "attack_flops", "pareto_step_idx",
         }
 
     def test_save_completions_writes_dependent_flops(self, tmp_path: Path) -> None:
@@ -745,26 +754,12 @@ class TestSaveCompletions:
             max_length=500, batch_size=8, generations_dir=str(tmp_path)
         )
         handler._completions = [
-            {
-                "question": "q1",
-                "choices": ["c0", "c1", "c2", "c3"],
-                "correct_answer": "A",
-                "subject": "wmdp-bio",
-                "response": "A",
-                "predicted_answer": "A",
-                "correct": True,
-                "eval_flops": 1234,
-            },
-            {
-                "question": "q2",
-                "choices": ["c0", "c1", "c2", "c3"],
-                "correct_answer": "B",
-                "subject": "wmdp-chem",
-                "response": "C",
-                "predicted_answer": "C",
-                "correct": False,
-                "eval_flops": 5678,
-            },
+            _wmdp_completion(eval_flops=1234, attack_flops=100),
+            _wmdp_completion(
+                question="q2", correct_answer="B", subject="wmdp-chem",
+                response="C", predicted_answer="C", correct=False,
+                eval_flops=5678,
+            ),
         ]
 
         handler.save_completions("test-run-flops")
@@ -774,7 +769,7 @@ class TestSaveCompletions:
             rows = [json.loads(line) for line in f]
 
         assert len(rows) == 2
-        assert rows[0]["dependent_flops"] == 1234
+        assert rows[0]["dependent_flops"] == 1334
         assert rows[1]["dependent_flops"] == 5678
         assert isinstance(rows[0]["dependent_flops"], int)
 
@@ -783,16 +778,9 @@ class TestSaveCompletions:
             max_length=500, batch_size=8, generations_dir=str(tmp_path)
         )
         handler._completions = [
-            {
-                "question": "q1",
-                "choices": ["c0", "c1", "c2", "c3"],
-                "correct_answer": "A",
-                "subject": "wmdp-bio",
-                "response": "I cannot answer",
-                "predicted_answer": None,
-                "correct": False,
-                "eval_flops": 0,
-            }
+            _wmdp_completion(
+                response="I cannot answer", predicted_answer=None, correct=False,
+            )
         ]
 
         handler.save_completions("test-run-refusal")
@@ -807,18 +795,7 @@ class TestSaveCompletions:
         handler = WMDPHandler(
             max_length=500, batch_size=8, generations_dir=str(tmp_path)
         )
-        handler._completions = [
-            {
-                "question": "q1",
-                "choices": ["c0", "c1", "c2", "c3"],
-                "correct_answer": "A",
-                "subject": "wmdp-bio",
-                "response": "A",
-                "predicted_answer": "A",
-                "correct": True,
-                "eval_flops": 0,
-            }
-        ]
+        handler._completions = [_wmdp_completion()]
 
         handler.save_completions("test-run-reset")
         assert handler._completions == []
