@@ -22,7 +22,7 @@ num_shards="$5"
 prefix="$6"
 
 if [ "$load_cuda" = "1" ]; then
-    source /etc/profile.d/modules.sh 2>/dev/null
+    [ -f /etc/profile.d/modules.sh ] && source /etc/profile.d/modules.sh
     module load cuda/12.4.1
 fi
 
