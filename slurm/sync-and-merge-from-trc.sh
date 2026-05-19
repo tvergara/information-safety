@@ -16,10 +16,11 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd "$script_dir/.." && pwd)"
 
-eval_sweep_jobs="$(squeue -u "$USER" -n eval-sweep --noheader 2>/dev/null || true)"
-if [ -n "$eval_sweep_jobs" ]; then
-    echo "Refusing to merge: eval-sweep job(s) currently in the queue:" >&2
-    echo "$eval_sweep_jobs" >&2
+inflight="$(squeue -u "$USER" --noheader -o "%j" 2>/dev/null \
+    | grep -E '^(eval-sweep|eval-shard-)' || true)"
+if [ -n "$inflight" ]; then
+    echo "Refusing to merge: conflicting eval job(s) currently in the queue:" >&2
+    echo "$inflight" >&2
     echo "Wait for them to finish (or scancel) before re-running." >&2
     exit 1
 fi

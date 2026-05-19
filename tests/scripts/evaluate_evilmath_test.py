@@ -248,6 +248,77 @@ class TestEvaluateResultsFile:
         assert updated[0]["asr"] is None
 
 
+class TestShardedBackfill:
+    def test_shard_mode_writes_delta_and_does_not_modify_results(
+        self, tmp_path: Path
+    ) -> None:
+        gen_base = tmp_path / "generations"
+        gen_base.mkdir()
+        _make_generation_dir(gen_base, "id-a", n_correct=3, n_wrong=2, n_unparsable=0)
+        _make_generation_dir(gen_base, "id-b", n_correct=2, n_wrong=2, n_unparsable=0)
+
+        results_file = tmp_path / "results.jsonl"
+        rows = [
+            {"eval_run_id": "id-a", "dataset_name": "evilmath", "asr": None},
+            {"eval_run_id": "id-b", "dataset_name": "evilmath", "asr": None},
+        ]
+        _write_jsonl(results_file, rows)
+
+        shard_file = tmp_path / "shard.jsonl"
+        evaluate_results_file(
+            str(results_file),
+            generations_base=str(gen_base),
+            shard_index=0,
+            num_shards=1,
+            output_shard_file=str(shard_file),
+        )
+
+        with open(results_file) as f:
+            updated = [json.loads(line) for line in f]
+        assert all(r["asr"] is None for r in updated), (
+            "shard mode must not mutate canonical results"
+        )
+
+        with open(shard_file) as f:
+            delta_records = [json.loads(line) for line in f]
+        ids = {d["eval_run_id"]: d["asr"] for d in delta_records}
+        assert ids == {"id-a": 0.6, "id-b": 0.5}
+
+    def test_shard_filters_by_hash(self, tmp_path: Path) -> None:
+        gen_base = tmp_path / "generations"
+        gen_base.mkdir()
+        # Make many runs so shards split them.
+        run_ids = [f"id-{i}" for i in range(40)]
+        for rid in run_ids:
+            _make_generation_dir(gen_base, rid, n_correct=1, n_wrong=0, n_unparsable=0)
+
+        results_file = tmp_path / "results.jsonl"
+        rows = [
+            {"eval_run_id": rid, "dataset_name": "evilmath", "asr": None}
+            for rid in run_ids
+        ]
+        _write_jsonl(results_file, rows)
+
+        num_shards = 4
+        seen: set[str] = set()
+        for shard_index in range(num_shards):
+            shard_file = tmp_path / f"shard-{shard_index}.jsonl"
+            evaluate_results_file(
+                str(results_file),
+                generations_base=str(gen_base),
+                shard_index=shard_index,
+                num_shards=num_shards,
+                output_shard_file=str(shard_file),
+            )
+            with open(shard_file) as f:
+                this_shard = {json.loads(line)["eval_run_id"] for line in f}
+            # Each run id must appear in exactly one shard.
+            assert seen.isdisjoint(this_shard)
+            seen |= this_shard
+
+        assert seen == set(run_ids)
+
+
 class TestParetoFiltering:
     def test_canonical_asr_only_uses_pareto_step_0_rows(self, tmp_path: Path) -> None:
         gen_base = tmp_path / "generations"

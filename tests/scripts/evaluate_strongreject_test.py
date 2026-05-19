@@ -278,6 +278,59 @@ class TestEvaluateResultsFile:
         mock_load.assert_not_called()
 
 
+class TestShardedBackfill:
+    def _make_run_dir(self, gen_base: Path, run_id: str) -> Path:
+        run_dir = gen_base / run_id
+        run_dir.mkdir(parents=True)
+        (run_dir / "input_data.jsonl").write_text(
+            json.dumps({"behavior": "b", "category": "c"}) + "\n"
+        )
+        (run_dir / "responses.jsonl").write_text(
+            json.dumps({"behavior": "b", "response": "r"}) + "\n"
+        )
+        return run_dir
+
+    def test_shard_mode_writes_delta_and_does_not_modify_results(
+        self, tmp_path: Path
+    ) -> None:
+        gen_base = tmp_path / "gens"
+        self._make_run_dir(gen_base, "id-a")
+        self._make_run_dir(gen_base, "id-b")
+
+        results_file = tmp_path / "results.jsonl"
+        with open(results_file, "w") as f:
+            for rid in ("id-a", "id-b"):
+                f.write(json.dumps(
+                    {"eval_run_id": rid, "dataset_name": "strongreject", "asr": None}
+                ) + "\n")
+
+        shard_file = tmp_path / "shard.jsonl"
+        model, tokenizer = _make_classifier_with_logits(target_token_idx=4)
+
+        with patch(
+            "scripts.evaluate_strongreject.load_classifier",
+            return_value=(model, tokenizer),
+        ):
+            evaluate_results_file(
+                str(results_file),
+                generations_base=str(gen_base),
+                shard_index=0,
+                num_shards=1,
+                output_shard_file=str(shard_file),
+            )
+
+        with open(results_file) as f:
+            updated = [json.loads(line) for line in f]
+        assert all(r["asr"] is None for r in updated)
+
+        with open(shard_file) as f:
+            delta = [json.loads(line) for line in f]
+        ids = {d["eval_run_id"]: d["asr"] for d in delta}
+        assert set(ids.keys()) == {"id-a", "id-b"}
+        for asr in ids.values():
+            assert asr == pytest.approx(1.0)
+
+
 class TestParetoFiltering:
     def test_canonical_asr_only_uses_pareto_step_0_rows(self, tmp_path: Path) -> None:
         gen_base = tmp_path / "gens"
