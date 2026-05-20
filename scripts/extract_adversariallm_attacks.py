@@ -155,7 +155,7 @@ def _dispatch_attack_name(attack_params: dict[str, Any]) -> str:
 def _extract_rows_from_run(
     run_json: dict, run_file: str, attack_name: str, attack_bits: int
 ) -> list[dict[str, Any]]:
-    if len(run_json["runs"][0]["steps"]) < MIN_ATTACK_STEPS:
+    if attack_name != "pair" and len(run_json["runs"][0]["steps"]) < MIN_ATTACK_STEPS:
         return []
     if attack_name == "gcg":
         rows = _extract_gcg_pareto(run_json, run_file)
@@ -183,8 +183,7 @@ def convert_run_dir(run_dir: str, output_file: str) -> None:
     if not run_files:
         raise ValueError(f"No run.json files found under {run_dir}")
 
-    seen: dict[str, str] = {}
-    rows: list[dict[str, Any]] = []
+    behavior_to_rows: dict[str, list[dict[str, Any]]] = {}
     for run_file in run_files:
         with open(run_file) as f:
             run_json = json.load(f)
@@ -201,18 +200,13 @@ def convert_run_dir(run_dir: str, output_file: str) -> None:
         new_rows = _extract_rows_from_run(run_json, run_file, attack_name, attack_bits)
         if not new_rows:
             continue
-        behavior = new_rows[0]["behavior"]
-        if behavior in seen:
-            raise ValueError(
-                f"duplicate behavior across runs: {run_file} and {seen[behavior]}"
-            )
-        seen[behavior] = run_file
-        rows.extend(new_rows)
+        behavior_to_rows[new_rows[0]["behavior"]] = new_rows
 
     os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
     with open(output_file, "w") as f:
-        for row in rows:
-            f.write(json.dumps(row) + "\n")
+        for behavior_rows in behavior_to_rows.values():
+            for row in behavior_rows:
+                f.write(json.dumps(row) + "\n")
 
 
 def main() -> None:

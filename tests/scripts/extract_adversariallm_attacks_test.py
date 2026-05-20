@@ -186,31 +186,6 @@ def test_convert_run_dir_raises_on_empty(tmp_path: Path) -> None:
         convert_run_dir(str(run_dir), str(out_file))
 
 
-def test_convert_run_dir_raises_on_duplicate_behavior(tmp_path: Path) -> None:
-    run_dir = tmp_path / "adv_out"
-    for subdir in ("0", "1"):
-        _write_run_json(
-            run_dir / subdir / "run.json",
-            behavior="beh_A",
-            steps=[
-                {
-                    "step": 0,
-                    "loss": 1.0,
-                    "flops": 10,
-                    "model_input": [
-                        {"role": "user", "content": "beh_A suffix"},
-                        {"role": "assistant", "content": ""},
-                    ],
-                    "model_completions": ["resp"],
-                },
-            ],
-        )
-
-    out_file = tmp_path / "out.jsonl"
-    with pytest.raises(ValueError, match="duplicate behavior"):
-        convert_run_dir(str(run_dir), str(out_file))
-
-
 def test_extract_handles_pair_shaped_runs_with_all_none_losses(tmp_path: Path) -> None:
     """PAIR scores via a judge and sets `loss=None` on every step.
 
@@ -773,3 +748,90 @@ class TestMinAttackStepsFilter:
             rows = [json.loads(line) for line in f if line.strip()]
         behaviors = {r["behavior"] for r in rows}
         assert behaviors == {"beh_long"}
+
+    @pytest.mark.parametrize(
+        ("attack_params", "expected_count"),
+        [
+            (dict(_PAIR_CONFIG), 1),
+            (dict(_AUTODAN_CONFIG), 0),
+        ],
+    )
+    def test_pair_is_exempt_from_min_steps_filter(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        attack_params: dict[str, object],
+        expected_count: int,
+    ) -> None:
+        monkeypatch.setattr(extract_adversariallm_attacks, "MIN_ATTACK_STEPS", 100)
+        run_dir = tmp_path / "adv_out"
+        _write_run_json(
+            run_dir / "0" / "run.json",
+            behavior="beh_A",
+            steps=[_gcg_step(i, 1.0 - 0.1 * i, 10, f"s{i}") for i in range(3)],
+            attack_params=attack_params,
+        )
+
+        out_file = tmp_path / "out.jsonl"
+        convert_run_dir(str(run_dir), str(out_file))
+
+        with open(out_file) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        assert len(rows) == expected_count
+
+
+class TestRetryTimestamps:
+    @pytest.mark.parametrize(
+        "timestamps",
+        [
+            ["2026-05-15/14-48-32", "2026-05-19/06-26-56"],
+            ["2026-05-15/14-48-32", "2026-05-15/22-45-01", "2026-05-19/06-26-56"],
+        ],
+    )
+    def test_latest_timestamp_dir_wins(
+        self, tmp_path: Path, timestamps: list[str]
+    ) -> None:
+        run_dir = tmp_path / "adv_out"
+        for ts in timestamps:
+            day, time = ts.split("/")
+            _write_run_json(
+                run_dir / day / time / "0" / "run.json",
+                behavior="beh_A",
+                steps=[_gcg_step(0, 0.5, 10, ts)],
+            )
+
+        out_file = tmp_path / "out.jsonl"
+        convert_run_dir(str(run_dir), str(out_file))
+
+        with open(out_file) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        assert len(rows) == 1
+        assert rows[0]["adversarial_prompt"] == timestamps[-1]
+
+    def test_disjoint_behaviors_across_timestamps_are_unioned(
+        self, tmp_path: Path
+    ) -> None:
+        run_dir = tmp_path / "adv_out"
+        _write_run_json(
+            run_dir / "2026-05-15" / "14-48-32" / "0" / "run.json",
+            behavior="beh_A",
+            steps=[_gcg_step(0, 1.0, 10, "A_old")],
+        )
+        _write_run_json(
+            run_dir / "2026-05-19" / "06-26-56" / "0" / "run.json",
+            behavior="beh_A",
+            steps=[_gcg_step(0, 0.1, 10, "A_new")],
+        )
+        _write_run_json(
+            run_dir / "2026-05-19" / "06-26-56" / "1" / "run.json",
+            behavior="beh_B",
+            steps=[_gcg_step(0, 0.1, 10, "B_only")],
+        )
+
+        out_file = tmp_path / "out.jsonl"
+        convert_run_dir(str(run_dir), str(out_file))
+
+        with open(out_file) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        by_behavior = {r["behavior"]: r["adversarial_prompt"] for r in rows}
+        assert by_behavior == {"beh_A": "A_new", "beh_B": "B_only"}

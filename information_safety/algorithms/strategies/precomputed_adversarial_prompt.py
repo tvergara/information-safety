@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from logging import getLogger
 from typing import Any, ClassVar
 
 import torch
@@ -24,6 +25,8 @@ from transformers import PreTrainedTokenizerBase
 
 from information_safety.algorithms.dataset_handlers.base import BaseDatasetHandler
 from information_safety.algorithms.strategies.base import BaseStrategy
+
+logger = getLogger(__name__)
 
 
 def _normalize_behavior(behavior: str) -> str:
@@ -109,15 +112,33 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
                     )
 
         val_dataset = handler.get_val_dataset(tokenizer)
-        missing = 0
+        filled = 0
+        total = 0
         for item in val_dataset:
             meta = json.loads(item["labels"])
-            if _normalize_behavior(meta[self.label_behavior_key]) not in self._lookup:
-                missing += 1
+            behavior_text = meta[self.label_behavior_key]
+            key = _normalize_behavior(behavior_text)
+            total += 1
+            if key not in self._lookup:
+                self._lookup[key] = [{
+                    "behavior": behavior_text,
+                    "adversarial_prompt": behavior_text,
+                    "attack_flops": 0,
+                    "attack_bits": self._attack_bits,
+                    "pareto_step_idx": 0,
+                }]
+                filled += 1
 
-        if missing:
+        if filled == total:
             raise ValueError(
-                f"Missing {missing} behavior(s) in suffix_file {self.suffix_file}"
+                f"no overlap between suffix_file {self.suffix_file} and val_dataset "
+                f"({total} behaviors checked, all missing — likely wrong dataset)"
+            )
+        if filled:
+            logger.warning(
+                "[%s] filled %d/%d missing behavior(s) with original-behavior "
+                "fallback from %s",
+                type(self).__name__, filled, total, self.suffix_file,
             )
 
         return model

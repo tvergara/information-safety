@@ -60,10 +60,10 @@ class TestSetup:
         assert strategy._lookup["beh_a"][0]["adversarial_prompt"] == "prompt_A"
         assert strategy._lookup["beh_b"][0]["adversarial_prompt"] == "prompt_B"
 
-    def test_setup_raises_on_missing_behavior(self, tmp_path: Path) -> None:
+    def test_setup_fills_missing_behavior_with_original(self, tmp_path: Path) -> None:
         suffix_path = _make_suffix_file(
             tmp_path,
-            [{"behavior": "beh_A", "adversarial_prompt": "prompt_A"}],
+            [{"behavior": "beh_A", "adversarial_prompt": "prompt_A", "attack_bits": 7}],
         )
         strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
 
@@ -75,7 +75,30 @@ class TestSetup:
         handler = MagicMock()
         handler.get_val_dataset.return_value = _make_val_dataset(["beh_A", "beh_missing"])
 
-        with pytest.raises(ValueError, match="Missing 1 behavior"):
+        strategy.setup(model, handler, pl_module)
+
+        assert strategy._lookup["beh_a"][0]["adversarial_prompt"] == "prompt_A"
+        filled = strategy._lookup["beh_missing"]
+        assert len(filled) == 1
+        assert filled[0]["adversarial_prompt"] == "beh_missing"
+        assert filled[0]["attack_flops"] == 0
+        assert filled[0]["attack_bits"] == 7
+        assert filled[0]["pareto_step_idx"] == 0
+
+    def test_setup_raises_when_every_behavior_missing(self, tmp_path: Path) -> None:
+        suffix_path = _make_suffix_file(
+            tmp_path,
+            [{"behavior": "unrelated", "adversarial_prompt": "p"}],
+        )
+        strategy = PrecomputedGCGStrategy(suffix_file=str(suffix_path))
+
+        model = MagicMock()
+        pl_module = MagicMock()
+        pl_module.tokenizer = MagicMock()
+        handler = MagicMock()
+        handler.get_val_dataset.return_value = _make_val_dataset(["beh_X", "beh_Y"])
+
+        with pytest.raises(ValueError, match="no overlap"):
             strategy.setup(model, handler, pl_module)
 
     def test_setup_matches_across_whitespace_and_case(self, tmp_path: Path) -> None:
