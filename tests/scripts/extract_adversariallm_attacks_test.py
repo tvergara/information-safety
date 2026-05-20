@@ -773,3 +773,33 @@ class TestMinAttackStepsFilter:
             rows = [json.loads(line) for line in f if line.strip()]
         behaviors = {r["behavior"] for r in rows}
         assert behaviors == {"beh_long"}
+
+    @pytest.mark.parametrize(
+        ("attack_params", "expected_count"),
+        [
+            (dict(_PAIR_CONFIG), 1),
+            (dict(_AUTODAN_CONFIG), 0),
+        ],
+    )
+    def test_pair_is_exempt_from_min_steps_filter(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        attack_params: dict[str, object],
+        expected_count: int,
+    ) -> None:
+        monkeypatch.setattr(extract_adversariallm_attacks, "MIN_ATTACK_STEPS", 100)
+        run_dir = tmp_path / "adv_out"
+        _write_run_json(
+            run_dir / "0" / "run.json",
+            behavior="beh_A",
+            steps=[_gcg_step(i, 1.0 - 0.1 * i, 10, f"s{i}") for i in range(3)],
+            attack_params=attack_params,
+        )
+
+        out_file = tmp_path / "out.jsonl"
+        convert_run_dir(str(run_dir), str(out_file))
+
+        with open(out_file) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        assert len(rows) == expected_count

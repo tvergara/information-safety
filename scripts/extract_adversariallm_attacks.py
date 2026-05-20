@@ -155,7 +155,7 @@ def _dispatch_attack_name(attack_params: dict[str, Any]) -> str:
 def _extract_rows_from_run(
     run_json: dict, run_file: str, attack_name: str, attack_bits: int
 ) -> list[dict[str, Any]]:
-    if len(run_json["runs"][0]["steps"]) < MIN_ATTACK_STEPS:
+    if attack_name != "pair" and len(run_json["runs"][0]["steps"]) < MIN_ATTACK_STEPS:
         return []
     if attack_name == "gcg":
         rows = _extract_gcg_pareto(run_json, run_file)
