@@ -138,7 +138,7 @@ def test_backfill_is_idempotent(tmp_path: Path) -> None:
     assert first == second
 
 
-def test_backfill_adds_pareto_step_idx_to_autodan_runs(tmp_path: Path) -> None:
+def test_backfill_emits_autodan_trajectory_rows(tmp_path: Path) -> None:
     adv_root = tmp_path / "adversariallm-outputs"
     attacks_dir = tmp_path / "attacks"
     _make_autodan_layout(adv_root, "autodan-model-data")
@@ -147,8 +147,12 @@ def test_backfill_adds_pareto_step_idx_to_autodan_runs(tmp_path: Path) -> None:
 
     jsonl_path = attacks_dir / "autodan-model-data.jsonl"
     rows = [json.loads(line) for line in jsonl_path.read_text().splitlines()]
-    assert len(rows) == 1
-    assert rows[0]["pareto_step_idx"] == 0
+    assert len(rows) == 3
+    by_idx = {r["pareto_step_idx"]: r for r in rows}
+    assert set(by_idx) == {0, 1, 2}
+    zero = by_idx[0]
+    assert zero["adversarial_prompt"] == "p2"
+    assert zero["attack_flops"] == 60
 
 
 def test_backfill_dry_run_writes_nothing(tmp_path: Path) -> None:

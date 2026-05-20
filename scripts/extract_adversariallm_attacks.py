@@ -1,9 +1,15 @@
 """Convert AdversariaLLM attack-phase output into a flat JSONL.
 
-For GCG runs the output contains one row per **Pareto-optimal** optimization step
-(steps whose best-so-far loss strictly decreased). For AutoDAN and PAIR the output
-keeps the legacy "one row per behavior" shape — the row with the lowest loss is
-selected and tagged with `pareto_step_idx: 0`.
+For all three iterative attacks (GCG, AutoDAN, PAIR) the output contains one row per
+intermediate trajectory step:
+
+- **GCG**: one row per Pareto-optimal optimization step (steps whose best-so-far loss
+  strictly decreased).
+- **AutoDAN**: one row per Pareto-optimal step on loss, identical convention to GCG.
+- **PAIR**: stride-sampled rows — every `PAIR_STRIDE`-th step counting backward from the
+  final step, plus always the final step itself. PAIR's per-step `loss` is `None` (its
+  signal is an external judge whose scores are not stored), so a Pareto-on-loss filter
+  doesn't apply.
 
 Each output row contains:
     {behavior, adversarial_prompt, attack_flops, attack_bits, pareto_step_idx,
@@ -27,22 +33,22 @@ PAIR, PGD, ...). AdversariaLLM writes one `run.json` per behavior under
         ]
     }
 
-For GCG, every step records the best-so-far suffix + a stored greedy completion, so
-each Pareto-optimal step is independently usable as a "checkpoint" with its own
-(attack_flops, suffix, completion) tuple. Pareto indexing convention: `pareto_step_idx == 0`
-denotes the **final best-loss** row (the one today's pipeline would emit); larger
-indices step backward in time toward step 0.
+Every step records the (best-so-far) prompt + a stored greedy completion, so each
+emitted step is independently usable as a "checkpoint" with its own
+(attack_flops, prompt, completion) tuple. Indexing convention: `pareto_step_idx == 0`
+denotes the **final** row (the one today's downstream pipeline treats as canonical for
+ASR computation); larger indices step backward in time toward step 0.
 
 `attack_bits` is a per-config scalar (the same value for every row derived from one `run.json`,
 since bits are an accounting of the attack's *program length*, not a per-behavior quantity).
 We replicate it on every row purely for plumbing convenience; it is NOT a per-behavior signal.
 
 `attack_flops`:
-- GCG and PAIR store per-step deltas; we sum them. For GCG Pareto rows we sum up to (and
-  including) the Pareto step's index — the cumulative cost of running the attack to that
-  checkpoint.
-- AutoDAN writes `step.flops` cumulatively (final value already includes earlier steps), so we
-  take only the last step's value.
+- GCG and PAIR store per-step deltas; we sum them. For GCG/PAIR rows we sum up to (and
+  including) the emitted step's index — the cumulative cost of running the attack to
+  that checkpoint.
+- AutoDAN writes `step.flops` cumulatively (each step's value already includes earlier
+  steps), so we use the emitted step's `flops` field directly.
 """
 
 from __future__ import annotations
@@ -51,89 +57,114 @@ import argparse
 import glob
 import json
 import os
+from collections.abc import Callable
 from typing import Any
 
 from information_safety.attack_bits import compute_attack_bits
 
 MIN_ATTACK_STEPS = 20
+PAIR_STRIDE = 10
 
 
 def _find_run_files(run_dir: str) -> list[str]:
     return sorted(glob.glob(os.path.join(run_dir, "**", "run.json"), recursive=True))
 
 
-def _attack_flops_from_steps(steps: list[dict], attack_name: str) -> int:
-    if attack_name == "autodan":
-        return steps[-1]["flops"]
-    return sum(step["flops"] for step in steps)
+def _cumulative_flops(steps: list[dict[str, Any]]) -> list[int]:
+    cumulative: list[int] = []
+    running = 0
+    for step in steps:
+        running += step["flops"]
+        cumulative.append(running)
+    return cumulative
 
 
-def _extract_argmin_loss(
-    run_json: dict, run_file: str, attack_name: str
-) -> tuple[str, str, int, str | None]:
-    """Pick the single argmin-loss step (AutoDAN/PAIR path)."""
-    run = run_json["runs"][0]
-    behavior: str = run["original_prompt"][0]["content"]
-    steps = run["steps"]
-    if not steps:
-        raise ValueError(f"run has no steps in {run_file}")
+def _build_rows(
+    steps: list[dict[str, Any]],
+    behavior: str,
+    selected_step_indices: list[int],
+    flops_for_step: Callable[[int], int],
+) -> list[dict[str, Any]]:
+    """Build trajectory rows from a list of step indices in pareto_step_idx order.
 
-    if all(step["loss"] is None for step in steps):
-        best_idx = len(steps) - 1
-    else:
-        best_idx = min(range(len(steps)), key=lambda i: steps[i]["loss"])
-    adversarial_prompt: str = steps[best_idx]["model_input"][0]["content"]
-    attack_flops = _attack_flops_from_steps(steps, attack_name)
+    `selected_step_indices[0]` is the row that becomes `pareto_step_idx=0` (the canonical
+    final/best row); larger indices step backward.
+    """
+    rows: list[dict[str, Any]] = []
+    for rank, step_i in enumerate(selected_step_indices):
+        step = steps[step_i]
+        rows.append({
+            "behavior": behavior,
+            "adversarial_prompt": step["model_input"][0]["content"],
+            "attack_flops": flops_for_step(step_i),
+            "pareto_step_idx": rank,
+            "model_completion": step["model_completions"][0],
+        })
+    return rows
 
-    model_completion: str | None = None
-    completions = steps[best_idx].get("model_completions")
-    if completions:
-        model_completion = completions[0]
 
-    return behavior, adversarial_prompt, attack_flops, model_completion
+def _loss_pareto_indices(steps: list[dict[str, Any]]) -> list[int]:
+    """Step indices where best-so-far loss strictly decreased, ordered final-first."""
+    pareto: list[int] = []
+    best_loss: float | None = None
+    for i, step in enumerate(steps):
+        loss = step["loss"]
+        if best_loss is None or loss < best_loss:
+            best_loss = loss
+            pareto.append(i)
+    pareto.reverse()
+    return pareto
 
 
 def _extract_gcg_pareto(run_json: dict, run_file: str) -> list[dict[str, Any]]:
     """Return one dict per Pareto-optimal step of a GCG run.
 
-    `pareto_step_idx == 0` is the final argmin-loss step (today's canonical row);
-    larger indices step backward to earlier improvements. Each row includes
-    `attack_flops` as cumulative FLOPs up to and including that step.
+    GCG stores per-step `flops` deltas; each row's `attack_flops` is the
+    cumulative sum through its step.
     """
     run = run_json["runs"][0]
     behavior: str = run["original_prompt"][0]["content"]
     steps = run["steps"]
     if not steps:
         raise ValueError(f"run has no steps in {run_file}")
+    cumulative = _cumulative_flops(steps)
+    return _build_rows(steps, behavior, _loss_pareto_indices(steps), cumulative.__getitem__)
 
-    pareto_step_indices: list[int] = []
-    best_loss: float | None = None
-    cumulative_flops_at_step: list[int] = []
-    running = 0
-    for step in steps:
-        running += step["flops"]
-        cumulative_flops_at_step.append(running)
-    for i, step in enumerate(steps):
-        loss = step["loss"]
-        if best_loss is None or loss < best_loss:
-            best_loss = loss
-            pareto_step_indices.append(i)
 
-    pareto_step_indices.reverse()
+def _extract_autodan_pareto(run_json: dict, run_file: str) -> list[dict[str, Any]]:
+    """Return one dict per Pareto-optimal step of an AutoDAN run.
 
-    rows: list[dict[str, Any]] = []
-    for rank, step_i in enumerate(pareto_step_indices):
-        step = steps[step_i]
-        adversarial_prompt: str = step["model_input"][0]["content"]
-        row: dict[str, Any] = {
-            "behavior": behavior,
-            "adversarial_prompt": adversarial_prompt,
-            "attack_flops": cumulative_flops_at_step[step_i],
-            "pareto_step_idx": rank,
-            "model_completion": step["model_completions"][0],
-        }
-        rows.append(row)
-    return rows
+    AutoDAN writes `step.flops` cumulatively, so each row's `attack_flops` is
+    taken directly from `steps[i]["flops"]`.
+    """
+    run = run_json["runs"][0]
+    behavior: str = run["original_prompt"][0]["content"]
+    steps = run["steps"]
+    if not steps:
+        raise ValueError(f"run has no steps in {run_file}")
+    return _build_rows(
+        steps, behavior, _loss_pareto_indices(steps), lambda i: steps[i]["flops"]
+    )
+
+
+def _extract_pair_strided(
+    run_json: dict, run_file: str, *, stride: int = PAIR_STRIDE
+) -> list[dict[str, Any]]:
+    """Return stride-sampled rows for a PAIR run.
+
+    Selects indices `{N-1, N-1-stride, N-1-2*stride, ...}` (no duplicates, no
+    negative indices), then maps them to `pareto_step_idx` 0, 1, 2, ... in
+    backward-from-final order (final = 0). PAIR stores per-step `flops` deltas,
+    so each row's `attack_flops` is the cumulative sum through its step.
+    """
+    run = run_json["runs"][0]
+    behavior: str = run["original_prompt"][0]["content"]
+    steps = run["steps"]
+    if not steps:
+        raise ValueError(f"run has no steps in {run_file}")
+    cumulative = _cumulative_flops(steps)
+    selected = list(range(len(steps) - 1, -1, -stride))
+    return _build_rows(steps, behavior, selected, cumulative.__getitem__)
 
 
 def _dispatch_attack_name(attack_params: dict[str, Any]) -> str:
@@ -159,23 +190,13 @@ def _extract_rows_from_run(
         return []
     if attack_name == "gcg":
         rows = _extract_gcg_pareto(run_json, run_file)
-        for row in rows:
-            row["attack_bits"] = attack_bits
-        return rows
-
-    behavior, adversarial_prompt, attack_flops, model_completion = _extract_argmin_loss(
-        run_json, run_file, attack_name
-    )
-    row: dict[str, Any] = {
-        "behavior": behavior,
-        "adversarial_prompt": adversarial_prompt,
-        "attack_flops": attack_flops,
-        "attack_bits": attack_bits,
-        "pareto_step_idx": 0,
-    }
-    if model_completion is not None:
-        row["model_completion"] = model_completion
-    return [row]
+    elif attack_name == "autodan":
+        rows = _extract_autodan_pareto(run_json, run_file)
+    else:
+        rows = _extract_pair_strided(run_json, run_file)
+    for row in rows:
+        row["attack_bits"] = attack_bits
+    return rows
 
 
 def convert_run_dir(run_dir: str, output_file: str) -> None:

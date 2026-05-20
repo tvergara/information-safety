@@ -1,16 +1,16 @@
 """Prompt-based strategies that inject precomputed per-behavior adversarial prompts.
 
-Each attack (GCG, AutoDAN, ...) runs upstream (e.g. via AdversariaLLM), emits a flat
+Each attack (GCG, AutoDAN, PAIR, ...) runs upstream (e.g. via AdversariaLLM), emits a flat
 JSONL with `{behavior, adversarial_prompt, attack_flops, attack_bits, pareto_step_idx
 [, model_completion]}`, and is replayed here at eval time. The base class is
 placement-agnostic (it replaces the whole user turn), so it works for suffix- and
 prefix-placed attacks alike. Each concrete attack lives in its own subclass so plots see
 a distinct `experiment_name`.
 
-For GCG the upstream extractor may emit multiple rows per behavior (one per Pareto-optimal
-optimization step). The strategy then fans each behavior out to all of its Pareto rows at
-eval time. AutoDAN and PAIR remain single-row-per-behavior; their subclass rejects multi-row
-inputs.
+All three concrete attacks (GCG, AutoDAN, PAIR) can emit multiple rows per behavior — one
+per intermediate trajectory step from the upstream extractor. The strategy fans each
+behavior out to all of its rows at eval time and uses the stored `model_completion` when
+present.
 """
 
 from __future__ import annotations
@@ -55,7 +55,6 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
     """
 
     requires_training_data: ClassVar[bool] = False
-    allow_multirow_per_behavior: ClassVar[bool] = False
     suffix_file: str
     label_behavior_key: str = "behavior"
     _lookup: dict[str, list[dict[str, Any]]] = field(
@@ -95,12 +94,6 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
 
         for key, rows in self._lookup.items():
             rows.sort(key=lambda r: r.get("pareto_step_idx", 0))
-            if not self.allow_multirow_per_behavior and len(rows) > 1:
-                raise ValueError(
-                    f"{type(self).__name__} expected one row per behavior; "
-                    f"got {len(rows)} rows for {key!r} (multi-row/multiple rows "
-                    f"are GCG-only)"
-                )
             if len(rows) > 1:
                 missing = [
                     r["pareto_step_idx"] for r in rows if "model_completion" not in r
@@ -239,8 +232,6 @@ class PrecomputedAdversarialPromptStrategy(BaseStrategy):
 @dataclass
 class PrecomputedGCGStrategy(PrecomputedAdversarialPromptStrategy):
     """GCG (Zou et al., 2023): suffix-placed, discrete-optimization adversarial prompt."""
-
-    allow_multirow_per_behavior: ClassVar[bool] = True
 
 
 @dataclass
