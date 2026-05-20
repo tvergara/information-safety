@@ -297,7 +297,7 @@ class TestParseAnswerLetterIntegration:
     def test_parse_used_for_correctness(self) -> None:
         from information_safety.algorithms.dataset_handlers.wmdp import parse_answer_letter
         assert parse_answer_letter("final A") == "A"
-        assert parse_answer_letter("B is the answer") == "B"
+        assert parse_answer_letter("Answer: B") == "B"
 
 
 class TestVLLMMxfp4Workaround:

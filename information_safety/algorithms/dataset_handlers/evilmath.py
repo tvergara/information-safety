@@ -18,6 +18,9 @@ from information_safety.algorithms.dataset_handlers.base import (
     BaseDatasetHandler,
     GenerationValDataset,
 )
+from information_safety.algorithms.dataset_handlers.safety_pair import (
+    get_answer_start_token,
+)
 
 logger = getLogger(__name__)
 
@@ -48,6 +51,9 @@ class EvilMathHandler(BaseDatasetHandler):
     dataset_name: str = "evilmath"
     max_examples: int | None = None
     _completions: list[dict[str, Any]] = field(default_factory=list, repr=False)
+
+    def get_answer_start_token(self, tokenizer: PreTrainedTokenizerBase) -> str:
+        return get_answer_start_token(tokenizer)
 
     def get_train_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Any:
         if self.max_examples is None:
