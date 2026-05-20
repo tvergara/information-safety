@@ -1,12 +1,12 @@
 """Plot bits vs ASR with Pareto frontiers across multiple models."""
 
-import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-RESULTS_FILE = Path("/network/scratch/b/brownet/information-safety/results/final-results.jsonl")
+from plots.utils import DEFAULT_RESULTS_FILE, load_results
+
 OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr.png"
 
 MODELS = [
@@ -16,14 +16,6 @@ MODELS = [
     ("GraySwanAI/Llama-3-8B-Instruct-RR", "tab:orange", "v", "Llama-3-8B-RR"),
     ("allenai/Olmo-3-7B-Instruct", "tab:brown", "P", "OLMo-3-7B-Instruct"),
 ]
-
-
-def load_results(path: Path) -> list[dict]:
-    rows = []
-    with open(path) as f:
-        for line in f:
-            rows.append(json.loads(line))
-    return rows
 
 
 def pareto_frontier(
@@ -51,7 +43,7 @@ def pareto_frontier(
 
 
 def main() -> None:
-    rows = load_results(RESULTS_FILE)
+    rows = load_results(DEFAULT_RESULTS_FILE)
 
     plt.rcParams.update({"font.size": 18})
     fig, ax = plt.subplots(figsize=(8, 5))
