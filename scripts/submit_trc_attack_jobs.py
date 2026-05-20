@@ -166,7 +166,7 @@ def build_eai_submit_argv(
         gpu=1,
         cpu=8,
         mem=64,
-        max_run_time=43200,
+        max_run_time=86400,
         preemptable=preemptable,
     )
     return ["ssh", "trc", remote]
