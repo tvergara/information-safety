@@ -113,6 +113,24 @@ class TestExtractNumericalAnswer:
     def test_parses_answer_label_simple(self) -> None:
         assert extract_numerical_answer("Answer: 42") == 42
 
+    def test_parses_comma_thousands_in_boxed(self) -> None:
+        assert extract_numerical_answer(r"\boxed{10,000}") == 10000
+
+    def test_parses_comma_thousands_in_hash(self) -> None:
+        assert extract_numerical_answer("#### 10,000") == 10000
+
+    def test_parses_comma_thousands_in_the_answer_is(self) -> None:
+        assert extract_numerical_answer("the answer is 10,000") == 10000
+
+    def test_parses_comma_thousands_in_answer_label(self) -> None:
+        assert extract_numerical_answer("Answer: 10,000") == 10000
+
+    def test_parses_negative_comma_thousands(self) -> None:
+        assert extract_numerical_answer(r"\boxed{-10,000}") == -10000
+
+    def test_parses_million_with_two_commas(self) -> None:
+        assert extract_numerical_answer(r"\boxed{1,234,567}") == 1234567
+
 
 class TestGetTrainDatasetUsesGsm8k:
     @patch("information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset")

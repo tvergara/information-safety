@@ -25,10 +25,10 @@ from information_safety.algorithms.dataset_handlers.safety_pair import (
 logger = getLogger(__name__)
 
 ANSWER_PATTERNS = [
-    re.compile(r"\\boxed\{\s*(-?\d+)\s*\}"),
-    re.compile(r"####\s*(-?\d+)"),
-    re.compile(r"[Tt]he answer is[\s:$*]*(-?\d+)"),
-    re.compile(r"[Aa]nswer:[^\d-]*(-?\d+)"),
+    re.compile(r"\\boxed\{\s*(-?\d[\d,]*)\s*\}"),
+    re.compile(r"####\s*(-?\d[\d,]*)"),
+    re.compile(r"[Tt]he answer is[\s:$*]*(-?\d[\d,]*)"),
+    re.compile(r"[Aa]nswer:[^\d-]*(-?\d[\d,]*)"),
 ]
 
 
@@ -36,7 +36,7 @@ def extract_numerical_answer(text: str) -> int | None:
     for pattern in ANSWER_PATTERNS:
         matches = pattern.findall(text)
         if matches:
-            return int(matches[-1])
+            return int(matches[-1].replace(",", ""))
     return None
 
 
