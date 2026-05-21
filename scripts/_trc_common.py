@@ -48,6 +48,10 @@ def model_slug(model_name: str) -> str:
     return model_name.replace("/", "_")
 
 
+def eai_name_slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9_]+", "_", name.lower()).strip("_")
+
+
 def compute_shards(*, total: int, num_shards: int) -> list[tuple[int, int]]:
     base = total // num_shards
     remainder = total % num_shards

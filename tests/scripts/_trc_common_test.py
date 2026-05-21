@@ -6,6 +6,7 @@ import pytest
 
 from scripts._trc_common import (
     TRC_BASE_DIR,
+    eai_name_slug,
     extract_eai_uuid,
     trc_behaviors_csv,
     trc_targets_json,
@@ -44,6 +45,17 @@ def test_trc_targets_json_evilmath_on_work_mount() -> None:
     assert (
         trc_targets_json("evilmath")
         == f"{TRC_BASE_DIR}/attacks/evilmath_targets_text.json"
+    )
+
+
+def test_eai_name_slug_normalizes_to_lowercase_underscores() -> None:
+    assert (
+        eai_name_slug("meta-llama/Meta-Llama-3-8B-Instruct")
+        == "meta_llama_meta_llama_3_8b_instruct"
+    )
+    assert (
+        eai_name_slug("tvergara/sft-evilmath-Llama-3.1-8B-Instruct-d650794f965d")
+        == "tvergara_sft_evilmath_llama_3_1_8b_instruct_d650794f965d"
     )
 
 

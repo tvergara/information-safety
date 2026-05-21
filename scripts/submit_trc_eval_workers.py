@@ -25,16 +25,16 @@ from scripts._trc_common import (
     build_eai_submit_remote,
     build_eval_pool_container_cmd,
     default_state_file,
+    eai_name_slug,
     ensure_trc_synced,
     extract_eai_uuid,
-    model_slug,
 )
 
 DEFAULT_STATE_FILE = default_state_file("trc-eval-worker-pool-submitted.jsonl")
 
 
 def worker_job_name(model: str, worker_index: int, submit_ts: int) -> str:
-    return f"is_evalpool_{model_slug(model)}_w{worker_index}_{submit_ts}"
+    return f"is_evalpool_{eai_name_slug(model)}_w{worker_index}_{submit_ts}"
 
 
 def build_submit_argv(model: str, worker_index: int, submit_ts: int, queue_root: str) -> list[str]:
