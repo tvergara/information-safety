@@ -13,10 +13,8 @@ logger = getLogger(__name__)
 
 @dataclass
 class DataCollatorForAnswerOnlyLM:
-    """Collator that pads sequences and masks question tokens with -100 in labels.
-
-    This ensures the model is only trained to predict answer tokens.
-    """
+    """Pad sequences and mask question tokens with -100; answer tokens including EOS keep
+    labels."""
 
     tokenizer: PreTrainedTokenizerBase
     answer_start_token: str = "### Answer:"
@@ -52,9 +50,6 @@ class DataCollatorForAnswerOnlyLM:
             if answer_start >= 0:
                 answer_offset = answer_start + len(answer_token_ids)
                 masked_labels[answer_offset:] = lab[answer_offset:]
-                # Mask the final token (EOS) so the model learns the answer content
-                # but not to terminate — allows longer generation at inference.
-                masked_labels[ids.size(0) - 1] = -100
             else:
                 logger.warning(
                     "Answer marker not found in sequence of length %d. "

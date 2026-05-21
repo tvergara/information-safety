@@ -31,6 +31,8 @@ ANSWER_PATTERNS = [
     re.compile(r"[Aa]nswer:[^\d-]*(-?\d[\d,]*)"),
 ]
 
+TRAIN_SHUFFLE_SEED = 42
+
 
 def extract_numerical_answer(text: str) -> int | None:
     for pattern in ANSWER_PATTERNS:
@@ -70,6 +72,7 @@ class EvilMathHandler(BaseDatasetHandler):
             return tokenizer(text, truncation=True, max_length=self.max_length, padding=False)
 
         gsm8k_raw = datasets.load_dataset("openai/gsm8k", "main", split="train")
+        gsm8k_raw = gsm8k_raw.shuffle(seed=TRAIN_SHUFFLE_SEED)  # type: ignore[union-attr]
         gsm8k_raw = gsm8k_raw.select(range(self.max_examples))  # type: ignore[union-attr]
         return gsm8k_raw.map(  # type: ignore[union-attr]
             tokenize_gsm8k,

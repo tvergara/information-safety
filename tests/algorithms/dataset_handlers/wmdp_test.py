@@ -252,11 +252,15 @@ class TestGetTrainDatasetUsesMmluPro:
             call.args[0][0]["content"]
             for call in tokenizer.apply_chat_template.call_args_list
         ]
-        assert "C." in seen_user_contents[0] and "D." not in seen_user_contents[0]
-        assert "J." in seen_user_contents[7]
+        has_3_options = any(
+            "C." in c and "D." not in c for c in seen_user_contents
+        )
+        has_10_options = any("J." in c for c in seen_user_contents)
+        assert has_3_options, "expected at least one 3-option row to render"
+        assert has_10_options, "expected at least one 10-option row to render"
 
     @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
-    def test_train_completion_ends_in_final_letter(self, mock_load: MagicMock) -> None:
+    def test_train_completion_is_bare_answer_letter(self, mock_load: MagicMock) -> None:
         mock_load.return_value = _mmlu_pro_dataset(3)
 
         handler = WMDPHandler(
@@ -276,7 +280,10 @@ class TestGetTrainDatasetUsesMmluPro:
         ]
         assert seen_assistant_contents
         for content in seen_assistant_contents:
-            assert re.search(r"final [A-J]\b", content) is not None
+            assert re.fullmatch(r"[A-J]", content) is not None, (
+                f"assistant text must be a single letter, got {content!r}"
+            )
+            assert "final" not in content.lower()
 
     @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
     def test_train_dataset_columns_are_input_ids_and_attention_mask(
@@ -886,3 +893,104 @@ class TestSaveCompletions:
         run_dir = tmp_path / "test-run-empty"
         assert (run_dir / "input_data.jsonl").read_text() == ""
         assert (run_dir / "responses.jsonl").read_text() == ""
+
+
+class TestDeterministicShuffleMmluPro:
+    def _seen_questions(self, handler: WMDPHandler, tokenizer: MagicMock) -> list[str]:
+        handler.get_train_dataset(tokenizer)
+        return [
+            call.args[0][0]["content"]
+            for call in tokenizer.apply_chat_template.call_args_list
+        ]
+
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_same_max_examples_picks_same_rows_across_runs(
+        self, mock_load: MagicMock
+    ) -> None:
+        mock_load.return_value = _mmlu_pro_dataset(64)
+        handler = WMDPHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens",
+            corpus_fraction=0.0, corpus_subset=None, max_examples=16,
+        )
+        tok_a, tok_b = _make_tokenizer(), _make_tokenizer()
+        seen_a = self._seen_questions(handler, tok_a)
+        seen_b = self._seen_questions(handler, tok_b)
+        assert seen_a == seen_b, "same handler config must select the same rows"
+
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_shuffle_changes_order_from_raw(self, mock_load: MagicMock) -> None:
+        mock_load.return_value = _mmlu_pro_dataset(64)
+        handler = WMDPHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens",
+            corpus_fraction=0.0, corpus_subset=None, max_examples=16,
+        )
+        tokenizer = _make_tokenizer()
+        seen = self._seen_questions(handler, tokenizer)
+        seen_qids = re.findall(r"Question: (q\d+)", "\n".join(seen))
+        first_16_raw = [f"q{i}" for i in range(16)]
+        assert sorted(seen_qids) != sorted(first_16_raw), (
+            "shuffle must produce a different selection than raw category-sorted order"
+        )
+
+    @patch("information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset")
+    def test_small_max_examples_spans_multiple_categories(
+        self, mock_load: MagicMock
+    ) -> None:
+        n = 99
+        letters = "ABCDEFGHIJ"
+        raw = datasets.Dataset.from_dict({
+            "question": [f"q{i}" for i in range(n)],
+            "options": [[f"opt_{i}_{j}" for j in range(10)] for i in range(n)],
+            "cot_content": [f"cot_{i}" for i in range(n)],
+            "answer": [letters[i % 10] for i in range(n)],
+            "category": [f"cat_{i % 3}" for i in range(n)],
+        })
+        mock_load.return_value = raw
+
+        handler = WMDPHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens",
+            corpus_fraction=0.0, corpus_subset=None, max_examples=16,
+        )
+        train_ds = handler.get_train_dataset(_make_tokenizer())
+        assert len(train_ds) == 16
+
+
+class TestResultRowExtrasPerSubject:
+    def test_per_subject_keys_present_after_completions_recorded(self) -> None:
+        handler = WMDPHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens",
+            corpus_fraction=0.0, corpus_subset=None, max_examples=4,
+        )
+        handler._completions = [
+            _wmdp_completion(subject="wmdp-bio", correct=True),
+            _wmdp_completion(subject="wmdp-bio", correct=False),
+            _wmdp_completion(subject="wmdp-chem", correct=True),
+            _wmdp_completion(subject="wmdp-chem", correct=True),
+            _wmdp_completion(subject="wmdp-cyber", correct=False),
+            _wmdp_completion(subject="wmdp-cyber", correct=False),
+        ]
+        extras = handler.result_row_extras()
+        assert extras["bio_performance"] == pytest.approx(0.5)
+        assert extras["chem_performance"] == pytest.approx(1.0)
+        assert extras["cyber_performance"] == pytest.approx(0.0)
+
+    def test_per_subject_keys_are_none_when_no_completions(self) -> None:
+        handler = WMDPHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens",
+            corpus_fraction=0.0, corpus_subset=None, max_examples=4,
+        )
+        extras = handler.result_row_extras()
+        assert extras["bio_performance"] is None
+        assert extras["chem_performance"] is None
+        assert extras["cyber_performance"] is None
+
+    def test_per_subject_keys_none_for_missing_subject(self) -> None:
+        handler = WMDPHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens",
+            corpus_fraction=0.0, corpus_subset=None, max_examples=4,
+        )
+        handler._completions = [_wmdp_completion(subject="wmdp-bio", correct=True)]
+        extras = handler.result_row_extras()
+        assert extras["bio_performance"] == pytest.approx(1.0)
+        assert extras["chem_performance"] is None
+        assert extras["cyber_performance"] is None

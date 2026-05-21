@@ -184,6 +184,37 @@ class TestGetTrainDatasetUsesGsm8k:
             assert messages[1]["role"] == "assistant"
 
 
+class TestDeterministicShuffleGsm8k:
+    def _seen_questions(self, handler: EvilMathHandler, tokenizer: MagicMock) -> list[str]:
+        handler.get_train_dataset(tokenizer)
+        return [
+            call.args[0][0]["content"]
+            for call in tokenizer.apply_chat_template.call_args_list
+        ]
+
+    @patch("information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset")
+    def test_same_max_examples_picks_same_rows_across_runs(
+        self, mock_load: MagicMock
+    ) -> None:
+        mock_load.return_value = _gsm8k_dataset(64)
+        handler = EvilMathHandler(generations_dir="/tmp/gens", max_examples=16)
+        tok_a, tok_b = _make_tokenizer(), _make_tokenizer()
+        seen_a = self._seen_questions(handler, tok_a)
+        seen_b = self._seen_questions(handler, tok_b)
+        assert seen_a == seen_b, "same handler config must select the same rows"
+
+    @patch("information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset")
+    def test_shuffle_changes_order_from_raw(self, mock_load: MagicMock) -> None:
+        mock_load.return_value = _gsm8k_dataset(64)
+        handler = EvilMathHandler(generations_dir="/tmp/gens", max_examples=16)
+        tokenizer = _make_tokenizer()
+        seen = self._seen_questions(handler, tokenizer)
+        first_16_raw = [f"q{i}" for i in range(16)]
+        assert seen != first_16_raw, (
+            "shuffle must produce a different selection than raw order"
+        )
+
+
 class TestGetAnswerStartToken:
     """Marker must come from the chat template, else collator masks every label."""
 
