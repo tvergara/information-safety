@@ -12,6 +12,8 @@ import json
 import os
 import re
 import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -129,6 +131,73 @@ def build_eai_submit_remote(
         f" --enforce-name"
         f" -- bash -lc {shell_quote(container_cmd)}"
     )
+
+
+_SYNC_POLL_SECONDS = 10
+_SYNC_TIMEOUT_SECONDS = 1800
+TRC_SYNC_STATE_FILE = default_state_file("trc-synced-sha")
+
+
+def _build_sync_container_cmd(*, sha: str) -> str:
+    return " && ".join([
+        'export PATH="$HOME/.local/bin:$PATH"',
+        "curl -LsSf https://astral.sh/uv/install.sh | sh",
+        f"cd {TRC_REPO_DIR}",
+        "git fetch origin --quiet",
+        f"git reset --hard {sha}",
+        "git submodule update --init --recursive",
+        f"(source {TRC_INFORMATION_SAFETY_VENV}/bin/activate"
+        " && uv pip install --quiet --index-strategy unsafe-best-match"
+        " --extra-index-url https://download.pytorch.org/whl/cu128 -e .)",
+    ])
+
+
+def _wait_for_eai_job(uuid: str) -> None:
+    deadline = time.time() + _SYNC_TIMEOUT_SECONDS
+    while True:
+        result = subprocess.run(
+            ["ssh", "trc", f"eai job info {uuid}"],
+            check=True, capture_output=True, text=True,
+        )
+        state = next(
+            (
+                line.split(":", 1)[1].strip()
+                for line in result.stdout.splitlines()
+                if line.startswith("state:")
+            ),
+            None,
+        )
+        if state is None:
+            raise RuntimeError(f"no 'state:' line in eai job info {uuid} output")
+        if state == "SUCCEEDED":
+            return
+        if state in {"FAILED", "CANCELLED", "INTERRUPTED"}:
+            raise RuntimeError(f"sync job {uuid} ended in state {state}")
+        if time.time() >= deadline:
+            raise TimeoutError(
+                f"sync job {uuid} did not finish within {_SYNC_TIMEOUT_SECONDS}s"
+            )
+        time.sleep(_SYNC_POLL_SECONDS)
+
+
+def ensure_trc_synced(*, state_file: Path = TRC_SYNC_STATE_FILE) -> None:
+    sha = current_git_sha()
+    if state_file.exists() and state_file.read_text().strip() == sha:
+        return
+    verify_sha_pushed(sha)
+    print(f"Syncing TRC /work to {sha[:8]}...", file=sys.stderr)
+    remote = build_eai_submit_remote(
+        name=f"is_pool_sync_{sha[:8]}",
+        container_cmd=_build_sync_container_cmd(sha=sha),
+        cpu=4, mem=16, max_run_time=1800, preemptable=False,
+    )
+    result = subprocess.run(
+        ["ssh", "trc", remote], check=True, capture_output=True, text=True,
+    )
+    uuid = extract_eai_uuid(result.stdout)
+    _wait_for_eai_job(uuid)
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(sha)
 
 
 def build_eval_pool_container_cmd(*, base_model: str, queue_root: str) -> str:

@@ -25,6 +25,7 @@ from scripts._trc_common import (
     build_eai_submit_remote,
     build_eval_pool_container_cmd,
     default_state_file,
+    ensure_trc_synced,
     extract_eai_uuid,
     model_slug,
 )
@@ -61,6 +62,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+
+    if not args.dry_run:
+        ensure_trc_synced()
 
     models = args.base_models.split(",")
     submit_ts = int(time.time())

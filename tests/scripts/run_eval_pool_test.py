@@ -177,6 +177,17 @@ class TestClaimAndEnsureDirs:
         )
         assert claimed is None
 
+    def test_sort_pending_by_mtime_skips_vanished_files(self, tmp_path: Path) -> None:
+        pending_dir = tmp_path / "pending"
+        pending_dir.mkdir()
+        present = pending_dir / "alive.json"
+        present.write_text("{}")
+        ghost = pending_dir / "ghost.json"
+        ordered = run_eval_pool._sort_pending_by_mtime([present, ghost])
+        assert present in ordered
+        assert ghost in ordered  # included but sorted last (mtime=inf)
+        assert ordered[-1] == ghost
+
 
 class TestLoadValPrompts:
     def test_returns_token_ids_for_wmdp(self, monkeypatch: pytest.MonkeyPatch) -> None:

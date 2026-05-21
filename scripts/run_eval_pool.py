@@ -57,6 +57,15 @@ def _spec_base_model(path: Path) -> str | None:
         return None
 
 
+def _sort_pending_by_mtime(paths: list[Path]) -> list[Path]:
+    def _mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except FileNotFoundError:
+            return float("inf")
+    return sorted(paths, key=_mtime)
+
+
 def try_claim(
     pending_path: Path,
     claimed_dir: Path,
@@ -303,7 +312,7 @@ def run_worker(
     lora_int_id = 1
 
     while True:
-        candidates = sorted(pending_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        candidates = _sort_pending_by_mtime(list(pending_dir.glob("*.json")))
         if not any(_spec_base_model(p) == base_model for p in candidates):
             return
         claimed: Path | None = None
