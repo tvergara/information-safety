@@ -126,12 +126,22 @@ def mock_prompts(monkeypatch: pytest.MonkeyPatch) -> None:
     wmdp_prompts, wmdp_metas = _fake_wmdp_prompts()
     evilmath_prompts, evilmath_metas = _fake_evilmath_prompts()
 
-    def fake_load(base_model: str, dataset_name: str) -> tuple[list[list[int]], list[str]]:
+    def fake_load(
+        base_model: str,
+        dataset_name: str,
+        *,
+        max_examples: int | None = None,
+    ) -> tuple[list[list[int]], list[str]]:
         if dataset_name == "wmdp":
-            return wmdp_prompts, wmdp_metas
-        if dataset_name == "evilmath":
-            return evilmath_prompts, evilmath_metas
-        raise ValueError(f"unknown dataset {dataset_name}")
+            prompts, metas = wmdp_prompts, wmdp_metas
+        elif dataset_name == "evilmath":
+            prompts, metas = evilmath_prompts, evilmath_metas
+        else:
+            raise ValueError(f"unknown dataset {dataset_name}")
+        if max_examples is not None:
+            prompts = prompts[:max_examples]
+            metas = metas[:max_examples]
+        return prompts, metas
 
     monkeypatch.setattr(run_eval_pool, "load_val_prompts", fake_load)
 
