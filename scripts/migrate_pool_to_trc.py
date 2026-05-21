@@ -27,14 +27,16 @@ from scripts._trc_common import (
     TRC_ADAPTER_ROOT,
     TRC_BASE_DIR,
     TRC_EVAL_QUEUE_BASE,
+    TRC_GENERATIONS_DIR,
     TRC_HF_HOME,
+    TRC_INFORMATION_SAFETY_VENV,
     TRC_REPO_DIR,
+    TRC_RESULTS_FILE,
     append_state_row,
     build_eai_submit_remote,
-    current_git_sha,
     default_state_file,
+    ensure_trc_synced,
     extract_eai_uuid,
-    verify_sha_pushed,
 )
 
 __all__ = [
@@ -45,23 +47,16 @@ __all__ = [
     "rewrite_defense_paths",
 ]
 
-TRC_INFORMATION_SAFETY_VENV = "/work/envs/information-safety/.venv"
 DEFENSE_LOCAL_PREFIXES = (
     "/scratch/t/tvergara/information-safety/defenses/",
     "/network/scratch/b/brownet/information-safety/defenses/",
 )
 DEFENSE_HF_NAMESPACE = "tvergara"
 DATASET_HANDLER_PREFIX = "algorithm/dataset_handler="
-TRC_RESULTS_FILE = f"{TRC_BASE_DIR}/main/final-results.jsonl"
-TRC_GENERATIONS_DIR = f"{TRC_BASE_DIR}/main/generations"
 
 DEFAULT_STATE_FILE = default_state_file("trc-pool-submitted.jsonl")
-TRC_SYNC_STATE_FILE = default_state_file("trc-synced-sha")
 
 _HF_MODEL_PREFIX = "algorithm.model.pretrained_model_name_or_path="
-
-_SYNC_POLL_SECONDS = 10
-_SYNC_TIMEOUT_SECONDS = 1800
 
 
 def pool_job_name(spec_id: str, *, epoch: int) -> str:
@@ -137,70 +132,6 @@ def _load_pending_specs(local: Path) -> list[dict[str, Any]]:
     return [json.loads(p.read_text()) for p in sorted(local.glob("*.json"))]
 
 
-def _build_sync_container_cmd(*, sha: str) -> str:
-    return " && ".join([
-        'export PATH="$HOME/.local/bin:$PATH"',
-        "curl -LsSf https://astral.sh/uv/install.sh | sh",
-        f"cd {TRC_REPO_DIR}",
-        "git fetch origin --quiet",
-        f"git reset --hard {sha}",
-        "git submodule update --init --recursive",
-        f"(source {TRC_INFORMATION_SAFETY_VENV}/bin/activate"
-        " && uv pip install --quiet --index-strategy unsafe-best-match"
-        " --extra-index-url https://download.pytorch.org/whl/cu128 -e .)",
-    ])
-
-
-def _wait_for_eai_job(uuid: str) -> None:
-    deadline = time.time() + _SYNC_TIMEOUT_SECONDS
-    while True:
-        result = subprocess.run(
-            ["ssh", "trc", f"eai job info {uuid}"],
-            check=True, capture_output=True, text=True,
-        )
-        state = next(
-            (
-                line.split(":", 1)[1].strip()
-                for line in result.stdout.splitlines()
-                if line.startswith("state:")
-            ),
-            None,
-        )
-        if state is None:
-            raise RuntimeError(
-                f"no 'state:' line in eai job info {uuid} output"
-            )
-        if state == "SUCCEEDED":
-            return
-        if state in {"FAILED", "CANCELLED", "INTERRUPTED"}:
-            raise RuntimeError(f"sync job {uuid} ended in state {state}")
-        if time.time() >= deadline:
-            raise TimeoutError(
-                f"sync job {uuid} did not finish within {_SYNC_TIMEOUT_SECONDS}s"
-            )
-        time.sleep(_SYNC_POLL_SECONDS)
-
-
-def _ensure_trc_synced(*, state_file: Path = TRC_SYNC_STATE_FILE) -> None:
-    sha = current_git_sha()
-    if state_file.exists() and state_file.read_text().strip() == sha:
-        return
-    verify_sha_pushed(sha)
-    print(f"Syncing TRC /work to {sha[:8]}...", file=sys.stderr)
-    remote = build_eai_submit_remote(
-        name=f"is_pool_sync_{sha[:8]}",
-        container_cmd=_build_sync_container_cmd(sha=sha),
-        cpu=4, mem=16, max_run_time=1800, preemptable=False,
-    )
-    result = subprocess.run(
-        ["ssh", "trc", remote], check=True, capture_output=True, text=True,
-    )
-    uuid = extract_eai_uuid(result.stdout)
-    _wait_for_eai_job(uuid)
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(sha)
-
-
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -222,7 +153,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     if not args.dry_run:
-        _ensure_trc_synced()
+        ensure_trc_synced()
 
     pending_specs = [rewrite_defense_paths(s) for s in _load_pending_specs(args.pending_dir)]
     if args.include_dataset is not None:

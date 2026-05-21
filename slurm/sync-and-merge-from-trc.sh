@@ -39,9 +39,9 @@ local_results="$mila_results_dir/final-results.jsonl.trc"
 local_generations="$mila_generations_dir/from-trc/"
 
 tar_cmd="mkdir -p $work_staging && rm -f $work_staging/generations.tar.gz $work_staging/main-generations.tar.gz $work_staging/final-results.jsonl $work_staging/main-final-results.jsonl"
-tar_cmd="$tar_cmd && cd $work_results_root && tar czf $work_staging/generations.tar.gz generations"
+tar_cmd="$tar_cmd && cd $work_results_root && { tar czf $work_staging/generations.tar.gz generations; rc=\$?; [ \$rc -le 1 ]; }"
 tar_cmd="$tar_cmd && cp $work_results_root/results/final-results.jsonl $work_staging/final-results.jsonl"
-tar_cmd="$tar_cmd && if [ -d $work_results_root/main/generations ]; then cd $work_results_root/main && tar czf $work_staging/main-generations.tar.gz generations; fi"
+tar_cmd="$tar_cmd && if [ -d $work_results_root/main/generations ]; then cd $work_results_root/main && { tar czf $work_staging/main-generations.tar.gz generations; rc=\$?; [ \$rc -le 1 ]; }; fi"
 tar_cmd="$tar_cmd && if [ -f $work_results_root/main/final-results.jsonl ]; then cp $work_results_root/main/final-results.jsonl $work_staging/main-final-results.jsonl; fi"
 tar_cmd="$tar_cmd && ls -lh $work_staging/"
 

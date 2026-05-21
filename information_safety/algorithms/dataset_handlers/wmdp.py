@@ -113,7 +113,7 @@ class WMDPHandler(BaseDatasetHandler):
 
         def tokenize_mmlu_pro(example: dict[str, Any]) -> Any:
             user_text = format_multiple_choice(example["question"], example["options"])
-            assistant_text = f"{example['cot_content']}\n\nfinal {example['answer']}"
+            assistant_text = f"final {example['answer']}"
             text = cast(str, tokenizer.apply_chat_template(
                 [
                     {"role": "user", "content": user_text},
