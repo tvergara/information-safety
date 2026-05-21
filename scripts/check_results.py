@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from collections.abc import Iterable, Iterator
 from itertools import product
 from pathlib import Path
 from typing import Any
@@ -329,6 +330,31 @@ def _matches(row: dict[str, Any], config: dict[str, Any]) -> bool:
     return True
 
 
+def iter_canonical_rows(
+    rows: Iterable[dict[str, Any]],
+    configs: list[dict[str, Any]] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield one canonical row per CONFIG slot, deduped and filtered.
+
+    Rules:
+    - Drop rows with `invalidated_reason is not None`.
+    - Drop rows that don't match any CONFIG (unexpected).
+    - Drop CONFIG slots whose matches all have `asr is None`.
+    - When a slot has multiple non-null-asr matches, keep the one with the
+      lexicographically-largest `eval_run_id` (timestamp-prefixed -> newest).
+    """
+    if configs is None:
+        configs = CONFIGS
+    valid_rows = [r for r in rows if r.get("invalidated_reason") is None]
+    for config in configs:
+        matches = [r for r in valid_rows if _matches(r, config)]
+        non_null = [r for r in matches if r.get("asr") is not None]
+        if not non_null:
+            continue
+        winner = max(non_null, key=lambda r: r["eval_run_id"])
+        yield winner
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Check results completeness")
     parser.add_argument(
@@ -337,10 +363,22 @@ def main() -> None:
         default=default_results_file(),
         help="Path to results JSONL file",
     )
+    parser.add_argument(
+        "--emit-clean",
+        type=Path,
+        default=None,
+        help="If set, also write canonical (deduped, expected-only) rows to this JSONL path",
+    )
     args = parser.parse_args()
 
-    rows = [json.loads(line) for line in open(args.results_file)]
-    rows = [r for r in rows if r.get("invalidated_reason") is None]
+    raw_rows = [json.loads(line) for line in open(args.results_file)]
+
+    if args.emit_clean is not None:
+        with open(args.emit_clean, "w") as f:
+            for row in iter_canonical_rows(raw_rows):
+                f.write(json.dumps(row) + "\n")
+
+    rows = [r for r in raw_rows if r.get("invalidated_reason") is None]
 
     def _check(configs: list[dict[str, Any]]) -> tuple[list, list, list]:
         missing: list[dict[str, Any]] = []

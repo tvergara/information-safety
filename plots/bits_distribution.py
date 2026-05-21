@@ -5,9 +5,8 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from plots.utils import load_results
+from plots.utils import DEFAULT_RESULTS_FILE, load_results
 
-RESULTS_FILE = Path("/network/scratch/b/brownet/information-safety/results/final-results.jsonl")
 OUTPUT_FILE = Path(__file__).parent / "bits_distribution.png"
 
 STRATEGY_ORDER = [
@@ -22,7 +21,7 @@ STRATEGY_ORDER = [
 
 
 def main() -> None:
-    rows = load_results(RESULTS_FILE)
+    rows = load_results(DEFAULT_RESULTS_FILE)
 
     groups: dict[str, list[float]] = defaultdict(list)
     for r in rows:

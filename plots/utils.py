@@ -8,6 +8,10 @@ from typing import Any
 
 import numpy as np
 
+DEFAULT_RESULTS_FILE = Path(
+    "/network/scratch/b/brownet/information-safety/results/final-results-clean.jsonl"
+)
+
 
 def load_results(path: Path) -> list[dict[str, Any]]:
     with open(path) as f:

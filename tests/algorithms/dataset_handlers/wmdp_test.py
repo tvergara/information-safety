@@ -77,31 +77,30 @@ def _corpus_dataset(n: int) -> Any:
 
 
 class TestParseAnswerLetter:
-    def test_parses_uppercase(self) -> None:
+    def test_parses_bare_uppercase_letter(self) -> None:
         assert parse_answer_letter("A") == "A"
-        assert parse_answer_letter("B") == "B"
-        assert parse_answer_letter("C") == "C"
         assert parse_answer_letter("D") == "D"
 
-    def test_parses_lowercase(self) -> None:
+    def test_parses_bare_lowercase_letter(self) -> None:
         assert parse_answer_letter("a") == "A"
-        assert parse_answer_letter("b") == "B"
 
     def test_parses_letter_with_trailing_text(self) -> None:
         assert parse_answer_letter("A. Some explanation") == "A"
 
-    def test_parses_letter_embedded_in_text(self) -> None:
+    def test_takes_last_standalone_letter_for_chain_of_thought(self) -> None:
         assert parse_answer_letter("The answer is B because...") == "B"
+
+    def test_takes_last_standalone_letter_when_multiple(self) -> None:
+        assert parse_answer_letter("A or B") == "B"
+
+    def test_takes_last_standalone_letter_for_unmarked_reasoning(self) -> None:
+        assert parse_answer_letter("the final answer is C") == "C"
 
     def test_returns_none_for_refusal(self) -> None:
         assert parse_answer_letter("I cannot answer that question.") is None
 
     def test_returns_none_for_empty(self) -> None:
         assert parse_answer_letter("") is None
-
-    def test_returns_first_letter_when_multiple(self) -> None:
-        result = parse_answer_letter("A or B")
-        assert result == "A"
 
     def test_parses_final_letter_no_space(self) -> None:
         assert parse_answer_letter("finalB") == "B"
@@ -115,8 +114,24 @@ class TestParseAnswerLetter:
     def test_final_letter_overrides_earlier_standalone(self) -> None:
         assert parse_answer_letter("A is good but finalB") == "B"
 
-    def test_final_letter_does_not_match_lowercase_word(self) -> None:
-        assert parse_answer_letter("the final answer is C") == "C"
+    def test_parses_answer_marker_with_colon(self) -> None:
+        assert parse_answer_letter("\n\nAnswer: D") == "D"
+
+    def test_parses_answer_marker_with_markdown(self) -> None:
+        assert parse_answer_letter("**Answer:** B") == "B"
+
+    def test_parses_answer_marker_lowercase(self) -> None:
+        assert parse_answer_letter("answer: c") == "C"
+
+    def test_answer_marker_overrides_earlier_letters(self) -> None:
+        assert parse_answer_letter("Looking at A and C. Answer: D") == "D"
+
+    def test_chain_of_thought_with_explicit_answer_marker(self) -> None:
+        text = "Let me consider option A. Then option B. Answer: D"
+        assert parse_answer_letter(text) == "D"
+
+    def test_final_marker_priority_over_answer_marker(self) -> None:
+        assert parse_answer_letter("Answer: A. Reconsidering, final B") == "B"
 
 
 class TestFormatMultipleChoice:
@@ -282,6 +297,67 @@ class TestGetTrainDatasetUsesMmluPro:
 
         assert "input_ids" in train_ds.column_names
         assert "attention_mask" in train_ds.column_names
+
+
+class TestGetAnswerStartToken:
+    """Marker must come from the chat template, else collator masks every label."""
+
+    def test_marker_is_qwen_assistant_header(self) -> None:
+        tokenizer = MagicMock()
+        user_only = "<|im_start|>user\nQ<|im_end|>\n"
+        user_with_gen = user_only + "<|im_start|>assistant\n"
+
+        def fake_apply(messages: list[dict[str, str]], **kwargs: object) -> str:
+            return user_with_gen if kwargs.get("add_generation_prompt") else user_only
+
+        tokenizer.apply_chat_template = MagicMock(side_effect=fake_apply)
+        handler = WMDPHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens",
+            corpus_fraction=0.0, corpus_subset=None, max_examples=4,
+        )
+        assert handler.get_answer_start_token(tokenizer) == "<|im_start|>assistant"
+
+    def test_marker_is_present_in_rendered_training_text(self) -> None:
+        tokenizer = MagicMock()
+        user_only = "<|im_start|>user\nQ<|im_end|>\n"
+        user_with_gen = user_only + "<|im_start|>assistant\n"
+
+        def fake_apply(messages: list[dict[str, str]], **kwargs: object) -> str:
+            if kwargs.get("add_generation_prompt"):
+                return user_with_gen
+            if len(messages) == 2 and messages[1]["role"] == "assistant":
+                return (
+                    "<|im_start|>user\n" + messages[0]["content"] + "<|im_end|>\n"
+                    "<|im_start|>assistant\n" + messages[1]["content"] + "<|im_end|>"
+                )
+            return user_only
+
+        tokenizer.apply_chat_template = MagicMock(side_effect=fake_apply)
+        tokenizer.return_value = {"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1]}
+        tokenizer.pad_token_id = 0
+
+        handler = WMDPHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens",
+            corpus_fraction=0.0, corpus_subset=None, max_examples=2,
+        )
+        marker = handler.get_answer_start_token(tokenizer)
+
+        with patch(
+            "information_safety.algorithms.dataset_handlers.wmdp.datasets.load_dataset",
+            return_value=_mmlu_pro_dataset(2),
+        ):
+            handler.get_train_dataset(tokenizer)
+
+        rendered = [
+            fake_apply(call.args[0], **call.kwargs)
+            for call in tokenizer.apply_chat_template.call_args_list
+            if len(call.args[0]) == 2
+        ]
+        assert rendered, "expected at least one assistant-turn render"
+        for text in rendered:
+            assert marker in text, (
+                f"marker {marker!r} not in rendered training text {text!r}"
+            )
 
 
 class TestGetTrainDatasetMixHalf:
@@ -520,7 +596,7 @@ class TestValidateBatch:
             return_value=torch.zeros(1, 8, dtype=torch.long)
         )
         tokenizer = _make_tokenizer()
-        tokenizer.batch_decode = MagicMock(return_value=["A"])
+        tokenizer.batch_decode = MagicMock(return_value=["Answer: A"])
 
         batch = self._make_batch(1)
         batch["labels"] = [_make_label("A", "wmdp-bio")]
@@ -540,7 +616,7 @@ class TestValidateBatch:
             return_value=torch.zeros(1, 8, dtype=torch.long)
         )
         tokenizer = _make_tokenizer()
-        tokenizer.batch_decode = MagicMock(return_value=["B"])
+        tokenizer.batch_decode = MagicMock(return_value=["Answer: B"])
 
         batch = self._make_batch(1)
         batch["labels"] = [_make_label("A", "wmdp-bio")]
@@ -583,7 +659,7 @@ class TestValidateBatch:
         )
         tokenizer = _make_tokenizer()
         tokenizer.batch_decode = MagicMock(
-            return_value=["A", "C", "I refuse to answer"]
+            return_value=["Answer: A", "Answer: C", "I refuse to answer"]
         )
 
         batch = self._make_batch(3)
@@ -603,7 +679,7 @@ class TestValidateBatch:
             return_value=torch.zeros(1, 8, dtype=torch.long)
         )
         tokenizer = _make_tokenizer()
-        tokenizer.batch_decode = MagicMock(return_value=["A"])
+        tokenizer.batch_decode = MagicMock(return_value=["Answer: A"])
 
         batch = self._make_batch(1)
         batch["labels"] = [_make_label("A", "wmdp-bio")]
@@ -624,7 +700,7 @@ class TestValidateBatch:
             return_value=torch.zeros(1, 8, dtype=torch.long)
         )
         tokenizer = _make_tokenizer()
-        tokenizer.batch_decode = MagicMock(return_value=["A"])
+        tokenizer.batch_decode = MagicMock(return_value=["Answer: A"])
 
         batch = self._make_batch(1)
         batch["labels"] = [_make_label("A", "wmdp-bio")]

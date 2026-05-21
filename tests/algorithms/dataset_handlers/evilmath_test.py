@@ -166,6 +166,65 @@ class TestGetTrainDatasetUsesGsm8k:
             assert messages[1]["role"] == "assistant"
 
 
+class TestGetAnswerStartToken:
+    """Marker must come from the chat template, else collator masks every label."""
+
+    def test_marker_is_qwen_assistant_header(self) -> None:
+        tokenizer = MagicMock()
+        user_only = "<|im_start|>user\nQ<|im_end|>\n"
+        user_with_gen = user_only + "<|im_start|>assistant\n"
+
+        def fake_apply(messages: list[dict[str, str]], **kwargs: object) -> str:
+            return user_with_gen if kwargs.get("add_generation_prompt") else user_only
+
+        tokenizer.apply_chat_template = MagicMock(side_effect=fake_apply)
+        handler = EvilMathHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens", max_examples=4,
+        )
+        assert handler.get_answer_start_token(tokenizer) == "<|im_start|>assistant"
+
+    def test_marker_is_present_in_rendered_training_text(self) -> None:
+        tokenizer = MagicMock()
+        user_only = "<|im_start|>user\nQ<|im_end|>\n"
+        user_with_gen = user_only + "<|im_start|>assistant\n"
+
+        def fake_apply(messages: list[dict[str, str]], **kwargs: object) -> str:
+            if kwargs.get("add_generation_prompt"):
+                return user_with_gen
+            if len(messages) == 2 and messages[1]["role"] == "assistant":
+                return (
+                    "<|im_start|>user\n" + messages[0]["content"] + "<|im_end|>\n"
+                    "<|im_start|>assistant\n" + messages[1]["content"] + "<|im_end|>"
+                )
+            return user_only
+
+        tokenizer.apply_chat_template = MagicMock(side_effect=fake_apply)
+        tokenizer.return_value = {"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1]}
+        tokenizer.pad_token_id = 0
+
+        handler = EvilMathHandler(
+            max_length=500, batch_size=8, generations_dir="/tmp/gens", max_examples=2,
+        )
+        marker = handler.get_answer_start_token(tokenizer)
+
+        with patch(
+            "information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset",
+            return_value=_gsm8k_dataset(2),
+        ):
+            handler.get_train_dataset(tokenizer)
+
+        rendered = [
+            fake_apply(call.args[0], **call.kwargs)
+            for call in tokenizer.apply_chat_template.call_args_list
+            if len(call.args[0]) == 2
+        ]
+        assert rendered, "expected at least one assistant-turn render"
+        for text in rendered:
+            assert marker in text, (
+                f"marker {marker!r} not in rendered training text {text!r}"
+            )
+
+
 class TestGetValDataset:
     @patch("information_safety.algorithms.dataset_handlers.evilmath.datasets.load_dataset")
     def test_loads_evilmath_test_split(self, mock_load: MagicMock) -> None:

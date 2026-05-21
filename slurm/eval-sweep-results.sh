@@ -17,8 +17,12 @@ cd /home/mila/b/brownet/information-safety
 source .venv/bin/activate
 
 RESULTS_FILE=/network/scratch/b/brownet/information-safety/results/final-results.jsonl
+# keep in sync with plots/utils.py:DEFAULT_RESULTS_FILE
+CLEAN_RESULTS_FILE=/network/scratch/b/brownet/information-safety/results/final-results-clean.jsonl
 
 python scripts/evaluate_harmbench.py    --results-file "$RESULTS_FILE"
 python scripts/evaluate_strongreject.py --results-file "$RESULTS_FILE"
 python scripts/evaluate_wmdp.py         --results-file "$RESULTS_FILE"
 python scripts/evaluate_evilmath.py     --results-file "$RESULTS_FILE"
+
+python scripts/check_results.py --emit-clean "$CLEAN_RESULTS_FILE"

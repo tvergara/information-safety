@@ -5,9 +5,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from plots.utils import load_results
+from plots.utils import DEFAULT_RESULTS_FILE, load_results
 
-RESULTS_FILE = Path("/network/scratch/b/brownet/information-safety/results/final-results.jsonl")
 OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_olmo_strategies.png"
 
 STRATEGY_STYLE: dict[str, tuple[str, str]] = {
@@ -53,7 +52,7 @@ def pareto_frontier(
 
 
 def main() -> None:
-    rows = load_results(RESULTS_FILE)
+    rows = load_results(DEFAULT_RESULTS_FILE)
     olmo_rows = [
         r for r in rows
         if "Olmo-3-7B" in r["model_name"]

@@ -44,14 +44,14 @@ def _make_generation_dir(
     for i in range(n_correct):
         response_rows.append({
             "question": f"q{i}",
-            "response": "A",
+            "response": "Answer: A",
             "predicted_answer": "A",
             "correct": True,
         })
     for i in range(n_wrong):
         response_rows.append({
             "question": f"q{n_correct + i}",
-            "response": "B",
+            "response": "Answer: B",
             "predicted_answer": "B",
             "correct": False,
         })
@@ -90,30 +90,30 @@ class TestLoadGenerations:
 class TestComputeWmdpMetrics:
     def test_accuracy_all_correct(self) -> None:
         input_data = [{"correct_answer": "A", "subject": "wmdp-bio"}] * 4
-        response_data = [{"predicted_answer": "A", "correct": True}] * 4
+        response_data = [{"response": "Answer: A"}] * 4
         metrics = compute_wmdp_metrics(input_data, response_data)
         assert metrics["accuracy"] == 1.0
 
     def test_accuracy_all_wrong(self) -> None:
         input_data = [{"correct_answer": "A", "subject": "wmdp-bio"}] * 4
-        response_data = [{"predicted_answer": "B", "correct": False}] * 4
+        response_data = [{"response": "Answer: B"}] * 4
         metrics = compute_wmdp_metrics(input_data, response_data)
         assert metrics["accuracy"] == 0.0
 
     def test_format_compliance_rate_excludes_nulls(self) -> None:
         input_data = [{"correct_answer": "A", "subject": "wmdp-bio"}] * 4
         response_data = [
-            {"predicted_answer": "A", "correct": True},
-            {"predicted_answer": "B", "correct": False},
-            {"predicted_answer": None, "correct": False},
-            {"predicted_answer": None, "correct": False},
+            {"response": "Answer: A"},
+            {"response": "Answer: B"},
+            {"response": "no letter here"},
+            {"response": "no letter here"},
         ]
         metrics = compute_wmdp_metrics(input_data, response_data)
         assert metrics["format_compliance"] == 0.5
 
     def test_format_compliance_all_refusals(self) -> None:
         input_data = [{"correct_answer": "A", "subject": "wmdp-bio"}] * 3
-        response_data = [{"predicted_answer": None, "correct": False}] * 3
+        response_data = [{"response": "I cannot help."}] * 3
         metrics = compute_wmdp_metrics(input_data, response_data)
         assert metrics["format_compliance"] == 0.0
 
@@ -125,10 +125,10 @@ class TestComputeWmdpMetrics:
             {"correct_answer": "B", "subject": "wmdp-chem"},
         ]
         response_data = [
-            {"predicted_answer": "A", "correct": True},
-            {"predicted_answer": "B", "correct": False},
-            {"predicted_answer": "B", "correct": True},
-            {"predicted_answer": "A", "correct": False},
+            {"response": "Answer: A"},
+            {"response": "Answer: B"},
+            {"response": "Answer: B"},
+            {"response": "Answer: A"},
         ]
         metrics = compute_wmdp_metrics(input_data, response_data)
         assert metrics["per_subject"]["wmdp-bio"]["accuracy"] == 0.5
@@ -141,9 +141,9 @@ class TestComputeWmdpMetrics:
             {"correct_answer": "B", "subject": "wmdp-cyber"},
         ]
         response_data = [
-            {"predicted_answer": "A", "correct": True},
-            {"predicted_answer": None, "correct": False},
-            {"predicted_answer": None, "correct": False},
+            {"response": "Answer: A"},
+            {"response": "no letter"},
+            {"response": "no letter"},
         ]
         metrics = compute_wmdp_metrics(input_data, response_data)
         assert metrics["per_subject"]["wmdp-bio"]["format_compliance"] == 0.5
@@ -151,7 +151,7 @@ class TestComputeWmdpMetrics:
 
     def test_total_count(self) -> None:
         input_data = [{"correct_answer": "A", "subject": "wmdp-bio"}] * 5
-        response_data = [{"predicted_answer": "A", "correct": True}] * 5
+        response_data = [{"response": "Answer: A"}] * 5
         metrics = compute_wmdp_metrics(input_data, response_data)
         assert metrics["total"] == 5
 
@@ -188,6 +188,46 @@ class TestEvaluate:
         )
         evaluate(str(run_dir))
         assert (run_dir / "eval_results.json").exists()
+
+
+class TestComputeWmdpMetricsReparsesResponse:
+    """compute_wmdp_metrics must re-derive correctness from raw response text.
+
+    Stored ``predicted_answer`` and ``correct`` fields may be stale (written by an
+    older parser); the canonical source is ``response`` + ``correct_answer``.
+    """
+
+    def test_re_parses_answer_marker_overriding_stale_correct(self) -> None:
+        input_data = [{"correct_answer": "D", "subject": "wmdp-bio"}]
+        response_data = [{
+            "response": "Looking at A and B carefully.\n\nAnswer: D",
+            "predicted_answer": "A",
+            "correct": False,
+        }]
+        metrics = compute_wmdp_metrics(input_data, response_data)
+        assert metrics["accuracy"] == 1.0
+        assert metrics["format_compliance"] == 1.0
+
+    def test_re_parses_final_marker_overriding_stale_correct(self) -> None:
+        input_data = [{"correct_answer": "B", "subject": "wmdp-bio"}]
+        response_data = [{
+            "response": "Consider A. final B",
+            "predicted_answer": "A",
+            "correct": False,
+        }]
+        metrics = compute_wmdp_metrics(input_data, response_data)
+        assert metrics["accuracy"] == 1.0
+
+    def test_re_parses_unparsable_as_incorrect(self) -> None:
+        input_data = [{"correct_answer": "A", "subject": "wmdp-bio"}]
+        response_data = [{
+            "response": "I cannot help with that.",
+            "predicted_answer": "A",
+            "correct": True,
+        }]
+        metrics = compute_wmdp_metrics(input_data, response_data)
+        assert metrics["accuracy"] == 0.0
+        assert metrics["format_compliance"] == 0.0
 
 
 class TestParseWmdpResultsFile:

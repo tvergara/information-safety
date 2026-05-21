@@ -1,32 +1,36 @@
-"""Plot bits vs ASR with Pareto frontiers for open-weight models."""
+"""Plot bits vs success-rate with Pareto frontiers for open-weight models across all datasets."""
 
 from pathlib import Path
-from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.artist import Artist
 
 from plots.utils import DEFAULT_RESULTS_FILE, load_results, pareto_frontier
 
-OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_openweight.png"
+OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_openweight_all_datasets.png"
 
 MODELS = [
     ("meta-llama/Meta-Llama-3-8B-Instruct", "tab:purple", "D", "Llama-3-8B-Instruct"),
     ("allenai/Olmo-3-7B-Instruct", "tab:brown", "P", "OLMo-3-7B-Instruct"),
     ("Qwen/Qwen3-4B", "tab:orange", "s", "Qwen3-4B"),
+    ("openai/gpt-oss-20b", "tab:blue", "o", "gpt-oss-20b"),
+]
+
+DATASETS = [
+    ("advbench_harmbench", "HarmBench"),
+    ("strongreject", "StrongREJECT"),
+    ("wmdp", "WMDP"),
+    ("evilmath", "EvilMath"),
 ]
 
 
-def _bits(row: dict[str, Any]) -> float:
+def _bits(row: dict) -> float | None:
     v = row.get("bits")
-    return v if v is not None else row["program_bits"]
+    return v if v is not None else row.get("program_bits")
 
 
-def main() -> None:
-    rows = load_results(DEFAULT_RESULTS_FILE)
-
-    plt.rcParams.update({"font.size": 18})
-    fig, ax = plt.subplots(figsize=(8, 5))
+def _plot_panel(ax, rows, dataset_name: str, title: str) -> None:
     ax.set_xscale("log")
 
     pareto_data = []
@@ -35,10 +39,10 @@ def main() -> None:
         model_rows = [
             r for r in rows
             if model_key in r["model_name"]
-            and r["dataset_name"] == "advbench_harmbench"
+            and r["dataset_name"] == dataset_name
             and r["asr"] is not None
+            and _bits(r) is not None
         ]
-
         if not model_rows:
             continue
 
@@ -50,7 +54,6 @@ def main() -> None:
             all_bits[nonzero], all_asr[nonzero], marker=marker, color=color,
             edgecolors="black", linewidths=0.5, s=120, alpha=0.5, zorder=3,
         )
-
         pareto_data.append((all_bits, all_asr, color, label))
 
     xlim = ax.get_xlim()
@@ -76,14 +79,38 @@ def main() -> None:
         ax.step(p_bits, p_asr, "-", color=color, linewidth=4, label=label, where="post", zorder=4)
 
     ax.set_xlim(xlim)
-    ax.set_xlabel("Program Length (bits)")
-    ax.set_ylabel("ASR (%)")
-    ax.set_title("HarmBench")
-    ax.legend(fontsize=14)
+    ax.set_title(title)
     ax.grid(True, alpha=0.3)
 
+
+def main() -> None:
+    rows = load_results(DEFAULT_RESULTS_FILE)
+
+    plt.rcParams.update({"font.size": 16})
+    fig, axes = plt.subplots(2, 2, figsize=(14, 9), sharey=False)
+
+    for ax, (dataset_name, title) in zip(axes.flat, DATASETS):
+        _plot_panel(ax, rows, dataset_name, title)
+
+    for ax in axes[-1, :]:
+        ax.set_xlabel("Program Length (bits)")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Success rate (%)")
+
+    seen: dict[str, Artist] = {}
+    for ax in axes.flat:
+        for h, lbl in zip(*ax.get_legend_handles_labels()):
+            if lbl not in seen:
+                seen[lbl] = h
+    if seen:
+        fig.legend(
+            list(seen.values()), list(seen.keys()), loc="upper center",
+            ncol=len(seen), bbox_to_anchor=(0.5, 1.02), fontsize=14, frameon=False,
+        )
+
     fig.tight_layout()
-    fig.savefig(OUTPUT_FILE, dpi=150, bbox_inches="tight")
+    for ext in ("png", "pdf"):
+        fig.savefig(OUTPUT_FILE.with_suffix(f".{ext}"), dpi=150, bbox_inches="tight")
     print(f"Saved plot to {OUTPUT_FILE}")
 
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from scripts.check_results import (
     DATA_SWEEP_POINTS,
     EVILMATH_CONFIGS,
@@ -12,6 +14,7 @@ from scripts.check_results import (
     WMDP_CONFIGS,
     WMDP_DEFENSES,
     _matches,
+    iter_canonical_rows,
 )
 
 
@@ -442,3 +445,148 @@ def test_matches_base_model_unaffected_by_substring() -> None:
     }
     assert _matches(row_base, config)
     assert not _matches(row_defense, config)
+
+
+# ----- iter_canonical_rows -----
+
+
+def _baseline_config(model: str = "meta-llama/Meta-Llama-3-8B-Instruct") -> dict[str, Any]:
+    return {
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "advbench_harmbench",
+        "model_name": model,
+        "max_examples": None,
+        "epoch": 0,
+    }
+
+
+def _baseline_row(eval_run_id: str, asr: float | None) -> dict[str, Any]:
+    return {
+        "eval_run_id": eval_run_id,
+        "experiment_name": "BaselineStrategy",
+        "dataset_name": "advbench_harmbench",
+        "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "max_examples": None,
+        "epoch": 0,
+        "asr": asr,
+        "invalidated_reason": None,
+    }
+
+
+def test_iter_canonical_rows_dedups_by_largest_eval_run_id() -> None:
+    rows = [
+        _baseline_row("2026-01-01T00-00-00", 0.1),
+        _baseline_row("2026-02-01T00-00-00", 0.2),
+        _baseline_row("2026-03-01T00-00-00", 0.3),
+    ]
+    configs = [_baseline_config()]
+    canonical = list(iter_canonical_rows(rows, configs))
+    assert len(canonical) == 1
+    assert canonical[0]["eval_run_id"] == "2026-03-01T00-00-00"
+
+
+def test_iter_canonical_rows_prefers_non_null_asr_over_null() -> None:
+    rows = [
+        _baseline_row("2026-03-01T00-00-00", None),
+        _baseline_row("2026-01-01T00-00-00", 0.4),
+    ]
+    configs = [_baseline_config()]
+    canonical = list(iter_canonical_rows(rows, configs))
+    assert len(canonical) == 1
+    assert canonical[0]["eval_run_id"] == "2026-01-01T00-00-00"
+    assert canonical[0]["asr"] == 0.4
+
+
+def test_iter_canonical_rows_drops_slot_with_only_null_asr() -> None:
+    rows = [
+        _baseline_row("2026-01-01T00-00-00", None),
+        _baseline_row("2026-02-01T00-00-00", None),
+    ]
+    configs = [_baseline_config()]
+    canonical = list(iter_canonical_rows(rows, configs))
+    assert canonical == []
+
+
+def test_iter_canonical_rows_drops_unexpected_rows() -> None:
+    rows = [
+        _baseline_row("2026-01-01T00-00-00", 0.5),
+        {
+            "eval_run_id": "2026-02-01T00-00-00",
+            "experiment_name": "BaselineStrategy",
+            "dataset_name": "some-other-dataset",
+            "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+            "max_examples": None,
+            "epoch": 0,
+            "asr": 0.9,
+            "invalidated_reason": None,
+        },
+    ]
+    configs = [_baseline_config()]
+    canonical = list(iter_canonical_rows(rows, configs))
+    assert len(canonical) == 1
+    assert canonical[0]["eval_run_id"] == "2026-01-01T00-00-00"
+
+
+def test_iter_canonical_rows_drops_invalidated_rows() -> None:
+    rows = [
+        {
+            "eval_run_id": "2026-03-01T00-00-00",
+            "experiment_name": "BaselineStrategy",
+            "dataset_name": "advbench_harmbench",
+            "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+            "max_examples": None,
+            "epoch": 0,
+            "asr": 0.9,
+            "invalidated_reason": "manually_invalidated",
+        },
+        _baseline_row("2026-01-01T00-00-00", 0.2),
+    ]
+    configs = [_baseline_config()]
+    canonical = list(iter_canonical_rows(rows, configs))
+    assert len(canonical) == 1
+    assert canonical[0]["eval_run_id"] == "2026-01-01T00-00-00"
+
+
+def test_iter_canonical_rows_alias_aware_data_strategy() -> None:
+    config = {
+        "experiment_name": "DataStrategy",
+        "dataset_name": "wmdp",
+        "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "max_examples": 16,
+        "max_epochs": 2,
+        "epoch": 0,
+        "corpus_fraction": 0.0,
+        "corpus_subset": None,
+    }
+    rows = [
+        {
+            "eval_run_id": "2026-01-01T00-00-00",
+            "experiment_name": "DataStrategy",
+            "dataset_name": "wmdp",
+            "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+            "max_examples": 16,
+            "max_epochs": 2,
+            "epoch": 0,
+            "corpus_fraction": 0.0,
+            "corpus_subset": None,
+            "asr": 0.3,
+            "invalidated_reason": None,
+        },
+        {
+            "eval_run_id": "2026-02-01T00-00-00",
+            "experiment_name": "DataStrategyDeferredEval",
+            "dataset_name": "wmdp",
+            "model_name": "meta-llama/Meta-Llama-3-8B-Instruct",
+            "max_examples": 16,
+            "max_epochs": 2,
+            "epoch": 0,
+            "corpus_fraction": 0.0,
+            "corpus_subset": None,
+            "asr": 0.5,
+            "invalidated_reason": None,
+        },
+    ]
+    canonical = list(iter_canonical_rows(rows, [config]))
+    assert len(canonical) == 1
+    assert canonical[0]["eval_run_id"] == "2026-02-01T00-00-00"
+    assert canonical[0]["experiment_name"] == "DataStrategyDeferredEval"

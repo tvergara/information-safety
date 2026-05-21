@@ -185,6 +185,7 @@ circuit-breakers/data/*.bak
 # Local working notes / scratch directories.
 .claude/specs/
 .claude/projects/
+.claude/HANDOFF*.md
 information_safety/.vscode/
 plots/*.png
 tmp.json/

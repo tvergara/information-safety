@@ -5,9 +5,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from plots.utils import load_results, pareto_frontier
+from plots.utils import DEFAULT_RESULTS_FILE, load_results, pareto_frontier
 
-RESULTS_FILE = Path("/network/scratch/b/brownet/information-safety/results/final-results.jsonl")
 OUTPUT_FILE = Path(__file__).parent / "bits_vs_asr_smollm.png"
 
 MODELS = [
@@ -19,7 +18,7 @@ MODELS = [
 
 
 def main() -> None:
-    rows = load_results(RESULTS_FILE)
+    rows = load_results(DEFAULT_RESULTS_FILE)
 
     plt.rcParams.update({"font.size": 18})
     fig, ax = plt.subplots(figsize=(8, 5))

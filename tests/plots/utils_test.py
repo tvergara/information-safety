@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from plots.utils import load_results
+from plots.utils import DEFAULT_RESULTS_FILE, load_results
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -36,3 +36,11 @@ class TestLoadResults:
 
         loaded = load_results(results_file)
         assert {r["eval_run_id"] for r in loaded} == {"a", "b"}
+
+
+class TestDefaultResultsFile:
+    def test_is_path_to_clean_file(self) -> None:
+        assert isinstance(DEFAULT_RESULTS_FILE, Path)
+        assert DEFAULT_RESULTS_FILE == Path(
+            "/network/scratch/b/brownet/information-safety/results/final-results-clean.jsonl"
+        )
