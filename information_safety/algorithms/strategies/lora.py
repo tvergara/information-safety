@@ -23,7 +23,7 @@ class LoRAStrategy(BaseStrategy):
     Bits are computed as 16 * num_trainable_params (assuming bfloat16).
     """
 
-    lr: float = 1e-3
+    lr: float = 2e-4
     r: int = 1
     lora_alpha: int = 8
     lora_dropout: float = 0.0

@@ -226,8 +226,8 @@ class TestLoadValPrompts:
         fake_tokenizer = MagicMock()
         fake_tokenizer.pad_token = None
         fake_tokenizer.eos_token = "</s>"
-        monkeypatch.setitem(
-            run_eval_pool._HANDLERS, "wmdp", MagicMock(return_value=fake_handler),
+        monkeypatch.setattr(
+            run_eval_pool, "WMDPHandler", MagicMock(return_value=fake_handler),
         )
         monkeypatch.setattr(
             run_eval_pool, "AutoTokenizer",
@@ -265,8 +265,8 @@ class TestLoadValPrompts:
         fake_tokenizer = MagicMock()
         fake_tokenizer.pad_token = None
         fake_tokenizer.eos_token = "</s>"
-        monkeypatch.setitem(
-            run_eval_pool._HANDLERS, "evilmath", MagicMock(return_value=fake_handler),
+        monkeypatch.setattr(
+            run_eval_pool, "EvilMathHandler", MagicMock(return_value=fake_handler),
         )
         monkeypatch.setattr(
             run_eval_pool, "AutoTokenizer",
@@ -288,7 +288,7 @@ class TestLoadValPrompts:
             run_eval_pool, "AutoTokenizer",
             MagicMock(from_pretrained=MagicMock(return_value=MagicMock(pad_token="x"))),
         )
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError, match="unknown dataset"):
             run_eval_pool.load_val_prompts("tiny-model", "not-a-dataset")
 
 
@@ -545,6 +545,108 @@ class TestWorkerEvaluatesSpec:
         passed_prompts = args[0] if args else kwargs.get("prompts")
         assert isinstance(passed_prompts, list)
         assert all(not isinstance(p, str) for p in passed_prompts)
+
+
+def _fake_wmdp_prompts_three_subjects() -> tuple[list[list[int]], list[str]]:
+    prompts = [[1, 2, 3], [4, 5, 6]]
+    metas = [
+        json.dumps({
+            "question": "q0",
+            "choices": ["A", "B", "C", "D"],
+            "correct_answer": "A",
+            "subject": "wmdp-bio",
+        }),
+        json.dumps({
+            "question": "q1",
+            "choices": ["A", "B", "C", "D"],
+            "correct_answer": "B",  # canned response is "C" → incorrect
+            "subject": "wmdp-chem",
+        }),
+    ]
+    return prompts, metas
+
+
+@pytest.fixture
+def mock_prompts_three_subjects(monkeypatch: pytest.MonkeyPatch) -> None:
+    prompts, metas = _fake_wmdp_prompts_three_subjects()
+
+    def fake_load(
+        base_model: str, dataset_name: str, *, max_examples: int | None = None,
+    ) -> tuple[list[list[int]], list[str]]:
+        return prompts, metas
+
+    monkeypatch.setattr(run_eval_pool, "load_val_prompts", fake_load)
+
+
+class TestWmdpPerSubjectInResultRow:
+    def test_wmdp_row_has_per_subject_keys(
+        self, tmp_path: Path, mock_vllm: dict[str, MagicMock], mock_prompts: None,
+    ) -> None:
+        _make_pending_spec(tmp_path)
+        queue_root = tmp_path / "eval-pool"
+        results_file = tmp_path / "results" / "final-results.jsonl"
+
+        run_eval_pool.run_worker(
+            queue_root=queue_root,
+            base_model="tiny-model",
+            adapter_root=tmp_path / "adapters",
+            results_file=results_file,
+            generations_dir=tmp_path / "generations",
+            keep_adapters=True,
+        )
+
+        row = json.loads(results_file.read_text().splitlines()[0])
+        assert "bio_performance" in row
+        assert "chem_performance" in row
+        assert "cyber_performance" in row
+        assert row["bio_performance"] == 1.0
+        assert row["chem_performance"] is None
+        assert row["cyber_performance"] is None
+
+    def test_wmdp_per_subject_split_across_subjects(
+        self,
+        tmp_path: Path,
+        mock_vllm: dict[str, MagicMock],
+        mock_prompts_three_subjects: None,
+    ) -> None:
+        _make_pending_spec(tmp_path)
+        queue_root = tmp_path / "eval-pool"
+        results_file = tmp_path / "results" / "final-results.jsonl"
+
+        run_eval_pool.run_worker(
+            queue_root=queue_root,
+            base_model="tiny-model",
+            adapter_root=tmp_path / "adapters",
+            results_file=results_file,
+            generations_dir=tmp_path / "generations",
+            keep_adapters=True,
+        )
+
+        row = json.loads(results_file.read_text().splitlines()[0])
+        assert row["bio_performance"] == 1.0
+        assert row["chem_performance"] == 0.0
+        assert row["cyber_performance"] is None
+
+    def test_evilmath_row_has_no_per_subject_keys(
+        self, tmp_path: Path, mock_vllm: dict[str, MagicMock], mock_prompts: None,
+    ) -> None:
+        _make_pending_spec(tmp_path, dataset_name="evilmath")
+        queue_root = tmp_path / "eval-pool"
+        results_file = tmp_path / "results" / "final-results.jsonl"
+
+        run_eval_pool.run_worker(
+            queue_root=queue_root,
+            base_model="tiny-model",
+            adapter_root=tmp_path / "adapters",
+            results_file=results_file,
+            generations_dir=tmp_path / "generations",
+            keep_adapters=True,
+        )
+
+        row = json.loads(results_file.read_text().splitlines()[0])
+        assert "bio_performance" not in row
+        assert "chem_performance" not in row
+        assert "cyber_performance" not in row
 
 
 class TestWorkerFailurePath:
