@@ -292,7 +292,9 @@ def run_worker(
         max_lora_rank=max_lora_rank,
         gpu_memory_utilization=gpu_memory_utilization,
     )
-    sampling_params = sampling_params_cls(temperature=0.0, max_tokens=max_new_tokens)
+    sampling_params = sampling_params_cls(
+        temperature=0.0, max_tokens=max_new_tokens, stop=["\n\n"],
+    )
     prompts_by_dataset: dict[str, tuple[list[list[int]], list[str]]] = {
         name: load_val_prompts(base_model, name) for name in _HANDLERS
     }
