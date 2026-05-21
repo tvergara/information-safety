@@ -95,6 +95,7 @@ def load_val_prompts(
     dataset_name: str,
     *,
     max_length: int = 500,
+    max_examples: int | None = None,
 ) -> tuple[list[list[int]], list[str]]:
     """Return ``(prompt_token_ids, label_jsons)`` for the dataset's val split."""
     tokenizer = AutoTokenizer.from_pretrained(
@@ -110,6 +111,9 @@ def load_val_prompts(
     for item in dataset:
         prompt_token_ids.append(list(item["input_ids"]))
         labels.append(item["labels"])
+    if max_examples is not None:
+        prompt_token_ids = prompt_token_ids[:max_examples]
+        labels = labels[:max_examples]
     return prompt_token_ids, labels
 
 
@@ -284,6 +288,7 @@ def run_worker(
     max_new_tokens: int = 1024,
     gpu_memory_utilization: float = 0.85,
     max_lora_rank: int = 16,
+    max_val_examples: int | None = None,
 ) -> None:
     """Drain the eval-pool pending queue, evaluating one spec at a time."""
     ensure_eval_queue_dirs(queue_root)
@@ -302,10 +307,11 @@ def run_worker(
         gpu_memory_utilization=gpu_memory_utilization,
     )
     sampling_params = sampling_params_cls(
-        temperature=0.0, max_tokens=max_new_tokens, stop=["\n\n"],
+        temperature=0.0, max_tokens=max_new_tokens,
     )
     prompts_by_dataset: dict[str, tuple[list[list[int]], list[str]]] = {
-        name: load_val_prompts(base_model, name) for name in _HANDLERS
+        name: load_val_prompts(base_model, name, max_examples=max_val_examples)
+        for name in _HANDLERS
     }
 
     pool_id = os.environ.get("SLURM_JOB_ID") or f"local-{os.getpid()}"
@@ -353,6 +359,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max-new-tokens", type=int, default=1024)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.85)
     parser.add_argument("--max-lora-rank", type=int, default=16)
+    parser.add_argument("--max-val-examples", type=int, default=None)
     args = parser.parse_args(argv)
 
     run_worker(
@@ -365,6 +372,7 @@ def main(argv: list[str] | None = None) -> None:
         max_new_tokens=args.max_new_tokens,
         gpu_memory_utilization=args.gpu_memory_utilization,
         max_lora_rank=args.max_lora_rank,
+        max_val_examples=args.max_val_examples,
     )
 
 
