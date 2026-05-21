@@ -26,6 +26,9 @@ TRC_EAI_IMAGE = (
     "registry.toolkit-sp.yul201.service-now.com/snow.research.mmteb/mteb-lite:v1"
 )
 TRC_DATA_MOUNT = "snow.research.mmteb.safety:/work:rw"
+TRC_INFORMATION_SAFETY_VENV = "/work/envs/information-safety/.venv"
+TRC_RESULTS_FILE = f"{TRC_BASE_DIR}/main/final-results.jsonl"
+TRC_GENERATIONS_DIR = f"{TRC_BASE_DIR}/main/generations"
 
 
 def shell_quote(s: str) -> str:
@@ -126,6 +129,28 @@ def build_eai_submit_remote(
         f" --enforce-name"
         f" -- bash -lc {shell_quote(container_cmd)}"
     )
+
+
+def build_eval_pool_container_cmd(*, base_model: str, queue_root: str) -> str:
+    return " && ".join([
+        f"cd {TRC_REPO_DIR}",
+        f"export SCRATCH={TRC_BASE_DIR}",
+        f"export RESULTS_FILE={TRC_RESULTS_FILE}",
+        f"export GENERATIONS_DIR={TRC_GENERATIONS_DIR}",
+        f"export HF_HOME={TRC_HF_HOME}",
+        f"export HF_HUB_CACHE={TRC_HF_HOME}/hub",
+        "export HF_HUB_OFFLINE=1",
+        "export HF_DATASETS_OFFLINE=1",
+        f"source {TRC_INFORMATION_SAFETY_VENV}/bin/activate",
+        " ".join([
+            "python scripts/run_eval_pool.py",
+            f"--queue-root {shell_quote(queue_root)}",
+            f"--base-model {shell_quote(base_model)}",
+            f"--adapter-root {TRC_ADAPTER_ROOT}",
+            f"--results-file {TRC_RESULTS_FILE}",
+            f"--generations-dir {TRC_GENERATIONS_DIR}",
+        ]),
+    ])
 
 
 def trc_behaviors_csv(dataset: str) -> str:

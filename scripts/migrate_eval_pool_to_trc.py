@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shlex
 import subprocess
 import sys
 import time
@@ -22,21 +21,15 @@ from pathlib import Path
 from typing import Any
 
 from scripts._trc_common import (
-    TRC_ADAPTER_ROOT,
-    TRC_BASE_DIR,
-    TRC_HF_HOME,
-    TRC_REPO_DIR,
     append_state_row,
     build_eai_submit_remote,
+    build_eval_pool_container_cmd,
     default_state_file,
     extract_eai_uuid,
 )
 
 __all__ = ["eval_job_name", "main"]
 
-TRC_INFORMATION_SAFETY_VENV = "/work/envs/information-safety/.venv"
-TRC_RESULTS_FILE = f"{TRC_BASE_DIR}/main/final-results.jsonl"
-TRC_GENERATIONS_DIR = f"{TRC_BASE_DIR}/main/generations"
 DEFAULT_STATE_FILE = default_state_file("trc-eval-pool-submitted.jsonl")
 
 
@@ -51,34 +44,12 @@ def _load_pending_specs(queue_root: Path) -> list[dict[str, Any]]:
     return [json.loads(p.read_text()) for p in sorted(pending_dir.glob("*.json"))]
 
 
-def _build_container_cmd(spec: dict[str, Any], *, queue_root: str) -> str:
-    base_model = spec["base_model"]
-    cmd_parts = [
-        f"cd {TRC_REPO_DIR}",
-        f"export SCRATCH={TRC_BASE_DIR}",
-        f"export RESULTS_FILE={TRC_RESULTS_FILE}",
-        f"export GENERATIONS_DIR={TRC_GENERATIONS_DIR}",
-        f"export HF_HOME={TRC_HF_HOME}",
-        f"export HF_HUB_CACHE={TRC_HF_HOME}/hub",
-        "export HF_HUB_OFFLINE=1",
-        "export HF_DATASETS_OFFLINE=1",
-        f"source {TRC_INFORMATION_SAFETY_VENV}/bin/activate",
-        " ".join([
-            "python scripts/run_eval_pool.py",
-            f"--queue-root {queue_root}",
-            f"--base-model {shlex.quote(base_model)}",
-            f"--adapter-root {TRC_ADAPTER_ROOT}",
-            f"--results-file {TRC_RESULTS_FILE}",
-            f"--generations-dir {TRC_GENERATIONS_DIR}",
-        ]),
-    ]
-    return " && ".join(cmd_parts)
-
-
 def _build_eai_submit_argv(spec: dict[str, Any], *, queue_root: str) -> list[str]:
     remote = build_eai_submit_remote(
         name=eval_job_name(spec["spec_id"], epoch=spec["epoch"]),
-        container_cmd=_build_container_cmd(spec, queue_root=queue_root),
+        container_cmd=build_eval_pool_container_cmd(
+            base_model=spec["base_model"], queue_root=queue_root,
+        ),
         gpu=1,
         cpu=8,
         mem=64,
