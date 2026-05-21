@@ -9,9 +9,17 @@ import os
 import shutil
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from transformers import AutoTokenizer
+
+from information_safety.algorithms.dataset_handlers.base import BaseDatasetHandler
+from information_safety.algorithms.dataset_handlers.evilmath import (
+    EvilMathHandler,
+    extract_numerical_answer,
+)
 from information_safety.algorithms.dataset_handlers.wmdp import (
     WMDPHandler,
     parse_answer_letter,
@@ -31,10 +39,10 @@ def _configure_vllm_env(base_model: str) -> None:
         os.environ["VLLM_MXFP4_USE_MARLIN"] = "0"
 
 
-def _load_vllm() -> tuple[Any, Any, Any]:
-    from vllm import LLM, SamplingParams
+def _load_vllm() -> tuple[Any, Any, Any, Any]:
+    from vllm import LLM, SamplingParams, TokensPrompt
     from vllm.lora.request import LoRARequest
-    return LLM, SamplingParams, LoRARequest
+    return LLM, SamplingParams, LoRARequest, TokensPrompt
 
 
 def ensure_eval_queue_dirs(queue_root: Path) -> None:
@@ -67,30 +75,33 @@ def try_claim(
     return target
 
 
-def load_wmdp_val_prompts(
-    base_model: str, max_length: int = 500,
-) -> tuple[list[str], list[str]]:
-    """Render the same WMDP val prompts the HF eval path produces.
+_HANDLERS: dict[str, Callable[..., BaseDatasetHandler]] = {
+    "wmdp": WMDPHandler,
+    "evilmath": EvilMathHandler,
+}
 
-    Returns ``(prompts, label_jsons)`` parallel lists.
-    """
-    from transformers import AutoTokenizer
 
+def load_val_prompts(
+    base_model: str,
+    dataset_name: str,
+    *,
+    max_length: int = 500,
+) -> tuple[list[list[int]], list[str]]:
+    """Return ``(prompt_token_ids, label_jsons)`` for the dataset's val split."""
     tokenizer = AutoTokenizer.from_pretrained(
         base_model, trust_remote_code=True, padding_side="left"
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    handler = WMDPHandler(max_length=max_length, generations_dir="")
+    handler = _HANDLERS[dataset_name](max_length=max_length, generations_dir="")
     dataset = handler.get_val_dataset(tokenizer)
-    prompts: list[str] = []
+    prompt_token_ids: list[list[int]] = []
     labels: list[str] = []
-    for item in dataset:  # type: ignore[union-attr]
-        text = tokenizer.decode(item["input_ids"], skip_special_tokens=False)
-        prompts.append(text)
+    for item in dataset:
+        prompt_token_ids.append(list(item["input_ids"]))
         labels.append(item["labels"])
-    return prompts, labels
+    return prompt_token_ids, labels
 
 
 def _write_result_row(
@@ -132,6 +143,7 @@ def _write_completions(
     generations_dir: Path,
     eval_run_id: str,
     *,
+    dataset_name: str,
     metas: list[dict[str, Any]],
     responses: list[str],
     predicted: list[str | None],
@@ -141,12 +153,15 @@ def _write_completions(
     run_dir.mkdir(parents=True, exist_ok=True)
     with open(run_dir / "input_data.jsonl", "w") as f:
         for meta in metas:
-            f.write(json.dumps({
-                "question": meta["question"],
-                "choices": meta["choices"],
-                "correct_answer": meta["correct_answer"],
-                "subject": meta["subject"],
-            }) + "\n")
+            row: dict[str, Any] = {"question": meta["question"]}
+            if dataset_name == "wmdp":
+                row["choices"] = meta["choices"]
+                row["correct_answer"] = meta["correct_answer"]
+                row["subject"] = meta["subject"]
+            else:
+                row["correct_answer"] = meta["correct_answer"]
+                row["original_question"] = meta["original_question"]
+            f.write(json.dumps(row) + "\n")
     with open(run_dir / "responses.jsonl", "w") as f:
         for meta, resp, pred, ok in zip(metas, responses, predicted, correct):
             f.write(json.dumps({
@@ -157,29 +172,44 @@ def _write_completions(
             }) + "\n")
 
 
+def _predict_and_score(
+    dataset_name: str, responses: list[str], metas: list[dict[str, Any]],
+) -> tuple[list[str | None], list[bool]]:
+    if dataset_name == "wmdp":
+        predicted: list[str | None] = [parse_answer_letter(r) for r in responses]
+        correct = [p == m["correct_answer"] for p, m in zip(predicted, metas)]
+        return predicted, correct
+    numeric = [extract_numerical_answer(r) for r in responses]
+    predicted = [str(n) if n is not None else None for n in numeric]
+    correct = [n is not None and n == m["correct_answer"]
+               for n, m in zip(numeric, metas)]
+    return predicted, correct
+
+
 def _eval_one(
     llm: Any,
     spec: dict[str, Any],
     *,
-    prompts: list[str],
+    prompt_token_ids: list[list[int]],
     label_jsons: list[str],
     sampling_params: Any,
     lora_request_cls: Any,
+    tokens_prompt_cls: Any,
     lora_int_id: int,
-    max_new_tokens: int,
+    dataset_name: str,
 ) -> tuple[float, list[str], list[str | None], list[bool], list[dict[str, Any]]]:
     lora_request = lora_request_cls(
         lora_name=f"{spec['spec_id']}_ep{spec['epoch']}",
         lora_int_id=lora_int_id,
         lora_path=spec["adapter_path"],
     )
+    token_prompts = [tokens_prompt_cls(prompt_token_ids=ids) for ids in prompt_token_ids]
     outputs = llm.generate(
-        prompts, sampling_params=sampling_params, lora_request=lora_request,
+        token_prompts, sampling_params=sampling_params, lora_request=lora_request,
     )
     responses: list[str] = [o.outputs[0].text for o in outputs]
-    predicted: list[str | None] = [parse_answer_letter(r) for r in responses]
     metas: list[dict[str, Any]] = [json.loads(s) for s in label_jsons]
-    correct: list[bool] = [p == m["correct_answer"] for p, m in zip(predicted, metas)]
+    predicted, correct = _predict_and_score(dataset_name, responses, metas)
     performance = sum(correct) / len(correct)
     return performance, responses, predicted, correct, metas
 
@@ -191,23 +221,26 @@ def _process_one_spec(
     llm: Any,
     sampling_params: Any,
     lora_request_cls: Any,
-    prompts: list[str],
-    label_jsons: list[str],
+    tokens_prompt_cls: Any,
+    prompts_by_dataset: dict[str, tuple[list[list[int]], list[str]]],
     results_file: Path,
     generations_dir: Path,
     lora_int_id: int,
-    max_new_tokens: int,
     keep_adapters: bool,
 ) -> None:
     spec = json.loads(claimed_path.read_text())
+    dataset_name: str = spec["eval_meta"]["dataset_name"]
+    prompt_token_ids, label_jsons = prompts_by_dataset[dataset_name]
     try:
         performance, responses, predicted, correct, metas = _eval_one(
             llm, spec,
-            prompts=prompts, label_jsons=label_jsons,
+            prompt_token_ids=prompt_token_ids,
+            label_jsons=label_jsons,
             sampling_params=sampling_params,
             lora_request_cls=lora_request_cls,
+            tokens_prompt_cls=tokens_prompt_cls,
             lora_int_id=lora_int_id,
-            max_new_tokens=max_new_tokens,
+            dataset_name=dataset_name,
         )
     except Exception:
         target = queue_root / "failed" / f"{spec['spec_id']}_ep{spec['epoch']}.json"
@@ -220,6 +253,7 @@ def _process_one_spec(
     )
     _write_completions(
         generations_dir, eval_run_id,
+        dataset_name=dataset_name,
         metas=metas, responses=responses, predicted=predicted, correct=correct,
     )
 
@@ -251,7 +285,7 @@ def run_worker(
         return
 
     _configure_vllm_env(base_model)
-    llm_cls, sampling_params_cls, lora_request_cls = _load_vllm()
+    llm_cls, sampling_params_cls, lora_request_cls, tokens_prompt_cls = _load_vllm()
     llm = llm_cls(
         model=base_model,
         enable_lora=True,
@@ -259,7 +293,9 @@ def run_worker(
         gpu_memory_utilization=gpu_memory_utilization,
     )
     sampling_params = sampling_params_cls(temperature=0.0, max_tokens=max_new_tokens)
-    prompts, label_jsons = load_wmdp_val_prompts(base_model)
+    prompts_by_dataset: dict[str, tuple[list[list[int]], list[str]]] = {
+        name: load_val_prompts(base_model, name) for name in _HANDLERS
+    }
 
     pool_id = os.environ.get("SLURM_JOB_ID") or f"local-{os.getpid()}"
     lora_int_id = 1
@@ -285,12 +321,11 @@ def run_worker(
             llm=llm,
             sampling_params=sampling_params,
             lora_request_cls=lora_request_cls,
-            prompts=prompts,
-            label_jsons=label_jsons,
+            tokens_prompt_cls=tokens_prompt_cls,
+            prompts_by_dataset=prompts_by_dataset,
             results_file=results_file,
             generations_dir=generations_dir,
             lora_int_id=lora_int_id,
-            max_new_tokens=max_new_tokens,
             keep_adapters=keep_adapters,
         )
         lora_int_id += 1
