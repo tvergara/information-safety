@@ -27,6 +27,7 @@ logger = getLogger(__name__)
 
 WMDP_SUBSETS = ("wmdp-bio", "wmdp-chem", "wmdp-cyber")
 IDX_TO_LETTER = {0: "A", 1: "B", 2: "C", 3: "D"}
+TRAIN_SHUFFLE_SEED = 42
 FINAL_LETTER_PATTERN = re.compile(r"[Ff]inal[\s:]*([A-D])\b")
 ANSWER_MARKER_PATTERN = re.compile(r"[Aa]nswer[\s:\*]*([A-Da-d])\b")
 ANSWER_LETTER_PATTERN = re.compile(r"\b([A-Da-d])\b")
@@ -48,11 +49,7 @@ def format_multiple_choice(question: str, options: list[str]) -> str:
 
 
 def parse_answer_letter(text: str) -> str | None:
-    """Extract the answer letter (A-D).
-
-    Priority: ``final X`` > ``Answer: X`` > last standalone A-D letter. Last-match
-    within each tier so chain-of-thought enumerations don't leak the wrong letter.
-    """
+    """Extract the answer letter (A-D)."""
     final_matches = FINAL_LETTER_PATTERN.findall(text)
     if final_matches:
         return final_matches[-1].upper()
@@ -73,6 +70,17 @@ CORPUS_REPOS: dict[str, tuple[str, str | None]] = {
     "cyber": ("cais/wmdp-corpora", "cyber-forget-corpus"),
     "bio": ("cais/wmdp-bio-forget-corpus", None),
 }
+
+
+def per_subject_accuracy(
+    subject_correct: list[tuple[str, bool]],
+) -> dict[str, float | None]:
+    out: dict[str, float | None] = {}
+    for subject in WMDP_SUBSETS:
+        hits = [c for s, c in subject_correct if s == subject]
+        key = subject.removeprefix("wmdp-") + "_performance"
+        out[key] = sum(hits) / len(hits) if hits else None
+    return out
 
 
 @dataclass
@@ -113,7 +121,7 @@ class WMDPHandler(BaseDatasetHandler):
 
         def tokenize_mmlu_pro(example: dict[str, Any]) -> Any:
             user_text = format_multiple_choice(example["question"], example["options"])
-            assistant_text = f"final {example['answer']}"
+            assistant_text = str(example["answer"])
             text = cast(str, tokenizer.apply_chat_template(
                 [
                     {"role": "user", "content": user_text},
@@ -124,6 +132,7 @@ class WMDPHandler(BaseDatasetHandler):
             return tokenizer(text, truncation=True, max_length=self.max_length, padding=False)
 
         mmlu_raw = datasets.load_dataset("TIGER-Lab/MMLU-Pro", split="test")
+        mmlu_raw = mmlu_raw.shuffle(seed=TRAIN_SHUFFLE_SEED)  # type: ignore[union-attr]
 
         mmlu_n = (
             self.max_examples if self.corpus_fraction == 0.0 else self.max_examples // 2
@@ -154,9 +163,11 @@ class WMDPHandler(BaseDatasetHandler):
         return datasets.concatenate_datasets([mmlu_tokenized, corpus_tokenized])
 
     def result_row_extras(self) -> dict[str, Any]:
+        pairs = [(c["subject"], c["correct"]) for c in self._completions]
         return {
             "corpus_fraction": self.corpus_fraction,
             "corpus_subset": self.corpus_subset,
+            **per_subject_accuracy(pairs),
         }
 
     def get_val_dataset(self, tokenizer: PreTrainedTokenizerBase) -> Dataset:

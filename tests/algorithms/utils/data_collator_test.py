@@ -22,16 +22,14 @@ class TestDataCollatorForAnswerOnlyLM:
         assert labels[2] == -100
         assert labels[3] == 30
 
-    def test_masks_last_token(self) -> None:
-        """The last real token (EOS/EOD) should be masked with -100."""
+    def test_last_real_token_is_loss_targeted(self) -> None:
         collator = self._make_collator(answer_token_ids=[99])
         features = [{"input_ids": [10, 20, 99, 30, 40], "attention_mask": [1, 1, 1, 1, 1]}]
         batch = collator(features)
         labels = batch["labels"][0].tolist()
-        assert labels[4] == -100, "Last token should be masked"
+        assert labels[4] == 40, "Last real token must be loss-targeted (was -100)"
 
-    def test_masks_last_token_with_padding(self) -> None:
-        """Last real token masked even when sequences have different lengths."""
+    def test_last_real_token_loss_targeted_with_padding(self) -> None:
         collator = self._make_collator(answer_token_ids=[99])
         features = [
             {"input_ids": [10, 99, 30, 40], "attention_mask": [1, 1, 1, 1]},
@@ -40,19 +38,18 @@ class TestDataCollatorForAnswerOnlyLM:
         batch = collator(features)
         labels_short = batch["labels"][0].tolist()
         labels_long = batch["labels"][1].tolist()
-        assert labels_short[3] == -100, "Last real token of short seq should be masked"
-        assert labels_short[4] == -100, "Padding should be masked"
-        assert labels_long[4] == -100, "Last real token of long seq should be masked"
+        assert labels_short[3] == 40, "Last real token of short seq must be loss-targeted"
+        assert labels_short[4] == -100, "Padding must be masked"
+        assert labels_long[4] == 50, "Last real token of long seq must be loss-targeted"
 
-    def test_answer_tokens_in_middle_are_unmasked(self) -> None:
-        """Tokens between answer marker and last token should be unmasked."""
+    def test_all_answer_tokens_including_last_are_unmasked(self) -> None:
         collator = self._make_collator(answer_token_ids=[99])
         features = [{"input_ids": [10, 99, 30, 40, 50], "attention_mask": [1, 1, 1, 1, 1]}]
         batch = collator(features)
         labels = batch["labels"][0].tolist()
         assert labels[2] == 30
         assert labels[3] == 40
-        assert labels[4] == -100
+        assert labels[4] == 50, "Last token (EOS) must be loss-targeted"
 
     def test_no_answer_marker_all_masked(self) -> None:
         """If answer marker is not found, all labels should be -100."""
